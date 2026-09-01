@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/bottom_sheet_root"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingTop="2dp"
+    android:paddingBottom="16dp"
+    android:paddingStart="5dp"
+    android:paddingEnd="5dp"
+    android:background="@drawable/bg_bottom_sheet_rounded">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <com.google.android.material.tabs.TabLayout
+            android:id="@+id/layer_manage_tab_layout"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:tabMode="fixed"
+            app:tabGravity="start"
+            app:tabIndicatorColor="@color/teal_200"
+            app:tabIndicatorHeight="0dp"
+            app:tabIndicator="@null"
+            app:tabSelectedTextColor="@color/teal_200"
+            app:tabTextColor="#757575"
+            app:tabTextAppearance="@style/LayerManageTabText" />
+
+        <!-- spacer keeps tabs on the left while btn_import stays at the right -->
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <ImageView
+            android:id="@+id/layer_manage_iv_import"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:src="@drawable/baseline_playlist_add_24"/>
+
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#E0E0E0"
+        android:layout_marginTop="2dp"
+        android:layout_marginBottom="2dp" />
+
+    <!-- Content area that switches based on selected tab -->
+    <FrameLayout
+        android:id="@+id/content_container"
+        android:layout_width="match_parent"
+        android:layout_height="300dp">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_layer_list"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scrollbars="vertical" />
+
+    </FrameLayout>
+
+</LinearLayout>
+

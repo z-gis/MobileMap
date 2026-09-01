@@ -1,0 +1,480 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="12dp">
+
+    <!-- 顶部：要素名称 + 关闭 -->
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <TextView
+            android:id="@+id/feature_detail_tv_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentStart="true"
+            android:layout_centerVertical="true"
+            android:layout_toStartOf="@id/feature_detail_tv_close"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="#212121"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            tools:ignore="HardcodedText"
+            xmlns:tools="http://schemas.android.com/tools" />
+
+        <TextView
+            android:id="@+id/feature_detail_tv_close"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_alignParentEnd="true"
+            android:layout_centerVertical="true"
+            android:gravity="center"
+            android:text="✕"
+            android:textColor="#757575"
+            android:textSize="18sp"
+            tools:ignore="HardcodedText"
+            xmlns:tools="http://schemas.android.com/tools" />
+    </RelativeLayout>
+
+    <!-- 要素基本信息卡片 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_feature_group"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <TextView
+            android:id="@+id/feature_detail_tv_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#212121"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/feature_detail_tv_layer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="#616161"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/feature_detail_tv_id"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="#616161"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <!-- 标签页：样式 / 属性 -->
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/feature_detail_tab_layout"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:layout_marginTop="8dp"
+        app:tabGravity="fill"
+        app:tabIndicatorColor="#2196F3"
+        app:tabMode="fixed"
+        app:tabSelectedTextColor="#2196F3"
+        app:tabTextColor="#757575" />
+
+    <!-- 样式页 -->
+    <ScrollView
+        android:id="@+id/feature_detail_page_style"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- 面样式 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="面样式"
+                android:textColor="#212121"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                tools:ignore="HardcodedText"
+                xmlns:tools="http://schemas.android.com/tools" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:background="@drawable/bg_feature_group"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <!-- 填充/描边左右布局，色块所见即所得 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="填充颜色："
+                            android:textColor="#424242"
+                            android:textSize="14sp"
+                            tools:ignore="HardcodedText"
+                            xmlns:tools="http://schemas.android.com/tools" />
+
+                        <ImageView
+                            android:id="@+id/feature_detail_iv_fill_color"
+                            android:layout_width="0dp"
+                            android:layout_height="24dp"
+                            android:layout_marginLeft="5dp"
+                            android:layout_marginRight="10dp"
+                            android:layout_weight="1"
+                            android:background="#4A90D9"
+                            android:contentDescription="填充颜色"
+                            android:src="@drawable/bg_swatch_border"
+                            tools:ignore="HardcodedText"
+                            xmlns:tools="http://schemas.android.com/tools" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="描边颜色："
+                            android:textColor="#424242"
+                            android:textSize="14sp"
+                            tools:ignore="HardcodedText"
+                            xmlns:tools="http://schemas.android.com/tools" />
+
+                        <ImageView
+                            android:id="@+id/feature_detail_iv_outline_color"
+                            android:layout_width="0dp"
+                            android:layout_height="24dp"
+                            android:layout_weight="1"
+                            android:layout_marginLeft="5dp"
+                            android:layout_marginRight="10dp"
+                            android:background="#1A4FA0"
+                            android:contentDescription="描边颜色"
+                            android:src="@drawable/bg_swatch_border"
+                            tools:ignore="HardcodedText"
+                            xmlns:tools="http://schemas.android.com/tools" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="线宽："
+                        android:textColor="#424242"
+                        android:textSize="14sp"
+                        tools:ignore="HardcodedText"
+                        xmlns:tools="http://schemas.android.com/tools" />
+
+                    <TextView
+                        android:id="@+id/feature_detail_btn_width_minus"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:text="−"
+                        android:gravity="center"
+                        android:textSize="18sp"
+                        tools:ignore="HardcodedText"
+                        xmlns:tools="http://schemas.android.com/tools" />
+
+                    <TextView
+                        android:id="@+id/feature_detail_tv_width_value"
+                        android:layout_width="24dp"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:textColor="#212121"
+                        android:textSize="16sp" />
+
+                    <TextView
+                        android:id="@+id/feature_detail_btn_width_plus"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:text="+"
+                        android:gravity="center"
+                        android:textSize="18sp"
+                        tools:ignore="HardcodedText"
+                        xmlns:tools="http://schemas.android.com/tools" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- 字体设置（标注）：图层样式模式下 kml 等不开放标注设置时整区隐藏 -->
+            <TextView
+                android:id="@+id/feature_detail_tv_label_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="标注设置"
+                android:textColor="#212121"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                tools:ignore="HardcodedText"
+                xmlns:tools="http://schemas.android.com/tools" />
+
+            <LinearLayout
+                android:id="@+id/feature_detail_ll_label_group"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:background="@drawable/bg_feature_group"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="标注字段："
+                        android:textColor="#424242"
+                        android:textSize="14sp"
+                        tools:ignore="HardcodedText"
+                        xmlns:tools="http://schemas.android.com/tools" />
+
+                    <Spinner
+                        android:id="@+id/feature_detail_sp_label_field"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="字体颜色："
+                        android:textColor="#424242"
+                        android:textSize="14sp"
+                        tools:ignore="HardcodedText"
+                        xmlns:tools="http://schemas.android.com/tools" />
+
+                    <ImageView
+                        android:id="@+id/feature_detail_iv_label_color"
+                        android:layout_width="56dp"
+                        android:layout_height="28dp"
+                        android:background="#212121"
+                        android:contentDescription="字体颜色"
+                        android:src="@drawable/bg_swatch_border"
+                        tools:ignore="HardcodedText"
+                        xmlns:tools="http://schemas.android.com/tools" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="字体轮廓："
+                        android:textColor="#424242"
+                        android:textSize="14sp"
+                        tools:ignore="HardcodedText"
+                        xmlns:tools="http://schemas.android.com/tools" />
+
+                    <CheckBox
+                        android:id="@+id/feature_detail_cb_label_outline"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+
+                    <ImageView
+                        android:id="@+id/feature_detail_iv_label_outline_color"
+                        android:layout_width="56dp"
+                        android:layout_height="28dp"
+                        android:layout_marginStart="8dp"
+                        android:background="#000000"
+                        android:contentDescription="字体轮廓颜色"
+                        android:src="@drawable/bg_swatch_border"
+                        tools:ignore="HardcodedText"
+                        xmlns:tools="http://schemas.android.com/tools" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="字体大小："
+                        android:textColor="#424242"
+                        android:textSize="14sp"
+                        tools:ignore="HardcodedText"
+                        xmlns:tools="http://schemas.android.com/tools" />
+
+                    <TextView
+                        android:id="@+id/feature_detail_btn_size_minus"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:text="−"
+                        android:gravity="center"
+                        android:textSize="18sp"
+                        tools:ignore="HardcodedText"
+                        xmlns:tools="http://schemas.android.com/tools" />
+
+                    <TextView
+                        android:id="@+id/feature_detail_tv_size_value"
+                        android:layout_width="24dp"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:textColor="#212121"
+                        android:textSize="16sp" />
+
+                    <TextView
+                        android:id="@+id/feature_detail_btn_size_plus"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:text="+"
+                        android:gravity="center"
+                        android:textSize="18sp"
+                        tools:ignore="HardcodedText"
+                        xmlns:tools="http://schemas.android.com/tools" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- 恢复默认 / 保存 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="end"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/feature_detail_btn_reset"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:textColor="@color/black"
+                    android:text="恢复默认"
+                    tools:ignore="HardcodedText"
+                    xmlns:tools="http://schemas.android.com/tools" />
+
+                <Button
+                    android:id="@+id/feature_detail_btn_save"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:textColor="@color/black"
+                    android:layout_marginStart="12dp"
+                    android:text="保存"
+                    tools:ignore="HardcodedText"
+                    xmlns:tools="http://schemas.android.com/tools" />
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- 属性页：固定高度内滚——手势位于列表内滚动属性列表，列表外拖拽回缩弹层 -->
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/feature_detail_page_attrs"
+        android:layout_width="match_parent"
+        android:layout_height="400dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/feature_detail_tv_attr_hint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="center"
+                android:textColor="#9E9E9E"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/feature_detail_ll_attr_header"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_feature_group"
+                android:orientation="horizontal"
+                android:padding="10dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="属性名"
+                    android:textColor="#212121"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    tools:ignore="HardcodedText"
+                    xmlns:tools="http://schemas.android.com/tools" />
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="2"
+                    android:text="属性值"
+                    android:textColor="#212121"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    tools:ignore="HardcodedText"
+                    xmlns:tools="http://schemas.android.com/tools" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/feature_detail_ll_attr_rows"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+</LinearLayout>

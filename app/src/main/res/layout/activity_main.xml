@@ -1,0 +1,292 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".ui.activity.MainActivity">
+
+    <!--WorldWindow Globe panel-->
+    <FrameLayout
+        android:id="@+id/globe"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentTop="true"
+        />
+
+    <com.zys.mobilemap.control.CrossView
+        android:id="@+id/main_cross"
+        android:layout_width="30px"
+        android:layout_height="30px"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:layout_marginStart="10dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <ImageView
+            android:id="@+id/main_iv_measure"
+            android:layout_width="36.0dip"
+            android:layout_height="36.0dip"
+            android:background="#a0dddddd"
+            android:padding="5.0dp"
+            android:src="@drawable/nav_measure" />
+
+        <Button
+            android:id="@+id/main_iv_measure_undo"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginTop="6dp"
+            android:gravity="center"
+            android:textAlignment="center"
+            android:padding="0dp"
+            android:text="撤销"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/main_iv_measure_center"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginTop="6dp"
+            android:gravity="center"
+            android:textAlignment="center"
+            android:padding="0dp"
+            android:text="中心点"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/main_iv_measure_finish"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginTop="6dp"
+            android:gravity="center"
+            android:textAlignment="center"
+            android:padding="0dp"
+            android:text="结束"
+            android:textSize="12sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- 右上：图层按钮 -->
+    <LinearLayout
+        android:id="@+id/lay_top"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="50dp"
+        android:layout_marginEnd="10dp"
+        android:gravity="center"
+        android:orientation="vertical"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <ImageView
+            android:id="@+id/main_iv_layer_manage"
+            android:layout_width="@dimen/main_icon_size"
+            android:layout_height="@dimen/main_icon_size"
+            android:background="@color/main_icon_bg"
+            android:padding="5.0dp"
+            android:src="@drawable/nav_overlay_manager" />
+
+    </LinearLayout>
+
+    <!--拍照-->
+    <LinearLayout
+        android:id="@+id/linearLayout2"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="10dp"
+        android:gravity="center"
+        android:orientation="vertical"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <ImageView
+            android:id="@+id/main_iv_poto"
+            android:layout_width="@dimen/main_icon_size"
+            android:layout_height="@dimen/main_icon_size"
+            android:background="@color/main_icon_bg"
+            android:padding="5.0dp"
+            android:src="@drawable/nav_quick_pic" />
+    </LinearLayout>
+
+    <!-- 左下：功能按钮 -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:layout_marginBottom="60dp"
+        android:gravity="center"
+        android:orientation="vertical"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
+
+        <ImageView
+            android:id="@+id/main_iv_setting"
+            android:layout_width="36.0dip"
+            android:layout_height="36.0dip"
+            android:background="#a0dddddd"
+            android:padding="5.0dp"
+            android:src="@drawable/nav_settings" />
+
+
+        <ImageView
+            android:id="@+id/main_iv_goto_location"
+            android:layout_width="36.0dip"
+            android:layout_height="36.0dip"
+            android:layout_marginTop="5.0dip"
+            android:padding="5.0dp"
+            android:background="#a0dddddd"
+            android:src="@drawable/nav_location" />
+
+        <ImageView
+            android:id="@+id/main_iv_trk_start"
+            android:layout_width="36.0dip"
+            android:layout_height="36.0dip"
+            android:layout_marginTop="10.0dip"
+            android:padding="5.0dp"
+            android:background="#a0dddddd"
+            android:src="@drawable/nav_ic_start"
+            android:visibility="gone"/>
+
+        <ImageView
+            android:id="@+id/main_iv_trk_pause"
+            android:layout_width="36.0dip"
+            android:layout_height="36.0dip"
+            android:layout_marginTop="5.0dip"
+            android:padding="5.0dp"
+            android:background="#a0dddddd"
+            android:src="@drawable/nav_ic_pause"
+            android:visibility="gone"/>
+
+
+
+        <ImageView
+            android:id="@+id/main_iv_trk_stop"
+            android:layout_width="36.0dip"
+            android:layout_height="36.0dip"
+            android:layout_marginTop="5.0dip"
+            android:padding="5.0dp"
+            android:background="#a0dddddd"
+            android:src="@drawable/nav_ic_stop"
+            android:visibility="gone"/>
+
+
+        <ImageView
+            android:id="@+id/main_iv_trk"
+            android:layout_width="36.0dip"
+            android:layout_height="36.0dip"
+            android:layout_marginTop="10.0dip"
+            android:padding="5.0dp"
+            android:background="#a0dddddd"
+            android:src="@drawable/nav_routes" />
+
+    </LinearLayout>
+
+    <!-- 右下：缩放面板 -->
+    <LinearLayout
+        android:id="@+id/lay_rb"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="10dp"
+        android:layout_marginBottom="60dp"
+        android:gravity="center"
+        android:orientation="vertical"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <ImageView
+            android:id="@+id/main_iv_isCIA"
+            android:layout_width="@dimen/main_icon_size"
+            android:layout_height="@dimen/main_icon_size"
+            android:background="@color/main_icon_bg"
+            android:layout_marginBottom="32dp"
+            android:contentDescription="@string/main_annotation_toggle"
+            android:src="@drawable/nav_ic_cia_open" />
+
+        <ImageView
+            android:id="@+id/main_iv_zoom_in"
+            android:layout_width="@dimen/main_icon_size"
+            android:layout_height="@dimen/main_icon_size"
+            android:background="@color/main_icon_bg"
+            android:padding="5.0dp"
+            android:src="@drawable/nav_zoom_out" />
+
+        <TextView
+            android:id="@+id/main_tv_level"
+            android:gravity="center"
+            android:textColor="@color/white"
+            android:textSize="8dip"
+            android:layout_width="36dp"
+            android:layout_height="10dp"/>
+
+        <ImageView
+            android:id="@+id/main_iv_zoom_out"
+            android:layout_width="@dimen/main_icon_size"
+            android:layout_height="@dimen/main_icon_size"
+            android:background="@color/main_icon_bg"
+            android:padding="5.0dp"
+            android:src="@drawable/nav_zoom_in" />
+    </LinearLayout>
+
+
+    <!-- 状态栏 -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="24dp"
+        android:background="#80111111"
+        android:orientation="horizontal"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
+
+
+        <TextView
+            android:id="@+id/main_tv_location"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:gravity="center_vertical"
+            android:paddingStart="8.0dip"
+            android:singleLine="true"
+            android:text="正在定位......"
+            android:textColor="#ffffffff"
+            android:textSize="12.0sp"/>
+
+        <TextView
+            android:id="@+id/main_tv_scale"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:gravity="center_vertical"
+            android:paddingLeft="8.0dip"
+            android:singleLine="true"
+            android:text=""
+            android:textColor="#ffffffff"
+            android:textSize="12.0sp"/>
+
+        <TextView
+            android:id="@+id/main_tv_center"
+            android:layout_width="fill_parent"
+            android:layout_height="match_parent"
+            android:gravity="end|center_vertical"
+            android:paddingEnd="8.0dip"
+            android:singleLine="true"
+            android:text=""
+            android:textColor="#ffffffff"
+            android:textSize="12.0sp"/>
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

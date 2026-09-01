@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="8dp"
+    android:paddingEnd="8dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
+
+    <!-- 左侧：设置按键（名称/网址/类型/Token） -->
+    <ImageView
+        android:id="@+id/item_source_iv_settings"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:padding="2dp"
+        android:src="@drawable/ic_settings"
+        app:tint="#757575"
+        android:contentDescription="@string/layer_icon_desc" />
+
+    <TextView
+        android:id="@+id/item_source_tv_name"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="8dp"
+        android:textSize="14sp"
+        android:textColor="@color/black"
+        android:singleLine="true"
+        android:ellipsize="end" />
+
+    <!-- 地图源唯一性单选 -->
+    <RadioButton
+        android:id="@+id/item_source_rb_select"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content" />
+</LinearLayout>
