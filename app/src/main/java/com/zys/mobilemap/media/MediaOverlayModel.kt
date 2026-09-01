@@ -65,7 +65,7 @@ class MediaOverlayModel(private val context: Context, private val worldWindow: W
     /**
      * 按渲染对象查询对应点位记录（点击拾取后使用）。
      */
-    fun findPlacemark(renderable: earth.worldwind.render.Renderable?): MediaPlacemark? {`
+    fun findPlacemark(renderable: earth.worldwind.render.Renderable?): MediaPlacemark? {
         val id = renderable?.getUserProperty(MEDIA_PLACEMARK_ID_KEY) as? Long ?: return null
         return placemarks.firstOrNull { it.id == id }
             ?: store.loadPlacemarks().firstOrNull { it.id == id }

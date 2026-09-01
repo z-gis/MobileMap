@@ -51,6 +51,16 @@ android {
     ndkVersion = "28.2.13676358"
 }
 
+val apkVersionName = android.defaultConfig.versionName ?: "0.0"
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        val suffix = if (variant.buildType == "release") "" else "-debug"
+        variant.outputs.forEach { output ->
+            output.outputFileName.set("MobileMap-v${apkVersionName}${suffix}.apk".lowercase())
+        }
+    }
+}
+
 dependencies {
     implementation(libs.androidx.activity.ktx)
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5") //添加implementation("earth.worldwind:worldwind:2.0.9")后添加
