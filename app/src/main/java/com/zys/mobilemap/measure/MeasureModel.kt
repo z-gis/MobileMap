@@ -75,6 +75,10 @@ class MeasureModel(
     /** 进入测量模式前的非测量控件可见性快照，退出时恢复 */
     private val visibilitySnapshot = LinkedHashMap<View, Int>()
 
+    /** 图标密度缩放系数：高分屏按密度放大像素尺寸，保证可见大小与可点性 */
+    private val iconDensityScale: Double
+        get() = activity.resources.displayMetrics.density.toDouble().coerceAtLeast(1.0)
+
     /**
      * 将图层加入地图并绑定控制按钮（幂等）。
      */
@@ -151,14 +155,15 @@ class MeasureModel(
     // ==================== 已保存测量几何点击（命中判定 + 操作菜单） ====================
 
     /**
-     * 高度换算点击容差：相当于屏幕 24 像素的地面距离（垂直 fov≈45°），
-     * 限制在 [18, 260] 米（同上一版采样换算策略）。
+     * 高度换算点击容差：相当于屏幕 32 像素的地面距离（垂直 fov≈45°），下限 20 米。
+     * 上限放宽至 10000 米（旧 260 米上限导致高空缩小后单点地面跨度远超容差，
+     * 视觉上点在几何上也无法命中，表现为必须放大后才能点击）。
      */
     private fun computeTapToleranceMeters(): Double {
         val altitude = worldWindow.engine.camera.position.altitude
         val screenH = worldWindow.height.coerceAtLeast(1)
-        val meters = altitude * 0.8284 * 24.0 / screenH
-        return meters.coerceIn(18.0, 260.0)
+        val meters = altitude * 0.8284 * 32.0 / screenH
+        return meters.coerceIn(20.0, 10000.0)
     }
 
     private fun isHitRecord(record: MeasurementRecord, lat: Double, lon: Double, threshold: Double): Boolean {
@@ -581,7 +586,8 @@ class MeasureModel(
 
     private fun createPointPlacemark(position: Position, name: String): Placemark {
         val attributes = PlacemarkAttributes.createWithImage(POINT_ICON)
-        attributes.imageScale = 0.9
+        // 拾取/显示尺寸按屏幕密度放大，高分屏真机上原 0.9 倍仅约 32 像素过小
+        attributes.imageScale = 0.9 * iconDensityScale
         val placemark = Placemark(position, attributes, name)
         placemark.altitudeMode = AltitudeMode.CLAMP_TO_GROUND
         return placemark

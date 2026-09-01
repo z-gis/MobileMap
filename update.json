@@ -1,7 +1,7 @@
 ﻿{
-  "versionCode": 26081401,
-  "versionName": "0.2.7.0",
-  "apkUrl": "https://gitee.com/z-gis/MobileMap/releases/download/2.7.0/mobilemap-v0.2.7.0.apk",
+  "versionCode": 26090101,
+  "versionName": "0.2.7.1",
+  "apkUrl": "https://gitee.com/z-gis/MobileMap/releases/download/0.2.7.1/mobilemap-v0.2.7.1.apk",
   "changelog": "弃用了自建服务器，将发行版放置在Gitee上",
   "force": false
 }

@@ -32,6 +32,10 @@ class MediaOverlayModel(private val context: Context, private val worldWindow: W
     /** 已渲染的点位记录，供点击后查询附件 */
     private var placemarks: List<MediaPlacemark> = emptyList()
 
+    /** 图标密度缩放系数：高分屏按密度放大像素尺寸，保证可见大小与可点性 */
+    private val iconDensityScale: Double
+        get() = context.resources.displayMetrics.density.toDouble().coerceAtLeast(1.0)
+
     /**
      * 将图层加入地图（幂等）。
      */
@@ -73,7 +77,9 @@ class MediaOverlayModel(private val context: Context, private val worldWindow: W
 
     private fun createPlacemark(record: MediaPlacemark): Placemark {
         val attributes = PlacemarkAttributes.createWithImage(ImageSource.fromResource(R.drawable.ic_media))
-        attributes.imageScale = 0.8
+        // 拾取热区即图标的屏幕像素矩形，按屏幕密度放大像素尺寸：
+        // 高分屏真机上固定 0.8 倍仅约 38×58 像素，手指难以点中（模拟器鼠标定位精准掩盖了该问题）
+        attributes.imageScale = 0.5 * iconDensityScale
         // 标签使用数据库名称（拍照标识管理可重命名），空名称时回退拍照+附件数
         val count = record.attachments.size
         val name = if (record.name.isNotBlank()) record.name
