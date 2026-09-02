@@ -1,7 +1,7 @@
 {
   "versionCode": 26090202,
-  "versionName": "0.2.7.3",
-  "apkUrl": "https://gitee.com/z-gis/MobileMap/releases/download/0.2.7.3/mobilemap-v0.2.7.3.apk",
-  "changelog": "【新增】\n· 矢量点要素支持标识图标切换（针形/圆点/三角/方形/星形/旗标）\n· 面积量算增加“亩”单位换算显示\n【优化】\n· 要素标注文字居中，与几何中心对齐\n· 矢量点要素默认标识更醒目，提升可见性与点击命中\n· 测量详情移除“缩放至”按键（点击时要素已在屏幕内）\n【修复】\n· 修复点测量颜色设置不生效的问题（标识内心色随所选颜色变化）\n· 修复新增测量标识点击不到的问题\n· 修复图层打开失败后仍残留在列表的问题",
+  "versionName": "0.2.7.4",
+  "apkUrl": "https://gitee.com/z-gis/MobileMap/releases/download/0.2.7.4/mobilemap-v0.2.7.4.apk",
+  "changelog": "",
   "force": false
 }
