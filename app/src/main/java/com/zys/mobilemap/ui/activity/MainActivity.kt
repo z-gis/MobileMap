@@ -246,6 +246,7 @@ class MainActivity : BaseMapActivity() {
             labelSize = featureStyle?.labelSize ?: layerStyle?.labelSize
             labelOutline = featureStyle?.labelOutline ?: layerStyle?.labelOutline
             labelOutlineColor = featureStyle?.labelOutlineColor ?: layerStyle?.labelOutlineColor
+            iconKey = featureStyle?.iconKey ?: layerStyle?.iconKey
         }
 
         FeatureDetailDialog(
@@ -254,10 +255,12 @@ class MainActivity : BaseMapActivity() {
             layerName = info.layerName,
             featureId = info.featureId,
             attributes = info.attributes,
+            description = info.description,
             initialStyle = merged.takeIf { !it.isEmpty() },
             styleEditable = styleEditable,
             fallbackFill = renderColorsOf(info.renderable).first,
             fallbackOutline = renderColorsOf(info.renderable).second,
+            isPointFeature = info.renderable is Placemark,
             geometryText = featureGeometryText(info.renderable)
         ) { style ->
             val li = layerInfo ?: return@FeatureDetailDialog

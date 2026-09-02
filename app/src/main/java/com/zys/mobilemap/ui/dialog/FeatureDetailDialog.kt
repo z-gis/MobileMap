@@ -1,9 +1,11 @@
 package com.zys.mobilemap.ui.dialog
 
+import android.annotation.SuppressLint
 import android.app.Dialog
 import android.graphics.Color
 import android.os.Bundle
 import android.view.View
+import android.webkit.WebView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
@@ -17,7 +19,9 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.tabs.TabLayout
 import com.zys.mobilemap.R
 import com.zys.mobilemap.doc.VectorStyle
+import com.zys.mobilemap.vector.FeatureIcons
 import com.google.android.material.R as MaterialR
+import java.util.Locale
 
 /**
  * 要素详情 BottomSheet：点击矢量要素后弹出，样式编辑/属性表双标签页。
@@ -43,11 +47,15 @@ class FeatureDetailDialog(
     /** 要素当前实际渲染色（无文档样式覆盖时色块回显所见即所得） */
     private val fallbackFill: String?,
     private val fallbackOutline: String?,
+    /** 点要素：样式页以标识图标切换代替面样式（填充/描边/线宽），标注设置保留 */
+    private val isPointFeature: Boolean = false,
     private val layerStyleMode: Boolean = false,
     private val labelFieldOptions: List<String>? = null,
     private val labelSectionVisible: Boolean = true,
     /** 要素几何量算信息（面：面积+周长，线：长度），代替原图层行展示；为空时隐藏该行 */
     private val geometryText: String? = null,
+    /** KML/KMZ 要素 <description> HTML：非空时属性页以 WebView 渲染（对齐 2.5.3），否则显示键值属性表 */
+    private val description: String? = null,
     private val onSave: ((VectorStyle) -> Unit)?
 ) : BaseBottomSheetDialog(resource) {
 
@@ -59,6 +67,12 @@ class FeatureDetailDialog(
     private var labelSizePt = LABEL_SIZE_BASE
     private var labelOutlineEnabled = false
     private var labelOutlineColor = DEFAULT_LABEL_OUTLINE
+
+    /** 点要素当前选中的标识图标 key（见 [FeatureIcons]） */
+    private var selectedIconKey = FeatureIcons.DEFAULT_KEY
+
+    /** 图标网格视图（key -> ImageView），供选中态高亮刷新 */
+    private val iconViews = mutableListOf<Pair<String, ImageView>>()
 
     private lateinit var spLabelField: Spinner
 
@@ -167,6 +181,14 @@ class FeatureDetailDialog(
         ivFill.setOnClickListener { pickColor(ivFill, fillColor) { fillColor = it } }
         ivOutline.setOnClickListener { pickColor(ivOutline, outlineColor) { outlineColor = it } }
 
+        // 点要素：隐藏面样式（填充/描边/线宽），改为标识图标切换（标注设置区保留）
+        if (isPointFeature) {
+            sheet.findViewById<View>(R.id.feature_detail_tv_fill_title).visibility = View.GONE
+            sheet.findViewById<View>(R.id.feature_detail_ll_fill_group).visibility = View.GONE
+            selectedIconKey = initialStyle?.iconKey ?: FeatureIcons.DEFAULT_KEY
+            setupIconSection(sheet)
+        }
+
         // 标注设置区：不开放时整区隐藏（kml 标注随源文件，无文档覆盖意义）
         if (!labelSectionVisible) {
             sheet.findViewById<TextView>(R.id.feature_detail_tv_label_title).visibility = View.GONE
@@ -237,12 +259,55 @@ class FeatureDetailDialog(
         sheet.findViewById<CheckBox>(R.id.feature_detail_cb_label_outline).isChecked = labelOutlineEnabled
     }
 
+    /** 标识图标区（点要素）：程序填充内置图标网格，单选高亮，选择写入 [selectedIconKey] */
+    private fun setupIconSection(sheet: View) {
+        sheet.findViewById<View>(R.id.feature_detail_tv_icon_title).visibility = View.VISIBLE
+        val group = sheet.findViewById<LinearLayout>(R.id.feature_detail_ll_icon_group)
+        group.visibility = View.VISIBLE
+        group.removeAllViews()
+        iconViews.clear()
+        val density = resources.displayMetrics.density
+        val cell = (44 * density).toInt()
+        val margin = (4 * density).toInt()
+        val pad = (8 * density).toInt()
+        for ((key, res) in FeatureIcons.ICONS) {
+            val iv = ImageView(requireContext()).apply {
+                layoutParams = LinearLayout.LayoutParams(cell, cell).apply {
+                    setMargins(margin, margin, margin, margin)
+                }
+                setPadding(pad, pad, pad, pad)
+                setImageResource(res)
+                contentDescription = key
+                setOnClickListener {
+                    selectedIconKey = key
+                    refreshIconSelection()
+                }
+            }
+            iconViews.add(key to iv)
+            group.addView(iv)
+        }
+        refreshIconSelection()
+    }
+
+    /** 刷新图标网格选中态：选中项加高亮边框背景，其余透明 */
+    private fun refreshIconSelection() {
+        for ((key, iv) in iconViews) {
+            if (key == selectedIconKey) iv.setBackgroundResource(R.drawable.bg_icon_selected)
+            else iv.setBackgroundColor(Color.TRANSPARENT)
+        }
+    }
+
     /** 汇总当前控件状态为样式（标注区隐藏时不写标注字段，避免无效覆盖） */
     private fun buildStyle(): VectorStyle {
         val s = VectorStyle()
-        s.fillColor = fillColor
-        s.outlineColor = outlineColor
-        s.outlineWidth = outlineWidth.toFloat()
+        if (isPointFeature) {
+            // 点要素：写标识图标 key（面样式控件已隐藏，不写填充/描边）
+            s.iconKey = selectedIconKey
+        } else {
+            s.fillColor = fillColor
+            s.outlineColor = outlineColor
+            s.outlineWidth = outlineWidth.toFloat()
+        }
         if (labelSectionVisible) {
             val field = spLabelField.selectedItem?.toString()
             s.labelField = field?.takeIf { it != LABEL_FIELD_NONE }
@@ -254,11 +319,22 @@ class FeatureDetailDialog(
         return s
     }
 
-    /** 属性页：属性名/属性值两列表格；无属性时显示提示 */
+    /**
+     * 属性页：KML/KMZ 有 <description> 时用 WebView 渲染 HTML（对齐 2.5.3），
+     * 否则显示属性名/属性值两列表格；无属性时显示提示。
+     */
     private fun fillAttributePage(sheet: View) {
         val hint = sheet.findViewById<TextView>(R.id.feature_detail_tv_attr_hint)
         val header = sheet.findViewById<View>(R.id.feature_detail_ll_attr_header)
         val container = sheet.findViewById<LinearLayout>(R.id.feature_detail_ll_attr_rows)
+
+        // KML/KMZ 描述优先：WebView 渲染 HTML（隐藏键值表头）
+        if (!description.isNullOrBlank()) {
+            hint.visibility = View.GONE
+            header.visibility = View.GONE
+            addDescriptionWebView(container, description)
+            return
+        }
 
         if (attributes.isNullOrEmpty()) {
             hint.text = "该要素暂无属性表"
@@ -294,6 +370,43 @@ class FeatureDetailDialog(
                 setBackgroundColor(Color.parseColor("#E5E5E5"))
             })
         }
+    }
+
+    /**
+     * WebView 渲染 <description> HTML：禁用 JS/DOM 存储/缩放控件，宽视口 + 概览模式，
+     * 文字放大 300%（对齐 2.5.3 的 KML/KMZ 描述展示）；固定高度内滚，触摸时禁止父容器拦截以滚动 WebView。
+     */
+    @SuppressLint("ClickableViewAccessibility", "SetJavaScriptEnabled")
+    private fun addDescriptionWebView(container: LinearLayout, html: String) {
+        val density = resources.displayMetrics.density
+        val webView = WebView(requireContext()).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, (360 * density).toInt())
+            settings.javaScriptEnabled = false
+            settings.domStorageEnabled = false
+            settings.builtInZoomControls = false
+            settings.displayZoomControls = false
+            settings.loadWithOverviewMode = true
+            settings.useWideViewPort = true
+            settings.textZoom = 300
+            setBackgroundColor(Color.TRANSPARENT)
+            setOnTouchListener { v, _ ->
+                v.parent?.requestDisallowInterceptTouchEvent(true)
+                false
+            }
+            loadDataWithBaseURL(null, normalizeHtml(html), "text/html", "UTF-8", null)
+        }
+        container.addView(webView)
+    }
+
+    /** 规范化 HTML：已含标签原样返回，纯文本包成 <html><body>…</body></html>（对齐 2.5.3） */
+    private fun normalizeHtml(html: String): String {
+        val trimmed = html.trim()
+        if (trimmed.isEmpty()) return "<html><body></body></html>"
+        val lower = trimmed.lowercase(Locale.getDefault())
+        val hasTag = lower.startsWith("<html") ||
+                listOf("<body", "<table", "<div", "<p", "<br", "<span").any { lower.contains(it) }
+        return if (hasTag) trimmed else "<html><body>$trimmed</body></html>"
     }
 
     /** 色块同步当前颜色 */

@@ -24,7 +24,9 @@ class PickedFeatureInfo(
     val featureId: Long,
     val name: String?,
     val renderable: Renderable,
-    val attributes: Map<String, String>?
+    val attributes: Map<String, String>?,
+    /** KML/KMZ 要素 <description> HTML（非空时属性页以 WebView 渲染，对齐 2.5.3） */
+    val description: String? = null
 )
 
 /**
@@ -102,7 +104,8 @@ class VectorPickModel(
             renderable = renderable,
             attributes = (renderable.getUserProperty(LocalVectorLoader.FEATURE_ATTRS_KEY) as? Map<*, *>)
                 ?.mapValues { it.value?.toString() ?: "" }
-                ?.mapKeys { it.key.toString() }
+                ?.mapKeys { it.key.toString() },
+            description = renderable.getUserProperty(LocalVectorLoader.FEATURE_DESC_KEY) as? String
         ))
     }
 

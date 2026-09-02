@@ -73,8 +73,9 @@ object GeoCalc {
         if (meters < 1000.0) String.format(java.util.Locale.getDefault(), "%.1f m", meters)
         else String.format(java.util.Locale.getDefault(), "%.3f km", meters / 1000.0)
 
-    /** 面积格式化：<1km² 显示平方米，否则显示平方千米。 */
-    fun formatArea(squareMeters: Double): String =
-        if (squareMeters < 1_000_000.0) String.format(java.util.Locale.getDefault(), "%.1f m²", squareMeters)
-        else String.format(java.util.Locale.getDefault(), "%.3f km²", squareMeters / 1_000_000.0)
+    /** 面积格式化：平方米 +（亩），亩 = 平方米 × 0.0015，均保留 1 位小数。 */
+    fun formatArea(squareMeters: Double): String {
+        val mu = squareMeters * 0.0015
+        return String.format(java.util.Locale.getDefault(), "%.1f m²（%.1f亩）", squareMeters, mu)
+    }
 }

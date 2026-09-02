@@ -38,6 +38,9 @@ class VectorStyle {
     /** 标注轮廓颜色 */
     var labelOutlineColor: String? = null
 
+    /** 点要素标识图标 key（见 [com.zys.mobilemap.vector.FeatureIcons]），缺省 null = 默认图标 */
+    var iconKey: String? = null
+
     /** 单要素样式覆盖：键 = 要素标识（shp 记录号 / GDAL FID），缺省字段继承整层样式 */
     val featureStyles = mutableMapOf<Long, VectorStyle>()
 
@@ -46,6 +49,7 @@ class VectorStyle {
             outlineColor == null && outlineWidth == null &&
             labelField == null && labelColor == null && labelSize == null &&
             labelOutline == null && labelOutlineColor == null &&
+            iconKey == null &&
             featureStyles.isEmpty()
 
     fun toJson(): JSONObject {
@@ -59,6 +63,7 @@ class VectorStyle {
         labelSize?.let { o.put("labelSize", it.toDouble()) }
         labelOutline?.let { o.put("labelOutline", it) }
         labelOutlineColor?.let { o.put("labelOutlineColor", it) }
+        iconKey?.let { o.put("iconKey", it) }
         if (featureStyles.isNotEmpty()) {
             val fs = JSONObject()
             for ((id, s) in featureStyles) {
@@ -82,6 +87,7 @@ class VectorStyle {
             if (o.has("labelSize")) s.labelSize = o.optDouble("labelSize").toFloat()
             if (o.has("labelOutline")) s.labelOutline = o.getBoolean("labelOutline")
             if (o.has("labelOutlineColor") && !o.isNull("labelOutlineColor")) s.labelOutlineColor = o.getString("labelOutlineColor")
+            if (o.has("iconKey") && !o.isNull("iconKey")) s.iconKey = o.getString("iconKey")
             val fs = o.optJSONObject("featureStyles")
             if (fs != null) {
                 val keys = fs.keys()

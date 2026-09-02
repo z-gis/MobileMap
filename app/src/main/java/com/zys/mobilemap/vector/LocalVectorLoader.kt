@@ -12,10 +12,12 @@ import earth.worldwind.formats.shapefile.ShapefileLayerFactory
 import earth.worldwind.formats.shapefile.ShapefileRecord
 import earth.worldwind.formats.shapefile.ShapefileShapeConfiguration
 import earth.worldwind.geom.AltitudeMode
+import earth.worldwind.geom.Offset
 import earth.worldwind.geom.Position
 import earth.worldwind.layer.Layer
 import earth.worldwind.layer.RenderableLayer
 import earth.worldwind.render.Color
+import earth.worldwind.render.image.ImageSource
 import earth.worldwind.shape.AbstractShape
 import earth.worldwind.shape.Label
 import earth.worldwind.shape.Path
@@ -25,8 +27,12 @@ import earth.worldwind.shape.Polygon
 import earth.worldwind.shape.ShapeAttributes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.w3c.dom.Element
+import org.w3c.dom.Node
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.util.Locale
+import javax.xml.parsers.DocumentBuilderFactory
 
 /**
  * 本地矢量数据加载：按格式分发，产出可加入 WorldWindow 的图层列表。
@@ -53,6 +59,9 @@ object LocalVectorLoader {
 
     /** 渲染对象 userProperty 键：要素属性表（字段名 -> 值），供属性表显示 */
     const val FEATURE_ATTRS_KEY = "vectorFeatureAttrs"
+
+    /** 渲染对象 userProperty 键：KML/KMZ 要素 <description> HTML，供属性页 WebView 渲染（对齐 2.5.3） */
+    const val FEATURE_DESC_KEY = "vectorFeatureDesc"
 
     /** 多边形默认样式：半透明填充 + 白描边 */
     private val polygonAttributes = ShapeAttributes().apply {
@@ -154,6 +163,9 @@ object LocalVectorLoader {
             KmlLayerFactory.Options(density = density, renderLabelsForShapes = true)
         )
         if (layers.isEmpty()) throw IllegalArgumentException("KML 无可渲染内容: ${file.name}")
+        // WorldWind 原生 KML 转换器只保留 name、丢弃 <description>，此处自建轻量 DOM 解析
+        // 按 Placemark name 补齐 description，供点击要素后属性页以 WebView 渲染 HTML（对齐 2.5.3）
+        val descriptions = withContext(Dispatchers.Default) { extractKmlDescriptions(text) }
         for (layer in layers) {
             layer.isPickEnabled = true
             layer.putUserProperty(VECTOR_LAYER_KEY, true)
@@ -173,6 +185,11 @@ object LocalVectorLoader {
                         imageScale = r.attributes.imageScale * 1.4
                     }
                 }
+                // KML 形状标注（renderLabelsForShapes）默认底边中点锚定，改为文字中心对齐几何中心
+                if (r is Label) r.attributes.textOffset = Offset.center()
+                // 按 displayName（= KML Placemark name）匹配附加 <description>
+                val dn = r.displayName
+                if (!dn.isNullOrEmpty()) descriptions[dn]?.let { r.putUserProperty(FEATURE_DESC_KEY, it) }
             }
         }
         return layers
@@ -217,9 +234,12 @@ object LocalVectorLoader {
                     renderable.putUserProperty(FEATURE_ATTRS_KEY,
                         LinkedHashMap(record.attributes.mapValues { it.value?.toString() ?: "" }))
                 }
-                if (style != null) {
-                    // 单要素样式优先，缺省继承整层样式；仅线/面应用颜色样式（点保持默认）
-                    val s = style.featureStyles[id] ?: style
+                // 单要素样式优先，缺省继承整层样式（style 为 null 时 s 为 null，点要素仍应用默认图标）
+                val s = style?.let { it.featureStyles[id] ?: it }
+                // 点要素：应用标识图标（缺省默认针形），改善原 1px 白方块不可见/难点
+                if (renderable is Placemark) applyPointIcon(renderable, s?.iconKey)
+                if (s != null) {
+                    // 仅线/面应用颜色样式（点已由图标承担）
                     if (renderable is AbstractShape) applyShapeStyle(renderable, s)
                     // 标注：按标注字段取 DBF 属性，置于要素质心（线/面）
                     val text = labelTextOf(s.labelField) { record.attributes[it]?.toString() }
@@ -252,12 +272,16 @@ object LocalVectorLoader {
         for (f in features) {
             // 单要素样式优先，缺省继承整层样式
             val s = style?.let { it.featureStyles[f.fid] ?: it }
+            // KML/KMZ 经 GDAL(LIBKML) 时 <description> 常作为名为 description 的字段返回，
+            // 单独取出供属性页 WebView 渲染，其余字段仍作键值属性表
+            val descKey = f.fields.keys.firstOrNull { it.equals("description", ignoreCase = true) }
+            val description = descKey?.let { f.fields[it]?.takeIf { v -> v.isNotBlank() } }
+            val restFields = if (descKey != null) f.fields - descKey else f.fields
             // 属性表随行存储（GDAL 字段），点击后直接读取
-            val attrs = f.fields.takeIf { it.isNotEmpty() }
+            val attrs = restFields.takeIf { it.isNotEmpty() }
             when (f.geom) {
                 "POINT" -> layer.addRenderable(
                     Placemark(Position.fromDegrees(f.y, f.x, 0.0), PlacemarkAttributes()).apply {
-                        highlightAttributes = highlightPlacemarkAttributes
                         if (s != null) {
                             // 点标注：指定标注字段时以属性值作为标注文本，颜色/缩放随样式
                             labelTextOf(s.labelField) { f.fields[it] }?.let { label = it }
@@ -267,6 +291,10 @@ object LocalVectorLoader {
                             s.labelOutlineColor?.let { attributes.labelAttributes.outlineColor = parseColor(it) }
                         }
                         if (attrs != null) putUserProperty(FEATURE_ATTRS_KEY, attrs)
+                        if (description != null) putUserProperty(FEATURE_DESC_KEY, description)
+                        // 点要素应用标识图标（缺省默认针形）并据当前属性生成放大高亮：
+                        // 置于末尾使高亮拷贝继承上面设置的标注样式；改善原 1px 白方块不可见/难点
+                        applyPointIcon(this, s?.iconKey)
                     }.withFeatureId(f.fid)
                 )
                 "LINE" -> f.parts?.forEach { part ->
@@ -279,6 +307,7 @@ object LocalVectorLoader {
                         highlightAttributes = highlightLineAttributes
                         if (s != null) applyShapeStyle(this, s)
                         if (attrs != null) putUserProperty(FEATURE_ATTRS_KEY, attrs)
+                        if (description != null) putUserProperty(FEATURE_DESC_KEY, description)
                     }.withFeatureId(f.fid))
                 }
                 "POLYGON" -> {
@@ -292,6 +321,7 @@ object LocalVectorLoader {
                             highlightAttributes = highlightPolygonAttributes
                             if (s != null) applyShapeStyle(this, s)
                             if (attrs != null) putUserProperty(FEATURE_ATTRS_KEY, attrs)
+                            if (description != null) putUserProperty(FEATURE_DESC_KEY, description)
                         }
                         f.holes?.forEach { hole -> polygon.addBoundary(flattenToPositions(hole)) }
                         layer.addRenderable(polygon.withFeatureId(f.fid))
@@ -333,16 +363,29 @@ object LocalVectorLoader {
         shape.attributes = a
     }
 
+    /**
+     * 点要素应用标识图标：按 iconKey 取内置矢量图标（缺省默认针形），选中态用同图标放大 1.4 倍。
+     * WorldWind 支持矢量 drawable（ImageDecoder 先 BitmapFactory 解码，矢量 XML 返回 null 后
+     * 回退 AppCompatResources.getDrawable + Canvas 渲染位图）。改善原 imageSource=null 时
+     * 仅画 1px 白方块（几乎不可见、拾取热区极小难点）的问题。
+     */
+    private fun applyPointIcon(placemark: Placemark, iconKey: String?) {
+        val src = ImageSource.fromResource(FeatureIcons.resOf(iconKey))
+        placemark.attributes.imageSource = src
+        placemark.highlightAttributes = PlacemarkAttributes(placemark.attributes).apply { imageScale = 1.4 }
+    }
+
     /** 标注文本：未设标注字段、字段不存在或值为空返回 null */
     private fun labelTextOf(labelField: String?, valueOf: (String) -> String?): String? {
         labelField ?: return null
         return valueOf(labelField)?.trim()?.takeIf { it.isNotEmpty() }
     }
 
-    /** 构造贴地标注，颜色/缩放/轮廓随样式 */
+    /** 构造贴地标注，颜色/缩放/轮廓随样式；文字中心对齐几何中心（默认底边中点锚定会使文字偏上） */
     private fun makeLabel(position: Position, text: String, s: VectorStyle): Label =
         Label(position, text).apply {
             altitudeMode = AltitudeMode.CLAMP_TO_GROUND
+            attributes.textOffset = Offset.center()
             s.labelColor?.let { attributes.textColor = parseColor(it) }
             s.labelSize?.let { attributes.scale = it.toDouble() }
             if (s.labelOutline == true) attributes.isOutlineEnabled = true
@@ -422,4 +465,58 @@ object LocalVectorLoader {
         }
         return list
     }
+
+    /**
+     * 解析 KML 文本提取各 Placemark 的 name -> description 映射（命名空间无关）。
+     * WorldWind 原生转换器丢弃 <description>，此处自建轻量 DOM 解析补齐，
+     * description 常含 HTML/CDATA，getTextContent 自动取其文本；重名以首个为准。
+     */
+    private fun extractKmlDescriptions(text: String): Map<String, String> {
+        val map = LinkedHashMap<String, String>()
+        return try {
+            val factory = DocumentBuilderFactory.newInstance().apply {
+                isNamespaceAware = false
+                // 关闭外部实体，避免 XXE（解析器不支持时忽略）
+                runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
+                runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
+            }
+            val doc = factory.newDocumentBuilder()
+                .parse(ByteArrayInputStream(text.toByteArray(Charsets.UTF_8)))
+            doc.documentElement.normalize()
+            val nodes = doc.getElementsByTagName("*")
+            for (i in 0 until nodes.length) {
+                val node = nodes.item(i)
+                if (node !is Element || !isTag(node, "Placemark")) continue
+                val name = textOfChild(node, "name")
+                val desc = textOfChild(node, "description")
+                if (name.isNotEmpty() && desc.isNotEmpty() && !map.containsKey(name)) map[name] = desc
+            }
+            map
+        } catch (e: Exception) {
+            Log.w(TAG, "KML description 解析失败", e)
+            map
+        }
+    }
+
+    /** 节点标签名匹配（忽略命名空间前缀与大小写） */
+    private fun isTag(node: Node, expected: String): Boolean {
+        var name = node.nodeName ?: return false
+        val idx = name.indexOf(':')
+        if (idx >= 0 && idx + 1 < name.length) name = name.substring(idx + 1)
+        return name.equals(expected, ignoreCase = true)
+    }
+
+    /** 取父元素下首个指定标签的直接子元素 */
+    private fun firstChildElement(parent: Element, tag: String): Element? {
+        val children = parent.childNodes
+        for (i in 0 until children.length) {
+            val n = children.item(i)
+            if (n is Element && isTag(n, tag)) return n
+        }
+        return null
+    }
+
+    /** 取父元素下指定标签子元素的文本内容（trim） */
+    private fun textOfChild(parent: Element, tag: String): String =
+        firstChildElement(parent, tag)?.textContent?.trim() ?: ""
 }

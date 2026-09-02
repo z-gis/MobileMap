@@ -14,7 +14,7 @@ import com.google.android.material.R as MaterialR
 
 /**
  * 测量详情 BottomSheet：点击已保存测量几何后弹出（与要素详情弹层样式一致）。
- * 标题为测量名称，中间为样式编辑区（颜色色块 + 线宽步进），底部按键：缩放至/删除/保存。
+ * 标题为测量名称，中间为样式编辑区（颜色色块 + 线宽步进），底部按键：删除/保存。
  *
  * 颜色以 ARGB Int 存取（与 measurement 表 color 列一致）；
  * 保存经 [onSave] 写库并重载测量图层，删除经 [onDelete] 走宿主删除确认。
@@ -27,7 +27,6 @@ class MeasureDetailDialog(
     private val widthEditable: Boolean,
     private val initialColor: Int,
     private val initialWidth: Int,
-    private val onZoom: (() -> Unit)?,
     private val onSave: ((color: Int, width: Int) -> Unit)?,
     private val onDelete: (() -> Unit)?
 ) : BaseBottomSheetDialog(R.layout.dialog_measure_detail) {
@@ -91,11 +90,7 @@ class MeasureDetailDialog(
             }
         }
 
-        // 底部按键：缩放至（关闭弹层后移动相机）/ 删除（宿主确认）/ 保存
-        sheet.findViewById<Button>(R.id.measure_detail_btn_zoom).setOnClickListener {
-            onZoom?.invoke()
-            dismiss()
-        }
+        // 底部按键：删除（宿主确认）/ 保存
         sheet.findViewById<Button>(R.id.measure_detail_btn_delete).setOnClickListener {
             onDelete?.invoke()
             dismiss()

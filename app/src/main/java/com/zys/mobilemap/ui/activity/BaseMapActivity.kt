@@ -262,6 +262,10 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
             } catch (e: Exception) {
                 Log.e(TAG, "栅格图层加载失败[${info.name}]: $path", e)
                 Toast.makeText(this, "栅格图层加载失败: ${info.name}", Toast.LENGTH_SHORT).show()
+                // 加载失败：从文档移除该栅格图层并保存，避免图层列表残留无法显示的条目
+                if (doc.rasterLayers.removeAll { it.path == path }) {
+                    DocumentManager.getInstance().save(this)
+                }
             }
         }
     }
@@ -326,6 +330,12 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
                     Log.e(TAG, "矢量图层加载失败[${info.name}]: $key", e)
                     runOnUiThread {
                         Toast.makeText(this@BaseMapActivity, "矢量图层加载失败: ${info.name}", Toast.LENGTH_SHORT).show()
+                    }
+                    // 加载失败：从文档移除该图层并保存，避免图层列表残留无法显示的条目
+                    // （导入时先加入文档再异步加载，失败即回退，对齐“打开失败即从列表删除”）
+                    val doc = DocumentManager.getInstance().getDocument()
+                    if (doc != null && doc.vectorLayers.removeAll { layerKey(it) == key }) {
+                        DocumentManager.getInstance().save(this@BaseMapActivity)
                     }
                 } finally {
                     vectorLoadingKeys.remove(key)

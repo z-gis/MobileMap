@@ -154,22 +154,13 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- 底部按键：缩放至 / 删除 / 保存 -->
+    <!-- 底部按键：删除 / 保存 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
         android:gravity="end"
         android:orientation="horizontal">
-
-        <Button
-            android:id="@+id/measure_detail_btn_zoom"
-            style="?android:attr/borderlessButtonStyle"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="缩放至"
-            android:textColor="@color/black"
-            tools:ignore="HardcodedText" />
 
         <Button
             android:id="@+id/measure_detail_btn_delete"

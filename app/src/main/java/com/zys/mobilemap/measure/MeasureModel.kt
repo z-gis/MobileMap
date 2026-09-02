@@ -17,7 +17,6 @@ import com.zys.mobilemap.util.GeoCalc
 import earth.worldwind.PickedObjectList
 import earth.worldwind.WorldWindow
 import earth.worldwind.geom.AltitudeMode
-import earth.worldwind.geom.Angle
 import earth.worldwind.geom.Position
 import earth.worldwind.layer.RenderableLayer
 import earth.worldwind.render.Color
@@ -240,7 +239,7 @@ class MeasureModel(
     /**
      * 测量详情 BottomSheet（与要素详情弹层雷同）：标题=测量名称，
      * 中间样式区（颜色选色器 + 线宽步进，点测量无线要素隐藏线宽），
-     * 底部按键：缩放至/删除/保存。
+     * 底部按键：删除/保存（点击测量时几何已在屏幕内，无需缩放至）。
      */
     private fun showMeasureDetail(record: MeasurementRecord) {
         val fm = (activity as? AppCompatActivity)?.supportFragmentManager ?: return
@@ -251,7 +250,6 @@ class MeasureModel(
             widthEditable = record.type != MeasurementRecord.TYPE_POINT,
             initialColor = record.color,
             initialWidth = record.lineWidth,
-            onZoom = { zoomToRecord(record) },
             onSave = { color, width ->
                 MapDataStore.getInstance(activity).updateMeasurementStyle(record.id, color, width)
                 reloadSaved()
@@ -291,34 +289,6 @@ class MeasureModel(
             }
             else -> null
         }
-    }
-
-    /** 相机移动到测量几何四至中心（高度按跨度换算） */
-    private fun zoomToRecord(record: MeasurementRecord) {
-        if (record.points.isEmpty()) return
-        var minLat = Double.MAX_VALUE
-        var maxLat = -Double.MAX_VALUE
-        var minLon = Double.MAX_VALUE
-        var maxLon = -Double.MAX_VALUE
-        for (p in record.points) {
-            minLat = minOf(minLat, p[0])
-            maxLat = maxOf(maxLat, p[0])
-            minLon = minOf(minLon, p[1])
-            maxLon = maxOf(maxLon, p[1])
-        }
-        val span = maxOf(maxLon - minLon, maxLat - minLat).coerceAtLeast(0.001)
-        val altitude = maxOf(span * 111320.0 * 1.5, 300.0)
-        val camera = worldWindow.engine.camera
-        camera.set(
-            Angle.fromDegrees((minLat + maxLat) / 2.0),
-            Angle.fromDegrees((minLon + maxLon) / 2.0),
-            altitude,
-            AltitudeMode.ABSOLUTE,
-            Angle.fromDegrees(0.0),
-            Angle.fromDegrees(0.0),
-            Angle.fromDegrees(0.0)
-        )
-        worldWindow.requestRedraw()
     }
 
     /** 删除确认：删库并重载图层 */
@@ -450,11 +420,12 @@ class MeasureModel(
         val id = MapDataStore.getInstance(activity)
             .addMeasurement(name, type, defaultColorForMode(mode), now, points)
         if (id >= 0) {
-            appendRecordRenderables(
-                MeasurementRecord(id, name, type, defaultColorForMode(mode), now, points,
-                    MeasurementRecord.DEFAULT_LINE_WIDTH),
-                savedLayer
-            )
+            val record = MeasurementRecord(id, name, type, defaultColorForMode(mode), now, points,
+                MeasurementRecord.DEFAULT_LINE_WIDTH)
+            // 同步命中判定缓存：否则新增测量不在 recordsCache 中，handlePickedGeometry 无法命中，
+            // 表现为新添加的测量点不到、而启动时 reloadSaved 已入缓存的原有测量可点
+            recordsCache = recordsCache + record
+            appendRecordRenderables(record, savedLayer)
             worldWindow.requestRedraw()
             Toast.makeText(activity, "测量已保存", Toast.LENGTH_SHORT).show()
         }
@@ -520,14 +491,14 @@ class MeasureModel(
 
         if (mode == Mode.POINT) {
             measurePoints.firstOrNull()?.let {
-                liveLayer.addRenderable(createPointPlacemark(it, "测量点"))
+                liveLayer.addRenderable(createPointPlacemark(it, "测量点", COLOR_BLUE))
             }
             worldWindow.requestRedraw()
             return
         }
 
         for (point in measurePoints) {
-            liveLayer.addRenderable(createPointPlacemark(point, ""))
+            liveLayer.addRenderable(createPointPlacemark(point, "", COLOR_BLUE))
         }
 
         if (mode == Mode.DISTANCE && measurePoints.size >= 2) {
@@ -560,13 +531,13 @@ class MeasureModel(
         val color = argbToColor(record.color)
 
         if (record.type == MeasurementRecord.TYPE_POINT) {
-            layer.addRenderable(createPointPlacemark(positions.first(), record.name))
+            layer.addRenderable(createPointPlacemark(positions.first(), record.name, record.color))
             return
         }
 
         layer.addRenderable(createMeasurePath(positions, color, record.lineWidth.toFloat()))
         for (point in positions) {
-            layer.addRenderable(createPointPlacemark(point, ""))
+            layer.addRenderable(createPointPlacemark(point, "", record.color))
         }
 
         if (record.type == MeasurementRecord.TYPE_DISTANCE) {
@@ -584,8 +555,9 @@ class MeasureModel(
         }
     }
 
-    private fun createPointPlacemark(position: Position, name: String): Placemark {
-        val attributes = PlacemarkAttributes.createWithImage(POINT_ICON)
+    private fun createPointPlacemark(position: Position, name: String, colorArgb: Int): Placemark {
+        // 点标识内心颜色随记录颜色变化：点测量的“颜色”设置由此生效（原固定蓝心图标不读颜色）
+        val attributes = PlacemarkAttributes.createWithImage(ImageSource.fromBitmap(createPointBitmap(colorArgb)))
         // 拾取/显示尺寸按屏幕密度放大，高分屏真机上原 0.9 倍仅约 32 像素过小
         attributes.imageScale = 0.9 * iconDensityScale
         val placemark = Placemark(position, attributes, name)
@@ -761,10 +733,8 @@ class MeasureModel(
         private val LIVE_LINE_COLOR = Color(0.34f, 0.76f, 1f, 1f)
         private const val LIVE_LINE_WIDTH = 3f
 
-        /** 测量点图标：白底蓝心圆点 */
-        private val POINT_ICON = ImageSource.fromBitmap(createPointBitmap())
-
-        private fun createPointBitmap(): Bitmap {
+        /** 测量点图标：白边 + 指定颜色内心的圆点（点测量颜色可自定义，内心色随记录颜色） */
+        private fun createPointBitmap(innerColor: Int): Bitmap {
             val size = 36
             val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
@@ -777,7 +747,7 @@ class MeasureModel(
 
             val inner = Paint(Paint.ANTI_ALIAS_FLAG)
             inner.style = Paint.Style.FILL
-            inner.color = COLOR_BLUE
+            inner.color = innerColor
             canvas.drawCircle(center, center, size * 0.16f, inner)
 
             return bitmap

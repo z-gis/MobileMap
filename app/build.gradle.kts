@@ -12,8 +12,8 @@ android {
         applicationId = "com.zys.mobilemap"
         minSdk = 24
         targetSdk = 36
-        versionCode = 26090201
-        versionName = "0.2.7.2"
+        versionCode = 26090202
+        versionName = "0.2.7.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
