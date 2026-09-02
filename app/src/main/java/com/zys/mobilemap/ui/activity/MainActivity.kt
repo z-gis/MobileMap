@@ -75,6 +75,9 @@ class MainActivity : BaseMapActivity() {
 
         /** 拍照标识"缩放至"目标相机高度（米） */
         private const val MEDIA_ZOOM_ALTITUDE = 1200.0
+
+        /** "回到定位"按键目标相机高度（米）：北向归 0 后调整到合适观察高度 */
+        private const val GOTO_LOCATION_ALTITUDE = 1200.0
     }
 
     @RequiresApi(Build.VERSION_CODES.M)
@@ -497,14 +500,13 @@ class MainActivity : BaseMapActivity() {
         savedCenterLon = camera.position.longitude.inDegrees
         savedCenterLat = camera.position.latitude.inDegrees
 
-        // 设置相机位置，并重绘地图
-        val alt = camera.position.altitude
+        // 设置相机位置：定位点居中，北向归 0（正北朝上），高度调整到合适的观察高度
         camera.set(
             Angle.Companion.fromDegrees(loc.latitude),
             Angle.Companion.fromDegrees(loc.longitude),
-            alt,
+            GOTO_LOCATION_ALTITUDE,
             AltitudeMode.ABSOLUTE,
-            camera.heading,
+            Angle.Companion.ZERO,
             camera.tilt,
             camera.roll
         )

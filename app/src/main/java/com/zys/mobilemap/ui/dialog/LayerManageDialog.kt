@@ -486,11 +486,19 @@ class LayerManageDialog(
             "raster" -> getString(R.string.layer_info_type_raster)
             else -> item.type ?: ""
         }
+        // 坐标系：读取原始文件 SRS（名称 + proj4）；kmz 压缩包走 GDAL /vsizip/ 虚拟文件；读取失败/无 SRS 显示未知
+        val srsPath = item.path?.let {
+            if (it.lowercase(Locale.getDefault()).endsWith(".kmz")) "/vsizip/$it" else it
+        }
+        val srsStr = srsPath?.let { nativeGetLayerSrs(it) }
+            ?.takeIf { it.isNotBlank() }
+            ?: getString(R.string.layer_info_srs_unknown)
         val message = getString(
             R.string.layer_info_content,
             displayLayerName(item),
             typeStr,
             sizeStr,
+            srsStr,
             item.path ?: ""
         )
         AlertDialog.Builder(requireContext())
@@ -516,6 +524,10 @@ class LayerManageDialog(
     // JNI 符号为 Java_com_zys_mobilemap_ui_dialog_LayerManageDialog_nativeGetVectorFieldNames，
     // OGR 读取矢量图层字段名（shp 取 DBF 字段，供整层样式标注字段下拉）
     private external fun nativeGetVectorFieldNames(path: String): Array<String>?
+
+    // JNI 符号为 Java_com_zys_mobilemap_ui_dialog_LayerManageDialog_nativeGetLayerSrs，
+    // 读取图层原始文件坐标系（名称 + proj4），无 SRS/打开失败返回 null
+    private external fun nativeGetLayerSrs(path: String): String?
 
     internal class LayerItem(
         var name: String?,

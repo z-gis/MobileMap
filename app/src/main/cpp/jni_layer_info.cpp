@@ -1,9 +1,13 @@
 #include <jni.h>
 #include <algorithm>
+#include <string>
+#include <cstring>
+#include <cctype>
 #include <android/log.h>
 
 #include "gdal/ogrsf_frmts.h"
 #include "gdal/gdal_priv.h"
+#include "gdal/cpl_conv.h"
 
 // ==================== 图层四至与字段名（LayerManageDialog / MainActivity） ====================
 
@@ -181,5 +185,93 @@ Java_com_zys_mobilemap_ui_dialog_LayerManageDialog_nativeGetVectorFieldNames(
     }
 
     env->ReleaseStringUTFChars(path, p);
+    return result;
+}
+
+/**
+ * 图层原始坐标系描述（矢量优先，栅格兜底）：
+ * 返回“坐标系名称 + proj4 定义”（两者以换行分隔），无 SRS 或打开失败返回 nullptr。
+ * 供图层信息对话框展示原始文件坐标系。
+ */
+static char *computeLayerSrs(const char *p) {
+    std::string out;
+
+    // KML/KMZ 按 OGC KML 标准固定为 WGS84 地理坐标系；部分 GDAL KML 驱动不显式返回 SRS，
+    // 直接按扩展名判定（无需打开文件），避免图层信息对 kml/kmz 不显示坐标系。
+    std::string lp(p);
+    std::transform(lp.begin(), lp.end(), lp.begin(),
+                   [](unsigned char c) { return (char) std::tolower(c); });
+    if (lp.size() >= 4 &&
+        (lp.compare(lp.size() - 4, 4, ".kml") == 0 || lp.compare(lp.size() - 4, 4, ".kmz") == 0)) {
+        const char *wgs84 = "WGS 84\n+proj=longlat +datum=WGS84 +no_defs";
+        char *kbuf = (char *) CPLMalloc(strlen(wgs84) + 1);
+        memcpy(kbuf, wgs84, strlen(wgs84) + 1);
+        return kbuf;
+    }
+
+    // 矢量数据：OGR 读取第一个图层的空间参考（shp 等）
+    GDALDataset *ds = (GDALDataset *) GDALOpenEx(p, GDAL_OF_VECTOR | GDAL_OF_READONLY,
+                                                 nullptr, nullptr, nullptr);
+    OGRSpatialReference *srs = nullptr;
+    if (ds != nullptr) {
+        OGRLayer *layer = ds->GetLayer(0);
+        if (layer != nullptr && layer->GetSpatialRef() != nullptr) {
+            srs = layer->GetSpatialRef()->Clone();
+        }
+        GDALClose(ds);
+    }
+
+    // 栅格数据兜底：读取数据集空间参考
+    if (srs == nullptr) {
+        ds = (GDALDataset *) GDALOpenEx(p, GDAL_OF_RASTER | GDAL_OF_READONLY,
+                                        nullptr, nullptr, nullptr);
+        if (ds != nullptr) {
+            const OGRSpatialReference *rsrs = ds->GetSpatialRef();
+            if (rsrs != nullptr) {
+                srs = rsrs->Clone();
+            }
+            GDALClose(ds);
+        }
+    }
+
+    if (srs != nullptr) {
+        srs->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+        const char *name = srs->GetName();
+        if (name != nullptr && name[0] != '\0') {
+            out += name;
+        }
+        char *proj4 = nullptr;
+        if (srs->exportToProj4(&proj4) == OGRERR_NONE && proj4 != nullptr) {
+            if (!out.empty()) out += "\n";
+            out += proj4;
+            CPLFree(proj4);
+        }
+        srs->Release();
+    }
+
+    if (out.empty()) {
+        return nullptr;
+    }
+    char *buf = (char *) CPLMalloc(out.size() + 1);
+    memcpy(buf, out.c_str(), out.size() + 1);
+    return buf;
+}
+
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_com_zys_mobilemap_ui_dialog_LayerManageDialog_nativeGetLayerSrs(
+        JNIEnv *env, jobject thiz, jstring path) {
+
+    GDALAllRegister();
+
+    const char *p = env->GetStringUTFChars(path, nullptr);
+    char *srs = computeLayerSrs(p);
+    env->ReleaseStringUTFChars(path, p);
+
+    if (srs == nullptr) {
+        return nullptr;
+    }
+    jstring result = env->NewStringUTF(srs);
+    CPLFree(srs);
     return result;
 }

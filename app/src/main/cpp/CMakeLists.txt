@@ -69,6 +69,7 @@ project("mobilemap")
 # used in the AndroidManifest.xml file.
 add_library(${CMAKE_PROJECT_NAME} SHARED
         # List C/C++ source files with relative paths to this CMakeLists.txt.
+        # 图层四至/字段名/坐标系 JNI（jni_layer_info.cpp）
         jni_proj.cpp
         jni_gdal_info.cpp
         jni_layer_info.cpp

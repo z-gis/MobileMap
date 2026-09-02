@@ -3,11 +3,15 @@ package com.zys.mobilemap.track
 import android.app.Activity
 import android.view.View
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import com.zys.mobilemap.databinding.ActivityMainBinding
 import com.zys.mobilemap.db.MapDataStore
+import com.zys.mobilemap.db.TrackRecord
 import com.zys.mobilemap.location.LocationManager
+import com.zys.mobilemap.ui.dialog.TrackManageDialog
 import earth.worldwind.WorldWindow
 import earth.worldwind.geom.AltitudeMode
+import earth.worldwind.geom.Angle
 import earth.worldwind.geom.Position
 import earth.worldwind.layer.RenderableLayer
 import earth.worldwind.render.Color
@@ -62,7 +66,7 @@ class TrackModel(
         }
         LocationManager.getInstance().addLocationListener(locationListener)
 
-        binding.mainIvTrk.setOnClickListener { startTrackRecording() }
+        binding.mainIvTrk.setOnClickListener { onTrackButtonClick() }
         binding.mainIvTrkPause.setOnClickListener { pauseTrackRecording() }
         binding.mainIvTrkStart.setOnClickListener { resumeTrackRecording() }
         binding.mainIvTrkStop.setOnClickListener { stopTrackRecording() }
@@ -85,12 +89,81 @@ class TrackModel(
         val records = MapDataStore.getInstance(activity).loadTracks()
         for (record in records) {
             if (record.points.size < 2) continue
+            // 逐条可见性：隐藏的轨迹不渲染（管理界面开关控制）
+            if (!record.visible) continue
             val positions = record.points.map {
                 Position.fromDegrees(it[0], it[1], 0.0)
             }
             layer.addRenderable(createTrackLine(positions, false))
         }
         activeTrackLine?.let { layer.addRenderable(it) }
+        worldWindow.requestRedraw()
+    }
+
+    /**
+     * 轨迹按键入口：记录中提示；无历史轨迹直接开始记录；
+     * 有历史轨迹弹出菜单（开始轨迹 / 管理），与拍照一致。
+     */
+    private fun onTrackButtonClick() {
+        if (recording) {
+            Toast.makeText(activity, "轨迹记录进行中", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val hasRecords = MapDataStore.getInstance(activity).loadTracks().isNotEmpty()
+        if (!hasRecords) {
+            startTrackRecording()
+        } else {
+            showTrackMenu()
+        }
+    }
+
+    /**
+     * 轨迹菜单（有历史记录时）：开始轨迹直接进入记录，管理弹出轨迹管理界面。
+     */
+    private fun showTrackMenu() {
+        AlertDialog.Builder(activity)
+            .setItems(arrayOf("开始轨迹", "管理")) { _, which ->
+                when (which) {
+                    0 -> startTrackRecording()
+                    1 -> TrackManageDialog.show(
+                        activity,
+                        onChanged = { reloadSavedTracks() },
+                        onZoomTo = { track -> zoomToTrack(track) }
+                    )
+                }
+            }
+            .show()
+    }
+
+    /**
+     * 缩放至轨迹：按轨迹点四至计算中心与合适高度，北向归 0，重绘地图。
+     */
+    private fun zoomToTrack(track: TrackRecord) {
+        if (track.points.isEmpty()) return
+        var minLat = Double.MAX_VALUE
+        var maxLat = -Double.MAX_VALUE
+        var minLon = Double.MAX_VALUE
+        var maxLon = -Double.MAX_VALUE
+        for (p in track.points) {
+            val lat = p[0]
+            val lon = p[1]
+            if (lat < minLat) minLat = lat
+            if (lat > maxLat) maxLat = lat
+            if (lon < minLon) minLon = lon
+            if (lon > maxLon) maxLon = lon
+        }
+        val span = maxOf(maxLon - minLon, maxLat - minLat).coerceAtLeast(0.01)
+        val altitude = span * 111320.0 * 1.5
+        val camera = worldWindow.engine.camera
+        camera.set(
+            Angle.fromDegrees((minLat + maxLat) / 2.0),
+            Angle.fromDegrees((minLon + maxLon) / 2.0),
+            altitude,
+            AltitudeMode.ABSOLUTE,
+            Angle.fromDegrees(0.0),
+            Angle.fromDegrees(0.0),
+            Angle.fromDegrees(0.0)
+        )
         worldWindow.requestRedraw()
     }
 

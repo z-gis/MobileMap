@@ -15,7 +15,9 @@ class TrackRecord(
     val id: Long,
     val name: String,
     val createdTime: Long,
-    val points: MutableList<DoubleArray>
+    val points: MutableList<DoubleArray>,
+    /** 逐条轨迹可见性：隐藏后地图不渲染（管理界面开关） */
+    var visible: Boolean = true
 )
 
 /**
@@ -56,7 +58,8 @@ class MapDataStore private constructor(context: Context) {
             "CREATE TABLE IF NOT EXISTS track (" +
                     "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
                     "name TEXT, " +
-                    "created_time INTEGER)"
+                    "created_time INTEGER, " +
+                    "visible INTEGER DEFAULT 1)"
         )
         db.execSQL(
             "CREATE TABLE IF NOT EXISTS track_point (" +
@@ -88,6 +91,18 @@ class MapDataStore private constructor(context: Context) {
         if (!hasLineWidth) {
             db.execSQL("ALTER TABLE measurement ADD COLUMN line_width INTEGER DEFAULT 3")
         }
+        // 旧库迁移：补轨迹逐条可见性列（管理界面显示/隐藏单条轨迹）
+        val hasTrackVisible = db.rawQuery("PRAGMA table_info(track)", null).use { c ->
+            val nameIdx = c.getColumnIndex("name")
+            var found = false
+            while (c.moveToNext()) {
+                if (nameIdx >= 0 && c.getString(nameIdx) == "visible") found = true
+            }
+            found
+        }
+        if (!hasTrackVisible) {
+            db.execSQL("ALTER TABLE track ADD COLUMN visible INTEGER DEFAULT 1")
+        }
     }
 
     /**
@@ -97,6 +112,7 @@ class MapDataStore private constructor(context: Context) {
         val values = ContentValues()
         values.put("name", name)
         values.put("created_time", createdTime)
+        values.put("visible", 1)
         val trackId = db.insert("track", null, values)
         if (trackId < 0) return -1
 
@@ -124,10 +140,11 @@ class MapDataStore private constructor(context: Context) {
     fun loadTracks(): List<TrackRecord> {
         val tracks = LinkedHashMap<Long, TrackRecord>()
         db.rawQuery(
-            "SELECT id, name, created_time FROM track ORDER BY created_time DESC", null
+            "SELECT id, name, created_time, visible FROM track ORDER BY created_time DESC", null
         ).use { c ->
             while (c.moveToNext()) {
                 val record = TrackRecord(c.getLong(0), c.getString(1) ?: "", c.getLong(2), mutableListOf())
+                record.visible = c.getInt(3) != 0
                 tracks[record.id] = record
             }
         }
@@ -150,6 +167,24 @@ class MapDataStore private constructor(context: Context) {
     fun deleteTrack(trackId: Long) {
         db.delete("track_point", "track_id = ?", arrayOf(trackId.toString()))
         db.delete("track", "id = ?", arrayOf(trackId.toString()))
+    }
+
+    /**
+     * 重命名轨迹。
+     */
+    fun updateTrackName(trackId: Long, name: String) {
+        val values = ContentValues()
+        values.put("name", name)
+        db.update("track", values, "id = ?", arrayOf(trackId.toString()))
+    }
+
+    /**
+     * 更新轨迹逐条可见性（隐藏后地图不渲染）。
+     */
+    fun updateTrackVisible(trackId: Long, visible: Boolean) {
+        val values = ContentValues()
+        values.put("visible", if (visible) 1 else 0)
+        db.update("track", values, "id = ?", arrayOf(trackId.toString()))
     }
 
     /**
