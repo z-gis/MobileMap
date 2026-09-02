@@ -13,3 +13,10 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# 签名密钥（严禁推送到远程仓库）
+*.jks
+*.keystore
+# 构建产物与临时脚本
+/app/release/
+grep.ps1
