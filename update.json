@@ -1,7 +1,7 @@
 {
-  "versionCode": 26090101,
-  "versionName": "0.2.7.1",
-  "apkUrl": "https://gitee.com/z-gis/MobileMap/releases/download/0.2.7.1/mobilemap-v0.2.7.1.apk",
-  "changelog": "修改照片、测量等标识太小导致点击不灵活",
+  "versionCode": 26090201,
+  "versionName": "0.2.7.2",
+  "apkUrl": "https://gitee.com/z-gis/MobileMap/releases/download/0.2.7.2/mobilemap-v0.2.7.2.apk",
+  "changelog": "修改照片、测量等标识太小导致点击不灵活；修复大数据量 KML/KMZ 矢量图层加载时闪退的问题",
   "force": false
 }

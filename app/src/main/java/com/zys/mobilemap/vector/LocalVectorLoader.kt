@@ -38,6 +38,10 @@ object LocalVectorLoader {
 
     private const val TAG = "LocalVectorLoader"
 
+    /** 原生解析的 KML 文件大小上限：超过则直接走 GDAL（原生解析需整文读入+全文档建模，
+     * 内存峰值约为文件十余倍，15MB 级 KML 极易 OOM，且失败后再回退相当于双倍消耗） */
+    private const val NATIVE_KML_MAX_BYTES = 5L * 1024 * 1024
+
     /** 矢量图层标记：拾取时据此过滤出矢量要素（底图/注记不参与点选） */
     const val VECTOR_LAYER_KEY = "isVectorLayer"
 
@@ -96,12 +100,12 @@ object LocalVectorLoader {
 
         val style = layerInfo.vectorStyle?.takeIf { !it.isEmpty() }
         val layers = when (file.extension.lowercase(Locale.getDefault())) {
-            "kml" -> loadKml(context, file, style)
+            "kml" -> loadKml(context, file, layerInfo.name, extent, style)
             "kmz" -> {
                 // 正常导入流程文档记录的是解压后的 kml 路径，此处兜底解压
                 val result = VectorFileImporter.importFile(context, path)
                     ?: throw IllegalArgumentException("kmz 解压失败: ${file.name}")
-                loadKml(context, File(result.path), style)
+                loadKml(context, File(result.path), layerInfo.name, extent, style)
             }
             "shp" -> loadShp(file, layerInfo.name, extent, style)
             "dwg", "dxf" -> loadWithGdal(file, layerInfo.name, extent, style)
@@ -113,13 +117,36 @@ object LocalVectorLoader {
     }
 
     /**
-     * KML：原生解析 <Style>/<StyleMap>，按源文件配色渲染。
+     * KML：优先 WorldWind 原生解析（保留源文件配色），
+     * 失败时回退 GDAL（LIBKML）读取。
+     * WorldWind 的 KML 模型 Polygon.innerBoundaryIs 为单值（KML 规范允许多个内环），
+     * 带多孔多边形的文件解析会抛 XmlException（Duplicate child innerBoundaryIs）导致整层失败；
+     * GDAL 回退保留全部孔洞，但丢失源配色（按项目默认样式/文档样式渲染）。
+     */
+    private suspend fun loadKml(
+        context: Context, file: File, name: String?, extent: DoubleArray?, style: VectorStyle?
+    ): List<Layer> {
+        // 大文件跳过原生解析直接走 GDAL（空间过滤限制读取量），避免整文建模的内存峰值
+        if (file.length() > NATIVE_KML_MAX_BYTES) {
+            Log.i(TAG, "KML 文件较大(${file.length() / 1024 / 1024}MB)，直接走 GDAL 读取: ${file.name}")
+            return loadWithGdal(file, name, extent, style)
+        }
+        return try {
+            loadKmlNative(context, file, style)
+        } catch (e: Exception) {
+            Log.w(TAG, "KML 原生解析失败，回退 GDAL 读取: ${file.name}", e)
+            loadWithGdal(file, name, extent, style)
+        }
+    }
+
+    /**
+     * KML 原生解析 <Style>/<StyleMap>，按源文件配色渲染。
      * 开启拾取并打矢量图层标记；KML 转换仅为线/面设了高亮属性，点（Placemark）补放大高亮。
      * 样式覆盖仅支持整层（kml 无要素 id，单要素覆盖待二期自建解析补齐）。
      * 注：wwd 的 KML 管线不保留 Placemark 的 xml id，要素标识暂以名称/展示层反馈，
      * 后续属性表阶段再自建解析补齐。
      */
-    private suspend fun loadKml(context: Context, file: File, style: VectorStyle?): List<Layer> {
+    private suspend fun loadKmlNative(context: Context, file: File, style: VectorStyle?): List<Layer> {
         val text = withContext(Dispatchers.IO) { file.readText() }
         val density = context.resources.displayMetrics.density
         val layers = KmlLayerFactory.createLayers(
@@ -216,6 +243,7 @@ object LocalVectorLoader {
         val features = GdalVectorReader.readFeatures(file.absolutePath, extent)
             ?: throw IllegalStateException("GDAL 读取失败（格式不支持或数据为空）: ${file.name}")
         if (features.isEmpty()) throw IllegalStateException("矢量数据无可渲染要素: ${file.name}")
+        Log.i(TAG, "GDAL 读取 ${features.size} 个要素: ${file.name}")
 
         val layer = RenderableLayer(name).apply {
             isPickEnabled = true
@@ -245,6 +273,9 @@ object LocalVectorLoader {
                     layer.addRenderable(Path(flattenToPositions(part), lineAttributes).apply {
                         altitudeMode = AltitudeMode.CLAMP_TO_GROUND
                         isFollowTerrain = true
+                        // 关闭中间点细分（默认 64 会让每边插入最多 63 点，千级要素时顶点量数十倍放大致 OOM），
+                        // 与 WorldWind 官方 KmlToRenderableConverter 一致
+                        maximumNumEdgeIntervals = 0
                         highlightAttributes = highlightLineAttributes
                         if (s != null) applyShapeStyle(this, s)
                         if (attrs != null) putUserProperty(FEATURE_ATTRS_KEY, attrs)
@@ -256,6 +287,8 @@ object LocalVectorLoader {
                         val polygon = Polygon(flattenToPositions(outer), polygonAttributes).apply {
                             altitudeMode = AltitudeMode.CLAMP_TO_GROUND
                             isFollowTerrain = true
+                            // 关闭中间点细分，避免 GLU 曲面细分顶点爆炸（详见 LINE 分支说明）
+                            maximumNumEdgeIntervals = 0
                             highlightAttributes = highlightPolygonAttributes
                             if (s != null) applyShapeStyle(this, s)
                             if (attrs != null) putUserProperty(FEATURE_ATTRS_KEY, attrs)

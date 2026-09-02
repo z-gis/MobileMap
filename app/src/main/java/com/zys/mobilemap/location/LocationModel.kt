@@ -113,8 +113,8 @@ class LocationModel(
                     ImageSource.fromResource(R.drawable.ic_compass)
                 )
                 attrs.imageColor = Color(1f, 1f, 1f, 1f)
-                // 图标中心对齐定位点（imageOffset 默认居中）
-                attrs.imageScale = COMPASS_IMAGE_SCALE
+                // 图标中心对齐定位点（imageOffset 默认居中）；按屏幕密度放大，高分屏真机上更醒目
+                attrs.imageScale = COMPASS_IMAGE_SCALE * activity.resources.displayMetrics.density.coerceAtLeast(1f).toDouble()
 
                 placemark = Placemark(
                     Position(Angle.Companion.fromDegrees(lat), Angle.Companion.fromDegrees(lon), 0.0),
@@ -140,7 +140,7 @@ class LocationModel(
     companion object {
         const val LOCATION_PERMISSION_REQUEST = 1002
 
-        /** 罗盘图标缩放比例（原图 150x150，0.25 约为 38dp） */
-        private const val COMPASS_IMAGE_SCALE = 1.0
+        /** 罗盘图标基准缩放（原图 150×150 像素，乘以屏幕密度：密度 3 真机上约 225 像素/75dp） */
+        private const val COMPASS_IMAGE_SCALE = 0.5f
     }
 }
