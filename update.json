@@ -1,8 +1,8 @@
 {
   "versionCode": 26090204,
-  "versionName": "0.2.7.5",
-  "apkUrl": "https://gitee.com/z-gis/MobileMap/releases/download/0.2.7.5/mobilemap-v0.2.7.5.apk",
-  "apkSizeBytes": 74409245,
-  "changelog": "1. 定位图标中心新增移动方向箭头，指向实际移动方向；\n2. 轨迹支持点击弹出颜色、线宽设置对话框，修改后自动保存；\n3. 优化启动体验，地图瓦片加载完成前持续显示启动画面，消除白屏。",
+  "versionName": "0.2.7.6",
+  "apkUrl": "https://gitee.com/z-gis/MobileMap/releases/download/0.2.7.6/mobilemap-v0.2.7.6.apk",
+  "apkSizeBytes": 74415874,
+  "changelog": "1. 图层管理：新增缩放到图层按键，删除前二次确认；\\n2. 地图移动加入动画：远距离飞越、近距离平移；\\n3. 定位按键改为锁定/跟随模式；\\n4. 左上角新增北朝向按键，随地图旋转指北、点击纠正；\\n5. 设置新增显示照片名称开关；\\n6. 优化轨迹记录，减少步行摆动。",
   "force": false
 }
