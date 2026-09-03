@@ -69,6 +69,9 @@ class MainActivity : BaseMapActivity() {
     private var trackModel: TrackModel? = null
     private var measureModel: MeasureModel? = null
 
+    /** 加载遮罩安全超时兜底：瓦片长时间未就绪也强制淡出，避免卡在启动画面 */
+    private val loadingOverlayTimeout = Runnable { hideLoadingOverlay() }
+
     companion object {
         private const val LOCATION_PERMISSION_REQUEST = 1002
         private const val TAG = "MainActivity"
@@ -78,6 +81,9 @@ class MainActivity : BaseMapActivity() {
 
         /** "回到定位"按键目标相机高度（米）：北向归 0 后调整到合适观察高度 */
         private const val GOTO_LOCATION_ALTITUDE = 1200.0
+
+        /** 加载遮罩安全超时（毫秒）：首屏瓦片迟迟未就绪时兜底淡出 */
+        private const val LOADING_OVERLAY_TIMEOUT_MS = 8000L
     }
 
     @RequiresApi(Build.VERSION_CODES.M)
@@ -92,6 +98,9 @@ class MainActivity : BaseMapActivity() {
         mediaCaptureHelper?.register()
 
         binding.globe.addView(createWorldWindow())
+
+        // 启动加载遮罩：盖住底图瓦片异步加载的白屏，首屏就绪（或安全超时）后淡出
+        setupLoadingOverlay()
 
         // 设置导航器
         navigatorModel = NavigatorModel(this, getWorldWindow())
@@ -122,7 +131,9 @@ class MainActivity : BaseMapActivity() {
             },
             onBeforePick = { x, y -> measureModel?.onMapTap(x, y) ?: false },
             onPicked = { x, y, picked ->
-                measureModel?.handlePickedGeometry(x, y, picked) == true || handleMediaPicked(picked)
+                measureModel?.handlePickedGeometry(x, y, picked) == true ||
+                        trackModel?.handlePickedGeometry(x, y, picked) == true ||
+                        handleMediaPicked(picked)
             }
         )
         vectorPickModel?.setup(this)
@@ -172,6 +183,32 @@ class MainActivity : BaseMapActivity() {
 
         // 系统外部打开矢量数据（文件管理器分享/打开）
         handleViewIntent(intent)
+    }
+
+    /**
+     * 启动加载遮罩：注册首屏就绪回调（就绪即淡出），并挂安全超时兜底。
+     */
+    private fun setupLoadingOverlay() {
+        (getWorldWindow() as? MapWorldWindow)?.onFirstFrameSettled = { hideLoadingOverlay() }
+        binding.root.postDelayed(loadingOverlayTimeout, LOADING_OVERLAY_TIMEOUT_MS)
+    }
+
+    /**
+     * 淡出并隐藏加载遮罩（首屏就绪或安全超时触发，幂等）。
+     */
+    private fun hideLoadingOverlay() {
+        binding.root.removeCallbacks(loadingOverlayTimeout)
+        val overlay = binding.mainLoadingOverlay
+        if (overlay.visibility == View.GONE) return
+        overlay.animate().alpha(0f).setDuration(300).withEndAction {
+            overlay.visibility = View.GONE
+        }.start()
+    }
+
+    override fun onDestroy() {
+        binding.root.removeCallbacks(loadingOverlayTimeout)
+        (getWorldWindow() as? MapWorldWindow)?.onFirstFrameSettled = null
+        super.onDestroy()
     }
 
     /**

@@ -408,7 +408,7 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
      * Create a WorldWindow and add the background layer.
      */
     protected fun createWorldWindow(): WorldWindow {
-        wwd = WorldWindow(this)
+        wwd = MapWorldWindow(this)
 
         wwd.engine.layers.apply {
             addLayer(BackgroundLayer())

@@ -17,8 +17,20 @@ class TrackRecord(
     val createdTime: Long,
     val points: MutableList<DoubleArray>,
     /** 逐条轨迹可见性：隐藏后地图不渲染（管理界面开关） */
-    var visible: Boolean = true
-)
+    var visible: Boolean = true,
+    /** 轨迹线颜色（ARGB Int，与 track 表 color 列一致） */
+    var color: Int = DEFAULT_COLOR,
+    /** 轨迹线宽（像素，与 track 表 line_width 列一致） */
+    var lineWidth: Int = DEFAULT_LINE_WIDTH
+) {
+    companion object {
+        /** 新建轨迹默认颜色（历史轨迹蓝 0xFF33CCFF） */
+        const val DEFAULT_COLOR = 0xFF33CCFF.toInt()
+
+        /** 新建轨迹默认线宽 */
+        const val DEFAULT_LINE_WIDTH = 3
+    }
+}
 
 /**
  * 测量记录：点（位置）/距离/面积，点串以 JSON 存储。
@@ -59,7 +71,9 @@ class MapDataStore private constructor(context: Context) {
                     "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
                     "name TEXT, " +
                     "created_time INTEGER, " +
-                    "visible INTEGER DEFAULT 1)"
+                    "visible INTEGER DEFAULT 1, " +
+                    "color INTEGER DEFAULT -13382401, " +
+                    "line_width INTEGER DEFAULT 3)"
         )
         db.execSQL(
             "CREATE TABLE IF NOT EXISTS track_point (" +
@@ -103,16 +117,39 @@ class MapDataStore private constructor(context: Context) {
         if (!hasTrackVisible) {
             db.execSQL("ALTER TABLE track ADD COLUMN visible INTEGER DEFAULT 1")
         }
+        // 旧库迁移：补轨迹样式列（点击轨迹详情 BottomSheet 编辑颜色/线宽）
+        val trackColumns = db.rawQuery("PRAGMA table_info(track)", null).use { c ->
+            val nameIdx = c.getColumnIndex("name")
+            val columns = mutableSetOf<String>()
+            while (c.moveToNext()) {
+                if (nameIdx >= 0) columns.add(c.getString(nameIdx))
+            }
+            columns
+        }
+        if (!trackColumns.contains("color")) {
+            db.execSQL("ALTER TABLE track ADD COLUMN color INTEGER DEFAULT -13382401")
+        }
+        if (!trackColumns.contains("line_width")) {
+            db.execSQL("ALTER TABLE track ADD COLUMN line_width INTEGER DEFAULT 3")
+        }
     }
 
     /**
      * 保存一条轨迹及其坐标点，返回轨迹主键。
      */
-    fun addTrack(name: String, createdTime: Long, points: List<DoubleArray>): Long {
+    fun addTrack(
+        name: String,
+        createdTime: Long,
+        points: List<DoubleArray>,
+        color: Int = TrackRecord.DEFAULT_COLOR,
+        lineWidth: Int = TrackRecord.DEFAULT_LINE_WIDTH
+    ): Long {
         val values = ContentValues()
         values.put("name", name)
         values.put("created_time", createdTime)
         values.put("visible", 1)
+        values.put("color", color)
+        values.put("line_width", lineWidth)
         val trackId = db.insert("track", null, values)
         if (trackId < 0) return -1
 
@@ -140,11 +177,14 @@ class MapDataStore private constructor(context: Context) {
     fun loadTracks(): List<TrackRecord> {
         val tracks = LinkedHashMap<Long, TrackRecord>()
         db.rawQuery(
-            "SELECT id, name, created_time, visible FROM track ORDER BY created_time DESC", null
+            "SELECT id, name, created_time, visible, color, line_width FROM track ORDER BY created_time DESC", null
         ).use { c ->
             while (c.moveToNext()) {
                 val record = TrackRecord(c.getLong(0), c.getString(1) ?: "", c.getLong(2), mutableListOf())
                 record.visible = c.getInt(3) != 0
+                val colorValue = c.getInt(4)
+                record.color = if (colorValue == 0) TrackRecord.DEFAULT_COLOR else colorValue
+                record.lineWidth = c.getInt(5).takeIf { it > 0 } ?: TrackRecord.DEFAULT_LINE_WIDTH
                 tracks[record.id] = record
             }
         }
@@ -184,6 +224,16 @@ class MapDataStore private constructor(context: Context) {
     fun updateTrackVisible(trackId: Long, visible: Boolean) {
         val values = ContentValues()
         values.put("visible", if (visible) 1 else 0)
+        db.update("track", values, "id = ?", arrayOf(trackId.toString()))
+    }
+
+    /**
+     * 更新轨迹样式（颜色 + 线宽），轨迹详情 BottomSheet"保存"调用。
+     */
+    fun updateTrackStyle(trackId: Long, color: Int, lineWidth: Int) {
+        val values = ContentValues()
+        values.put("color", color)
+        values.put("line_width", lineWidth)
         db.update("track", values, "id = ?", arrayOf(trackId.toString()))
     }
 

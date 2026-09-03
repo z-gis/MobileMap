@@ -83,7 +83,12 @@ class SplashActivity : AppCompatActivity() {
         extractProjData()
         // 加载或创建文档
         DocumentManager.getInstance().loadOrCreate(this)
-        handler.postDelayed(launchMainRunnable, SPLASH_MIN_DURATION_MS)
+        // 外部文件打开（ACTION_VIEW）走此入口时初始化完成后直接进主界面，跳过启动页停留
+        if (intent?.action == Intent.ACTION_VIEW && intent?.data != null) {
+            launchMain()
+        } else {
+            handler.postDelayed(launchMainRunnable, SPLASH_MIN_DURATION_MS)
+        }
     }
 
     private fun extractProjData() {
@@ -147,7 +152,17 @@ class SplashActivity : AppCompatActivity() {
         if (launched) return
         launched = true
 
-        startActivity(Intent(this, MainActivity::class.java))
+        val mainIntent = Intent(this, MainActivity::class.java)
+        // 若 Splash 由外部 ACTION_VIEW（如微信打开矢量文件）拉起，透传 action/data 给 MainActivity，
+        // 并传递 content URI 的临时读取权限，保证冷启动（未经 Launcher）也能加载外部文件
+        val source = intent
+        if (source != null && source.action == Intent.ACTION_VIEW && source.data != null) {
+            mainIntent.action = Intent.ACTION_VIEW
+            mainIntent.data = source.data
+            mainIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+
+        startActivity(mainIntent)
         finish()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {

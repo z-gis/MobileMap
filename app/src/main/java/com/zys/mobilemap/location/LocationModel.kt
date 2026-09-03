@@ -4,6 +4,10 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
 import android.location.Location
 import android.os.Build
 import android.widget.TextView
@@ -20,6 +24,10 @@ import earth.worldwind.shape.OrientationMode
 import earth.worldwind.shape.Placemark
 import earth.worldwind.shape.PlacemarkAttributes
 import java.util.Locale
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
  * 主界面定位展示管理：负责定位权限申请、定位启动，
@@ -39,6 +47,15 @@ class LocationModel(
 
     /** 定位罗盘标记：图标中心为定位点，随地图方向旋转保持指北 */
     private var compassPlacemark: Placemark? = null
+
+    /** 移动方向箭头标记：叠加在罗盘中心，指向地理移动方位（参照 0.2.5.3） */
+    private var headingPlacemark: Placemark? = null
+
+    /** 上一次定位点，用于计算移动方位角 */
+    private var lastMarkerPosition: Position? = null
+
+    /** 最近一次有效移动方位角（度）：位移不足阈值时沿用，避免箭头抖动 */
+    private var lastTrackHeadingDegrees: Double? = null
 
     /**
      * 初始化定位：已有权限则直接开始定位，否则申请定位权限
@@ -101,6 +118,7 @@ class LocationModel(
 
     private fun updateLocationMarker(lat: Double, lon: Double) {
         try {
+            val current = Position(Angle.Companion.fromDegrees(lat), Angle.Companion.fromDegrees(lon), 0.0)
             var placemark = compassPlacemark
             if (placemark == null) {
                 if (locationLayer == null) {
@@ -126,10 +144,35 @@ class LocationModel(
 
                 locationLayer?.addRenderable(placemark)
                 compassPlacemark = placemark
-            } else {
-                placemark.position = Position(
-                    Angle.Companion.fromDegrees(lat), Angle.Companion.fromDegrees(lon), 0.0
+
+                // 移动方向箭头：叠加在罗盘中心，箭头中心即定位点，指向地理移动方位
+                val arrowAttrs = PlacemarkAttributes.createWithImage(
+                    ImageSource.fromBitmap(createHeadingArrowIcon())
                 )
+                arrowAttrs.imageScale = ARROW_IMAGE_SCALE * activity.resources.displayMetrics.density.coerceAtLeast(1f).toDouble()
+                val arrow = Placemark(
+                    Position(Angle.Companion.fromDegrees(lat), Angle.Companion.fromDegrees(lon), 0.0),
+                    arrowAttrs
+                )
+                // 相对地球旋转：imageRotation 设为移动方位角（顺时针自北），箭头即指向该地理方位
+                arrow.imageRotationReference = OrientationMode.RELATIVE_TO_GLOBE
+                lastTrackHeadingDegrees?.let { arrow.imageRotation = Angle.Companion.fromDegrees(it) }
+                locationLayer?.addRenderable(arrow)
+                headingPlacemark = arrow
+
+                lastMarkerPosition = current
+            } else {
+                placemark.position = Position(Angle.Companion.fromDegrees(lat), Angle.Companion.fromDegrees(lon), 0.0)
+                headingPlacemark?.let { arrow ->
+                    // 位移超过阈值才更新方位，避免静止/漂移时箭头抖动
+                    val heading = computeHeading(lastMarkerPosition, current)
+                    if (heading != null) {
+                        lastTrackHeadingDegrees = heading
+                        arrow.imageRotation = Angle.Companion.fromDegrees(heading)
+                    }
+                    arrow.position = Position(Angle.Companion.fromDegrees(lat), Angle.Companion.fromDegrees(lon), 0.0)
+                }
+                lastMarkerPosition = current
             }
             worldWindow.requestRedraw()
         } catch (e: Exception) {
@@ -142,5 +185,67 @@ class LocationModel(
 
         /** 罗盘图标基准缩放（原图 150×150 像素，乘以屏幕密度：密度 3 真机上约 225 像素/75dp） */
         private const val COMPASS_IMAGE_SCALE = 0.5f
+
+        /** 方向箭头图标基准缩放（128×128 位图，乘以屏幕密度） */
+        private const val ARROW_IMAGE_SCALE = 0.5f
+
+        /** 方向箭头位图边长（像素） */
+        private const val ARROW_ICON_SIZE_PX = 128
+
+        /** 方向箭头颜色（淡蓝，与 0.2.5.3 一致） */
+        private const val ARROW_COLOR = 0xFF57ACFD.toInt()
+
+        /** 更新方位所需的最小位移（米）：小于此值视为静止，不刷新箭头方向 */
+        private const val MIN_HEADING_DISTANCE_METERS = 1.5
+
+        /**
+         * 程序化绘制移动方向箭头：三角形包围盒居中于位图中心（即定位点），顶点朝上为正北。
+         */
+        private fun createHeadingArrowIcon(): Bitmap {
+            val size = ARROW_ICON_SIZE_PX
+            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            val center = size / 2f
+            val halfHeight = size * 0.30f
+            val halfBase = size * 0.18f
+            val path = Path()
+            path.moveTo(center, center - halfHeight)            // 顶点（指向北）
+            path.lineTo(center + halfBase, center + halfHeight) // 右底角
+            path.lineTo(center, center + halfHeight * 0.5f)     // 内凹
+            path.lineTo(center - halfBase, center + halfHeight) // 左底角
+            path.close()
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+            paint.style = Paint.Style.FILL
+            paint.color = ARROW_COLOR
+            canvas.drawPath(path, paint)
+            return bitmap
+        }
+
+        /**
+         * 计算从 [from] 到 [to] 的移动方位角（顺时针自北，0-360 度）；
+         * 位移小于 [MIN_HEADING_DISTANCE_METERS] 时返回 null（不更新方向）。
+         */
+        private fun computeHeading(from: Position?, to: Position): Double? {
+            if (from == null) return null
+            if (distanceMeters(from, to) < MIN_HEADING_DISTANCE_METERS) return null
+            val lat1 = Math.toRadians(from.latitude.inDegrees)
+            val lat2 = Math.toRadians(to.latitude.inDegrees)
+            val dLon = Math.toRadians(to.longitude.inDegrees - from.longitude.inDegrees)
+            val x = sin(dLon) * cos(lat2)
+            val y = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
+            val heading = Math.toDegrees(atan2(x, y))
+            return (heading + 360.0) % 360.0
+        }
+
+        /** 两定位点间地表距离（米，Haversine） */
+        private fun distanceMeters(from: Position, to: Position): Double {
+            val lat1 = Math.toRadians(from.latitude.inDegrees)
+            val lat2 = Math.toRadians(to.latitude.inDegrees)
+            val dLat = lat2 - lat1
+            val dLon = Math.toRadians(to.longitude.inDegrees - from.longitude.inDegrees)
+            val a = sin(dLat / 2) * sin(dLat / 2) + cos(lat1) * cos(lat2) * sin(dLon / 2) * sin(dLon / 2)
+            val c = 2 * atan2(sqrt(a), sqrt(1 - a))
+            return 6371000.0 * c
+        }
     }
 }

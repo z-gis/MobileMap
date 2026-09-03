@@ -50,14 +50,9 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
 
-        <activity
-            android:name=".ui.activity.MainActivity"
-            android:exported="true"
-            android:launchMode="singleTask">
-
-            <!-- 系统外部打开矢量数据：kml/kmz/zip 按 MIME，shp/dwg/dxf 按扩展名 -->
+            <!-- 系统外部打开矢量数据统一经 Splash 初始化（加载 native/proj/文档）后转发给 MainActivity：
+                 kml/kmz/zip 按 MIME，shp/dwg/dxf 按扩展名 -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -79,6 +74,13 @@
                 <data android:pathPattern=".*\\.dxf" />
             </intent-filter>
         </activity>
+
+        <!-- 外部文件打开（ACTION_VIEW）统一由 SplashActivity 承接并转发，故此处不再声明 VIEW intent-filter；
+             singleTask 保证转发时复用已运行实例（走 onNewIntent） -->
+        <activity
+            android:name=".ui.activity.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask" />
 
         <activity
             android:name=".ui.activity.OpenFileActivity"
