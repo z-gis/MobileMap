@@ -37,8 +37,6 @@ import com.zys.mobilemap.vector.PickedFeatureInfo
 import com.zys.mobilemap.vector.VectorFileImporter
 import com.zys.mobilemap.vector.VectorPickModel
 import earth.worldwind.PickedObjectList
-import earth.worldwind.geom.AltitudeMode
-import earth.worldwind.geom.Angle
 import earth.worldwind.layer.RenderableLayer
 import earth.worldwind.render.Color
 import earth.worldwind.render.Renderable
@@ -78,9 +76,6 @@ class MainActivity : BaseMapActivity() {
 
         /** 拍照标识"缩放至"目标相机高度（米） */
         private const val MEDIA_ZOOM_ALTITUDE = 1200.0
-
-        /** "回到定位"按键目标相机高度（米）：北向归 0 后调整到合适观察高度 */
-        private const val GOTO_LOCATION_ALTITUDE = 1200.0
 
         /** 加载遮罩安全超时（毫秒）：首屏瓦片迟迟未就绪时兜底淡出 */
         private const val LOADING_OVERLAY_TIMEOUT_MS = 8000L
@@ -165,8 +160,11 @@ class MainActivity : BaseMapActivity() {
             startActivity(intent)
         }
 
-        binding.mainIvGotoLocation.setOnClickListener({ v -> gotoLocation() })
+        // 定位锁定开关：点击锁定并跟随定位，再次点击解锁（参照 0.2.5.3 MainLocationModule）
+        binding.mainIvGotoLocation.setOnClickListener { locationDisplayManager?.toggleLocationLock() }
         binding.mainTvLocation.setOnClickListener({ v -> showMoveToDialog() })
+        // 北朝向按键：点击动画纠正到正北
+        binding.mainIvNorth.setOnClickListener { (getWorldWindow() as? MapWorldWindow)?.orientNorth() }
 
         binding.mainIvLayerManage.setOnClickListener { v ->
             LayerManageDialog(
@@ -235,16 +233,10 @@ class MainActivity : BaseMapActivity() {
      */
     private fun zoomToMediaPlacemark(placemark: MediaPlacemark) {
         val camera = getWorldWindow().engine.camera
-        camera.set(
-            Angle.Companion.fromDegrees(placemark.latitude),
-            Angle.Companion.fromDegrees(placemark.longitude),
-            MEDIA_ZOOM_ALTITUDE,
-            AltitudeMode.ABSOLUTE,
-            camera.heading,
-            camera.tilt,
-            camera.roll
+        // 动画缩放至拍照点位：保持当前航向，远距离自动走飞越弧线
+        (getWorldWindow() as? MapWorldWindow)?.smoothMoveTo(
+            placemark.latitude, placemark.longitude, MEDIA_ZOOM_ALTITUDE, camera.heading.inDegrees
         )
-        getWorldWindow().requestRedraw()
     }
 
     /**
@@ -465,19 +457,12 @@ class MainActivity : BaseMapActivity() {
      * 缩放到图层四至范围
      */
     private fun zoomToExtent(minLon: Double, minLat: Double, maxLon: Double, maxLat: Double) {
-        val camera = getWorldWindow().engine.camera
         val span = maxOf(maxLon - minLon, maxLat - minLat).coerceAtLeast(0.01)
         val altitude = span * 111320.0 * 1.5
-        camera.set(
-            Angle.Companion.fromDegrees((minLat + maxLat) / 2.0),
-            Angle.Companion.fromDegrees((minLon + maxLon) / 2.0),
-            altitude,
-            AltitudeMode.ABSOLUTE,
-            Angle.Companion.fromDegrees(0.0),
-            Angle.Companion.fromDegrees(0.0),
-            Angle.Companion.fromDegrees(0.0)
+        // 动画缩放到图层四至：北向归零，远距离自动走飞越弧线
+        (getWorldWindow() as? MapWorldWindow)?.smoothMoveTo(
+            (minLat + maxLat) / 2.0, (minLon + maxLon) / 2.0, altitude, 0.0
         )
-        getWorldWindow().requestRedraw()
     }
 
     // JNI 符号为 Java_com_zys_mobilemap_ui_activity_MainActivity_nativeGetLayerExtent，
@@ -525,31 +510,6 @@ class MainActivity : BaseMapActivity() {
         locationDisplayManager?.handlePermissionResult(requestCode, grantResults)
     }
 
-    private fun gotoLocation() {
-        val loc: Location? = LocationManager.Companion.getInstance().getLastLocation()
-        if (loc == null) {
-            Toast.makeText(this, "尚未获取到定位信息", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        // 保存当前位置，用于移动到位置对话框初始坐标使用
-        val camera = getWorldWindow().engine.camera
-        savedCenterLon = camera.position.longitude.inDegrees
-        savedCenterLat = camera.position.latitude.inDegrees
-
-        // 设置相机位置：定位点居中，北向归 0（正北朝上），高度调整到合适的观察高度
-        camera.set(
-            Angle.Companion.fromDegrees(loc.latitude),
-            Angle.Companion.fromDegrees(loc.longitude),
-            GOTO_LOCATION_ALTITUDE,
-            AltitudeMode.ABSOLUTE,
-            Angle.Companion.ZERO,
-            camera.tilt,
-            camera.roll
-        )
-        getWorldWindow().requestRedraw()
-    }
-
     private fun showMoveToDialog() {
         var initLon = savedCenterLon
         var initLat = savedCenterLat
@@ -572,17 +532,10 @@ class MainActivity : BaseMapActivity() {
 
         MoveToDialog(this, initLon, initLat, { lon: Double, lat: Double ->
             val camera = getWorldWindow().engine.camera
-            val alt = camera.position.altitude
-            camera.set(
-                Angle.Companion.fromDegrees(lat),
-                Angle.Companion.fromDegrees(lon),
-                alt,
-                AltitudeMode.ABSOLUTE,
-                camera.heading,
-                camera.tilt,
-                camera.roll
+            // 动画移动到输入坐标：保持当前高度与航向，远距离自动走飞越弧线
+            (getWorldWindow() as? MapWorldWindow)?.smoothMoveTo(
+                lat, lon, camera.position.altitude, camera.heading.inDegrees
             )
-            getWorldWindow().requestRedraw()
         }).create().show()
     }
 
@@ -599,6 +552,7 @@ class MainActivity : BaseMapActivity() {
     private fun applyModuleVisibility() {
         val config = DocumentManager.Companion.getInstance().getDocument()?.systemConfig ?: return
         mediaOverlayModel?.setEnabled(config.showMediaLayer)
+        mediaOverlayModel?.reload()
         trackModel?.setEnabled(config.showTrackLayer)
         measureModel?.setEnabled(config.showMeasureLayer)
     }

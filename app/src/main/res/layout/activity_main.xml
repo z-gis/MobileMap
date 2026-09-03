@@ -81,6 +81,19 @@
             android:visibility="gone" />
     </LinearLayout>
 
+    <!-- 左上：北朝向按键（图标随航向旋转指向真北，点击动画纠正到正北） -->
+    <ImageView
+        android:id="@+id/main_iv_north"
+        android:layout_width="36.0dip"
+        android:layout_height="36.0dip"
+        android:layout_marginStart="10dp"
+        android:layout_marginTop="50dp"
+        android:padding="5.0dp"
+        android:contentDescription="@string/main_north"
+        android:src="@drawable/ic_north"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
     <!-- 右上：图层按钮 -->
     <LinearLayout
         android:id="@+id/lay_top"

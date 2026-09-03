@@ -8,6 +8,7 @@ class SystemConfig {
     var photoAddWatermark: Boolean = true
     var backgroundLocation: Boolean = false
     var showMediaLayer: Boolean = true
+    var showPhotoName: Boolean = false
     var showTrackLayer: Boolean = true
     var showMeasureLayer: Boolean = true
 
@@ -17,6 +18,7 @@ class SystemConfig {
         o.put("photoAddWatermark", photoAddWatermark)
         o.put("backgroundLocation", backgroundLocation)
         o.put("showMediaLayer", showMediaLayer)
+        o.put("showPhotoName", showPhotoName)
         o.put("showTrackLayer", showTrackLayer)
         o.put("showMeasureLayer", showMeasureLayer)
         return o
@@ -29,6 +31,7 @@ class SystemConfig {
             if (o.has("photoAddWatermark")) c.photoAddWatermark = o.getBoolean("photoAddWatermark")
             if (o.has("backgroundLocation")) c.backgroundLocation = o.getBoolean("backgroundLocation")
             if (o.has("showMediaLayer")) c.showMediaLayer = o.getBoolean("showMediaLayer")
+            if (o.has("showPhotoName")) c.showPhotoName = o.getBoolean("showPhotoName")
             if (o.has("showTrackLayer")) c.showTrackLayer = o.getBoolean("showTrackLayer")
             if (o.has("showMeasureLayer")) c.showMeasureLayer = o.getBoolean("showMeasureLayer")
             return c

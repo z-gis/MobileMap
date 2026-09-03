@@ -114,6 +114,33 @@
 
                 <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#F1F1F1" />
 
+                <!-- 是否显示照片名称标注 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="60dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="12dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:text="@string/settings_show_photo_name"
+                        android:textColor="#131313"
+                        android:textSize="16sp"/>
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/set_switch_photo_name"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#F1F1F1" />
+
                 <!-- 是否显示轨迹记录图层 -->
                 <LinearLayout
                     android:layout_width="match_parent"

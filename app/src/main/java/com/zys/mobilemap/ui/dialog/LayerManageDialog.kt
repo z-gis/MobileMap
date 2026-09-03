@@ -284,6 +284,16 @@ class LayerManageDialog(
     }
 
     private fun onRemoveLayer(position: Int) {
+        val item = layerItems.getOrNull(position) ?: return
+        AlertDialog.Builder(requireContext())
+            .setTitle("移除确认")
+            .setMessage("确定移除图层：${displayLayerName(item)} ？（仅从地图移除，不删除源文件）")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("移除") { _, _ -> doRemoveLayer(position) }
+            .show()
+    }
+
+    private fun doRemoveLayer(position: Int) {
         if (position < 0 || position >= layerItems.size) return
         val doc = DocumentManager.getInstance().getDocument() ?: return
 
@@ -582,12 +592,13 @@ class LayerManageDialog(
     /**
      * 矢量/栅格图层项：
      * 左侧样式图标（矢量可点击弹出样式设置，栅格统一图标无点击）；
-     * 右侧上层名称（点击缩放到图层），右侧下层可见性/信息/移除按钮。
+     * 右侧上层名称（点击选中高亮），右侧下层缩放到/可见性/信息/移除按钮。
      */
     private inner class LayerViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
 
         private val ivIcon: ImageView = itemView.findViewById(R.id.item_layer_iv_icon)
         private val tvName: TextView = itemView.findViewById(R.id.item_layer_tv_name)
+        private val ivZoomTo: ImageView = itemView.findViewById(R.id.item_layer_iv_zoom_to)
         private val ivVisibility: ImageView = itemView.findViewById(R.id.item_layer_iv_visibility)
         private val ivInfo: ImageView = itemView.findViewById(R.id.item_layer_iv_info)
         private val ivDelete: ImageView = itemView.findViewById(R.id.item_layer_iv_delete)
@@ -624,7 +635,9 @@ class LayerManageDialog(
                 ivIcon.isClickable = false
             }
 
-            tvName.setOnClickListener { onZoomToLayer(adapterPosition) }
+            tvName.setOnClickListener { layerItems.getOrNull(adapterPosition)?.let { selectLayer(adapterPosition, it) } }
+
+            ivZoomTo.setOnClickListener { onZoomToLayer(adapterPosition) }
 
             ivVisibility.setImageResource(if (item.visible) R.drawable.ic_visibility else R.drawable.ic_visibility_off)
             ivVisibility.setColorFilter(

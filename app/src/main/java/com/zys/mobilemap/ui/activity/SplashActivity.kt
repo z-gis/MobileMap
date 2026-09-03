@@ -13,6 +13,7 @@ import com.zys.mobilemap.R
 import com.zys.mobilemap.doc.DocumentManager
 import com.zys.mobilemap.util.AppDirectories
 import com.zys.mobilemap.util.PermissionUtil
+import com.zys.mobilemap.util.util
 import java.io.File
 import java.io.FileOutputStream
 
@@ -27,6 +28,9 @@ class SplashActivity : AppCompatActivity() {
     private var launched = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // 与主界面一致的全屏沉浸窗口（隐藏导航栏 + 透明状态栏）：
+        // 保证启动页与主界面加载遮罩的窗口内边距完全一致，切换时画面不位移、状态栏不跳变
+        util.enableFullscreen(this)
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_splash)
 

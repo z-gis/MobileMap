@@ -10,10 +10,13 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.location.Location
 import android.os.Build
+import android.widget.ImageView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.annotation.RequiresApi
 import com.zys.mobilemap.R
 import com.zys.mobilemap.doc.DocumentManager
+import com.zys.mobilemap.ui.activity.MapWorldWindow
 import earth.worldwind.WorldWindow
 import earth.worldwind.geom.Angle
 import earth.worldwind.geom.Position
@@ -42,6 +45,15 @@ class LocationModel(
 
     private val locationTextView: TextView = activity.findViewById(R.id.main_tv_location)
     private val scaleTextView: TextView = activity.findViewById(R.id.main_tv_scale)
+
+    /** 定位锁定（跟随）开关按键：锁定时切换为锁定图标 */
+    private val gotoButton: ImageView = activity.findViewById(R.id.main_iv_goto_location)
+
+    /** 是否处于定位锁定（跟随）模式：锁定后每次定位更新动画跟随 */
+    private var locationFollowEnabled = false
+
+    /** 锁定后等待首个定位点的待处理标记 */
+    private var pendingLocateAction = false
 
     private var locationLayer: RenderableLayer? = null
 
@@ -114,6 +126,14 @@ class LocationModel(
         }
 
         updateLocationMarker(location.latitude, location.longitude)
+
+        // 定位锁定：首次待定位点对齐正北并提示，其后每次更新动画跟随（保持当前航向/高度）
+        if (pendingLocateAction) {
+            moveToLocation(location.latitude, location.longitude, alignNorth = true, notify = true)
+            pendingLocateAction = false
+        } else if (locationFollowEnabled) {
+            moveToLocation(location.latitude, location.longitude, alignNorth = false, notify = false)
+        }
     }
 
     private fun updateLocationMarker(lat: Double, lon: Double) {
@@ -180,8 +200,49 @@ class LocationModel(
         }
     }
 
+    /**
+     * 切换定位锁定：未锁定则锁定（换锁定图标 + 动画移到定位点、北向归零），
+     * 已锁定则解锁（换回普通图标，停止相机跟随）。参照 0.2.5.3 MainLocationModule。
+     */
+    fun toggleLocationLock() {
+        if (locationFollowEnabled) {
+            locationFollowEnabled = false
+            pendingLocateAction = false
+            gotoButton.setImageResource(R.drawable.nav_location)
+            return
+        }
+
+        locationFollowEnabled = true
+        gotoButton.setImageResource(R.drawable.nav_lock_location)
+
+        val last = LocationManager.getInstance().getLastLocation()
+        if (last != null) {
+            moveToLocation(last.latitude, last.longitude, alignNorth = true, notify = true)
+        } else {
+            pendingLocateAction = true
+            Toast.makeText(activity, "等待定位...", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * 动画移动相机到定位点。
+     * @param alignNorth true：北向归零并用默认观察高度（首次锁定）；false：保持当前航向与高度（跟随）。
+     */
+    private fun moveToLocation(lat: Double, lon: Double, alignNorth: Boolean, notify: Boolean) {
+        val ww = worldWindow as? MapWorldWindow ?: return
+        val camera = worldWindow.engine.camera
+        val alt = if (alignNorth) LOCK_ALTITUDE
+            else camera.position.altitude.takeIf { it > 0.0 } ?: LOCK_ALTITUDE
+        val heading = if (alignNorth) 0.0 else camera.heading.inDegrees
+        ww.smoothMoveTo(lat, lon, alt, heading)
+        if (notify) Toast.makeText(activity, "已定位到当前位置", Toast.LENGTH_SHORT).show()
+    }
+
     companion object {
         const val LOCATION_PERMISSION_REQUEST = 1002
+
+        /** 首次锁定定位时的默认观察高度（米） */
+        private const val LOCK_ALTITUDE = 1200.0
 
         /** 罗盘图标基准缩放（原图 150×150 像素，乘以屏幕密度：密度 3 真机上约 225 像素/75dp） */
         private const val COMPASS_IMAGE_SCALE = 0.5f
@@ -206,8 +267,8 @@ class LocationModel(
             val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
             val center = size / 2f
-            val halfHeight = size * 0.30f
-            val halfBase = size * 0.18f
+            val halfHeight = size * 0.16f
+            val halfBase = size * 0.14f
             val path = Path()
             path.moveTo(center, center - halfHeight)            // 顶点（指向北）
             path.lineTo(center + halfBase, center + halfHeight) // 右底角

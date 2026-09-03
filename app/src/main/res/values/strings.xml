@@ -93,6 +93,7 @@
 
     <!-- MainActivity -->
     <string name="main_annotation_toggle">切换注记图层显示</string>
+    <string name="main_north">北朝向（点击纠正到正北）</string>
 
     <!-- OpenFileActivity -->
     <string name="open_file_title">选择文件</string>
@@ -115,7 +116,8 @@
     <string name="settings_center_cross">显示中心十字</string>
     <string name="settings_photo_coordinate_watermark">照片添加坐标水印</string>
     <string name="settings_background_location">后台定位</string>
-    <string name="settings_show_media_layer">显示拍照标注</string>
+    <string name="settings_show_media_layer">显示照片标识</string>
+    <string name="settings_show_photo_name">显示照片名称</string>
     <string name="settings_show_track_layer">显示轨迹记录</string>
     <string name="settings_show_measure_layer">显示测量结果</string>
     <string name="settings_personal_info_list">关于</string>

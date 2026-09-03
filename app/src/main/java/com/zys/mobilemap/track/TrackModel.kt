@@ -23,7 +23,9 @@ import earth.worldwind.shape.Path
 import earth.worldwind.shape.ShapeAttributes
 import java.util.Date
 import java.util.Locale
+import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
@@ -369,15 +371,14 @@ class TrackModel(
     }
 
     /**
-     * 追加轨迹点：过滤距离过近的重复点。
+     * 追加轨迹点：按地表米制距离过滤过近的点（消除步走/静止时的 GPS 抖动摆动）。
      */
     private fun appendTrackPoint(lat: Double, lon: Double, alt: Double) {
         val point = Position.fromDegrees(lat, lon, 0.0)
         val last = activePoints.lastOrNull()
-        if (last != null) {
-            val latDiff = kotlin.math.abs(last.latitude.inDegrees - lat)
-            val lonDiff = kotlin.math.abs(last.longitude.inDegrees - lon)
-            if (latDiff < 1e-7 && lonDiff < 1e-7) return
+        if (last != null &&
+            distanceBetween(last.latitude.inDegrees, last.longitude.inDegrees, lat, lon) < MIN_TRACK_POINT_DISTANCE_METERS) {
+            return
         }
 
         activePoints.add(point)
@@ -389,6 +390,20 @@ class TrackModel(
             }
         }
         worldWindow.requestRedraw()
+    }
+
+    /**
+     * 两点地表距离（Haversine，单位米）：用于轨迹点最小间距过滤，
+     * 消除静止/步走时 GPS 抖动导致的来回摆动（行车点间距远大于阈值不受影响）。
+     */
+    private fun distanceBetween(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val r = 6371000.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = sin(dLat / 2) * sin(dLat / 2) +
+            cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLon / 2) * sin(dLon / 2)
+        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
+        return r * c
     }
 
     /**
@@ -460,5 +475,8 @@ class TrackModel(
     companion object {
         /** 轨迹图层标记 */
         const val TRACK_LAYER_KEY = "mobilemap.track.layer"
+
+        /** 轨迹点最小间距（米）：与上一点距离小于此值的点视为 GPS 抖动/步走摆动，不记录 */
+        const val MIN_TRACK_POINT_DISTANCE_METERS = 5.0
     }
 }

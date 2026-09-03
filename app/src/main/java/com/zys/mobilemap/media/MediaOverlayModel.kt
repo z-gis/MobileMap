@@ -2,6 +2,7 @@ package com.zys.mobilemap.media
 
 import android.content.Context
 import com.zys.mobilemap.R
+import com.zys.mobilemap.doc.DocumentManager
 import earth.worldwind.WorldWindow
 import earth.worldwind.geom.AltitudeMode
 import earth.worldwind.geom.Angle
@@ -58,10 +59,11 @@ class MediaOverlayModel(private val context: Context, private val worldWindow: W
      */
     fun reload() {
         placemarks = store.loadPlacemarks()
+        val showName = DocumentManager.getInstance().getDocument()?.systemConfig?.showPhotoName ?: false
         layer.clearRenderables()
         for (placemark in placemarks) {
             if (!placemark.visible) continue
-            layer.addRenderable(createPlacemark(placemark))
+            layer.addRenderable(createPlacemark(placemark, showName))
         }
         worldWindow.requestRedraw()
     }
@@ -75,7 +77,7 @@ class MediaOverlayModel(private val context: Context, private val worldWindow: W
             ?: store.loadPlacemarks().firstOrNull { it.id == id }
     }
 
-    private fun createPlacemark(record: MediaPlacemark): Placemark {
+    private fun createPlacemark(record: MediaPlacemark, showName: Boolean): Placemark {
         val attributes = PlacemarkAttributes.createWithImage(ImageSource.fromResource(R.drawable.ic_media))
         // 拾取热区即图标的屏幕像素矩形，按屏幕密度放大像素尺寸：
         // 高分屏真机上固定 0.8 倍仅约 38×58 像素，手指难以点中（模拟器鼠标定位精准掩盖了该问题）
@@ -84,11 +86,9 @@ class MediaOverlayModel(private val context: Context, private val worldWindow: W
         val count = record.attachments.size
         val name = if (record.name.isNotBlank()) record.name
         else if (count > 1) "拍照(${count})" else "拍照"
-        val placemark = Placemark(
-            Position(Angle.fromDegrees(record.latitude), Angle.fromDegrees(record.longitude), 0.0),
-            attributes,
-            name
-        )
+        // 照片名称标注开关：开启时带 label 文字，关闭时仅渲染图标（默认不显示标注文字）
+        val pos = Position(Angle.fromDegrees(record.latitude), Angle.fromDegrees(record.longitude), 0.0)
+        val placemark = if (showName) Placemark(pos, attributes, name) else Placemark(pos, attributes)
         placemark.altitudeMode = AltitudeMode.CLAMP_TO_GROUND
         placemark.putUserProperty(MEDIA_PLACEMARK_ID_KEY, record.id)
         return placemark

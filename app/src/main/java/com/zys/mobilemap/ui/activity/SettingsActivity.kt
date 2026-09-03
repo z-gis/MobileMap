@@ -40,6 +40,13 @@ class SettingsActivity : BaseStyledActivity() {
             config.showMediaLayer = isChecked
         }
 
+        // 照片名称标注显示
+        val photoNameSwitch: SwitchCompat = findViewById(R.id.set_switch_photo_name)
+        photoNameSwitch.isChecked = config.showPhotoName
+        photoNameSwitch.setOnCheckedChangeListener { _, isChecked ->
+            config.showPhotoName = isChecked
+        }
+
         // 轨迹记录图层可见性
         val trackLayerSwitch: SwitchCompat = findViewById(R.id.set_switch_track_layer)
         trackLayerSwitch.isChecked = config.showTrackLayer
