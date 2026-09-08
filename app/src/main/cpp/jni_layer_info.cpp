@@ -9,6 +9,8 @@
 #include "gdal/gdal_priv.h"
 #include "gdal/cpl_conv.h"
 
+#include "srs_resolve.h"
+
 // ==================== 图层四至与字段名（LayerManageDialog / MainActivity） ====================
 
 /**
@@ -25,6 +27,13 @@ static bool computeLayerExtent(const char *p, double extent[4]) {
         if (layer != nullptr) {
             OGREnvelope ext;
             if (layer->GetExtent(&ext, TRUE) == OGRERR_NONE) {
+                OGRSpatialReference *srs = resolveSourceSrs(p, layer);
+                // CAD 无 SRS（无同名 .prj 且坐标不含投影带号）：米制坐标无法定位，直接返回失败，
+                // 不返回米制四至（否则上层把米当经纬度缩放/过滤导致视角飞错）；改由加载失败提示补 .prj。
+                if (srs == nullptr && srsIsCad(p)) {
+                    GDALClose(ds);
+                    return false;
+                }
                 extent[0] = ext.MinX;
                 extent[1] = ext.MinY;
                 extent[2] = ext.MaxX;
@@ -34,15 +43,11 @@ static bool computeLayerExtent(const char *p, double extent[4]) {
                 // GetExtent 返回图层源坐标系下的包络；投影坐标系（如高斯-克吕格）下为米制，
                 // 需重投影到 WGS84，否则上层把米当经纬度缩放/过滤导致视角与加载错位。
                 // 四角全变换后取极值，兼容轴序翻转情形。
-                OGRSpatialReference *srs = layer->GetSpatialRef();
                 if (srs != nullptr && !srs->IsGeographic()) {
-                    OGRSpatialReference *src = srs->Clone();
-                    src->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                     OGRSpatialReference dst;
                     dst.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
                     dst.SetWellKnownGeogCS("WGS84");
-                    OGRCoordinateTransformation *ct = OGRCreateCoordinateTransformation(src, &dst);
-                    src->Release();
+                    OGRCoordinateTransformation *ct = OGRCreateCoordinateTransformation(srs, &dst);
                     if (ct != nullptr) {
                         double xs[4] = {ext.MinX, ext.MaxX, ext.MinX, ext.MaxX};
                         double ys[4] = {ext.MinY, ext.MinY, ext.MaxY, ext.MaxY};
@@ -58,6 +63,7 @@ static bool computeLayerExtent(const char *p, double extent[4]) {
                                             "四至重投影失败：无法创建坐标变换（proj.db 未配置？），返回源坐标系四至");
                     }
                 }
+                if (srs != nullptr) srs->Release();
             }
         }
         GDALClose(ds);
@@ -215,8 +221,8 @@ static char *computeLayerSrs(const char *p) {
     OGRSpatialReference *srs = nullptr;
     if (ds != nullptr) {
         OGRLayer *layer = ds->GetLayer(0);
-        if (layer != nullptr && layer->GetSpatialRef() != nullptr) {
-            srs = layer->GetSpatialRef()->Clone();
+        if (layer != nullptr) {
+            srs = resolveSourceSrs(p, layer);
         }
         GDALClose(ds);
     }

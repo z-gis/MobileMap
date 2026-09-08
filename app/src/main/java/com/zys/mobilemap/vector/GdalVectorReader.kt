@@ -37,6 +37,10 @@ class VectorQueryResult(val features: List<VectorFeature>?, val error: String?) 
  * JNI 返回 JSON：{"features":[{"geom":"POINT|LINE|POLYGON",…,"fields":{"k":"v"}}]}，
  * 查询失败额外返回 {"error":"…"}；要素数上限在 C++ 层控制，防大文件 OOM。
  */
+/** CAD 数据无坐标系（无同名 .prj 且坐标不含投影带号）：坐标无法定位，
+ * 加载/查询应终止并提示用户，不得按 WGS84 原样错位显示。 */
+class NoCoordinateSystemException(message: String) : IllegalStateException(message)
+
 object GdalVectorReader {
 
     private const val TAG = "GdalVectorReader"
@@ -66,6 +70,9 @@ object GdalVectorReader {
             return null
         }
         if (json == null) return null
+        // CAD 无坐标系时 C++ 回传 {"error":"…"}：抛异常终止加载，由界面提示原因，不按 WGS84 错位显示
+        val err = runCatching { JSONObject(json).optString("error", "") }.getOrDefault("")
+        if (err.isNotBlank()) throw NoCoordinateSystemException(err)
         return parseFeatures(json, path)
     }
 

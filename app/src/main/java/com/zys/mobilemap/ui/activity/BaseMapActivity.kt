@@ -339,8 +339,11 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "矢量图层加载失败[${info.name}]: $key", e)
+                    // 优先展示底层具体原因（无坐标系 CAD 提示补 .prj、DWG 版本不受支持提示转换等），
+                    // 无 message 时回退通用文案
+                    val tip = e.message?.takeIf { it.isNotBlank() } ?: "矢量图层加载失败: ${info.name}"
                     runOnUiThread {
-                        Toast.makeText(this@BaseMapActivity, "矢量图层加载失败: ${info.name}", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@BaseMapActivity, tip, Toast.LENGTH_LONG).show()
                     }
                     // 加载失败：从文档移除该图层并保存，避免图层列表残留无法显示的条目
                     // （导入时先加入文档再异步加载，失败即回退，对齐“打开失败即从列表删除”）

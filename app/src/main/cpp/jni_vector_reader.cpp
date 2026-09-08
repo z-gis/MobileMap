@@ -9,6 +9,8 @@
 #include "gdal/gdal_priv.h"
 #include "gdal/cpl_error.h"
 
+#include "srs_resolve.h"
+
 // ==================== 矢量要素读取（GDAL/OGR -> JSON，GdalVectorReader） ====================
 
 /** 要素数上限，防大文件 OOM */
@@ -243,22 +245,19 @@ static OGRGeometry *createSpatialFilterGeometry(double minLon, double minLat, do
  * hasFilter 为真时先按 WGS84 四至做空间过滤（反变换到源坐标系），仅遍历范围内要素。
  * 全量读取与 SQL 查询结果输出共用，保证要素 JSON 结构与坐标处理一致。
  */
-static void emitLayerFeatures(std::string &out, OGRLayer *layer,
+static void emitLayerFeatures(std::string &out, OGRLayer *layer, const char *path,
                               bool &firstFeature, int &count, bool &truncated,
                               bool hasFilter, double minLon, double minLat,
                               double maxLon, double maxLat) {
     if (layer == nullptr || truncated) return;
 
     OGRCoordinateTransformation *ct = nullptr;
-    OGRSpatialReference *srcClone = nullptr;
-    OGRSpatialReference *srcRef = layer->GetSpatialRef();
+    OGRSpatialReference *srcRef = resolveSourceSrs(path, layer);
     if (srcRef != nullptr) {
-        srcClone = srcRef->Clone();
-        srcClone->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         OGRSpatialReference dstRef;
         dstRef.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         dstRef.SetWellKnownGeogCS("WGS84");
-        ct = OGRCreateCoordinateTransformation(srcClone, &dstRef);
+        ct = OGRCreateCoordinateTransformation(srcRef, &dstRef);
         if (ct == nullptr) {
             // 创建失败（常见：proj.db 搜索路径未配置）时坐标将按源坐标系原样输出，
             // 投影米制被当经纬度渲染导致位置错误，必须提示而非静默
@@ -295,8 +294,8 @@ static void emitLayerFeatures(std::string &out, OGRLayer *layer,
     if (ct != nullptr) {
         OGRCoordinateTransformation::DestroyCT(ct);
     }
-    if (srcClone != nullptr) {
-        srcClone->Release();
+    if (srcRef != nullptr) {
+        srcRef->Release();
     }
 }
 
@@ -309,12 +308,21 @@ Java_com_zys_mobilemap_vector_GdalVectorReader_nativeReadVectorFeatures(
     GDALAllRegister();
 
     const char *p = env->GetStringUTFChars(path, nullptr);
+    const std::string pathStr(p);
     GDALDataset *ds = (GDALDataset *) GDALOpenEx(p, GDAL_OF_VECTOR | GDAL_OF_READONLY,
                                                  nullptr, nullptr, nullptr);
     env->ReleaseStringUTFChars(path, p);
     if (ds == nullptr) {
         __android_log_print(ANDROID_LOG_WARN, "GdalVectorReader", "GDALOpenEx 打开矢量数据失败");
         return nullptr;
+    }
+
+    // CAD 无坐标系（无同名 .prj 且坐标不含投影带号）：米制坐标无法定位，不按 WGS84 原样输出，
+    // 回传错误文本由界面提示并跳过加载（避免错位显示）。
+    if (cadLacksSrs(pathStr.c_str(), ds->GetLayer(0))) {
+        GDALClose(ds);
+        return env->NewStringUTF(
+                "{\"error\":\"该 CAD 数据无坐标系信息（无同名 .prj 且坐标不含投影带号），无法定位，已跳过加载\"}");
     }
 
     std::string out = "{\"features\":[";
@@ -328,7 +336,7 @@ Java_com_zys_mobilemap_vector_GdalVectorReader_nativeReadVectorFeatures(
     // 遍历全部图层（dwg 等格式的实体分布在多个子图层）
     int layerCount = ds->GetLayerCount();
     for (int li = 0; li < layerCount && !truncated; li++) {
-        emitLayerFeatures(out, ds->GetLayer(li), firstFeature, count, truncated,
+        emitLayerFeatures(out, ds->GetLayer(li), pathStr.c_str(), firstFeature, count, truncated,
                           hasFilter, minLon, minLat, maxLon, maxLat);
     }
 
@@ -355,6 +363,7 @@ Java_com_zys_mobilemap_vector_GdalVectorReader_nativeQueryVectorFeatures(
     GDALAllRegister();
 
     const char *p = env->GetStringUTFChars(path, nullptr);
+    const std::string pathStr(p);
     const char *q = env->GetStringUTFChars(sql, nullptr);
     std::string sqlText(q);
     env->ReleaseStringUTFChars(sql, q);
@@ -384,11 +393,19 @@ Java_com_zys_mobilemap_vector_GdalVectorReader_nativeQueryVectorFeatures(
         return env->NewStringUTF(out.c_str());
     }
 
+    // CAD 无坐标系：查询结果同样无法定位，回传错误文本（界面按查询失败提示），不做错位高亮。
+    if (cadLacksSrs(pathStr.c_str(), result)) {
+        ds->ReleaseResultSet(result);
+        GDALClose(ds);
+        return env->NewStringUTF(
+                "{\"error\":\"该 CAD 数据无坐标系信息（无同名 .prj 且坐标不含投影带号），无法定位查询结果\"}");
+    }
+
     std::string out = "{\"features\":[";
     bool firstFeature = true;
     int count = 0;
     bool truncated = false;
-    emitLayerFeatures(out, result, firstFeature, count, truncated, false, 0, 0, 0, 0);
+    emitLayerFeatures(out, result, pathStr.c_str(), firstFeature, count, truncated, false, 0, 0, 0, 0);
 
     if (truncated) {
         __android_log_print(ANDROID_LOG_WARN, "GdalVectorReader",

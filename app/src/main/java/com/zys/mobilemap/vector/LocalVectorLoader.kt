@@ -284,7 +284,7 @@ object LocalVectorLoader {
      */
     private suspend fun loadWithGdal(file: File, name: String?, extent: DoubleArray?, style: VectorStyle?): List<Layer> = withContext(Dispatchers.Default) {
         val features = GdalVectorReader.readFeatures(file.absolutePath, extent)
-            ?: throw IllegalStateException("GDAL 读取失败（格式不支持或数据为空）: ${file.name}")
+            ?: throw IllegalStateException(gdalOpenFailMessage(file))
         if (features.isEmpty()) throw IllegalStateException("矢量数据无可渲染要素: ${file.name}")
         Log.i(TAG, "GDAL 读取 ${features.size} 个要素: ${file.name}")
 
@@ -294,6 +294,22 @@ object LocalVectorLoader {
         }
         buildRenderables(layer, features, style)
         listOf(layer)
+    }
+
+    /**
+     * GDAL 打开失败提示：DWG 读取文件头 6 字节版本码（AC10xx），明确告知版本不受
+     * GDAL DWG 驱动（libopencad）支持并给出转换建议，避免用户误判为缺同名 .prj 反复补文件。
+     */
+    private fun gdalOpenFailMessage(file: File): String {
+        if (file.extension.equals("dwg", ignoreCase = true)) {
+            val ver = runCatching {
+                file.inputStream().use { val b = ByteArray(6); it.read(b); b.decodeToString() }
+            }.getOrDefault("")
+            if (ver.startsWith("AC10")) {
+                return "DWG 打开失败（版本 $ver 不受 GDAL DWG 驱动支持），请转为 DXF 或另存为 DWG 2000/2004 后重试: ${file.name}"
+            }
+        }
+        return "GDAL 读取失败（格式不支持或数据为空）: ${file.name}"
     }
 
     /**
