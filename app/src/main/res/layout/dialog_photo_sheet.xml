@@ -14,7 +14,7 @@
         android:textSize="16sp"
         android:textStyle="bold"/>
 
-    <androidx.recyclerview.widget.RecyclerView
+    <com.zys.mobilemap.control.MaxHeightRecyclerView
         android:id="@+id/photo_sheet_grid"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

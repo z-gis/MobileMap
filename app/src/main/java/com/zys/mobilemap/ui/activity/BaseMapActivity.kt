@@ -11,7 +11,7 @@ import com.zys.mobilemap.doc.LayerInfo
 import com.zys.mobilemap.doc.MapDocument
 import com.zys.mobilemap.doc.MapSource
 import com.zys.mobilemap.raster.GdalRasterLayer
-import com.zys.mobilemap.util.util
+import com.zys.mobilemap.util.UiUtil
 import com.zys.mobilemap.vector.LocalVectorLoader
 import earth.worldwind.WorldWindow
 import earth.worldwind.geom.AltitudeMode
@@ -19,11 +19,9 @@ import earth.worldwind.geom.Angle
 import earth.worldwind.layer.BackgroundLayer
 import earth.worldwind.layer.Layer
 import kotlinx.coroutines.launch
-import java.lang.Double
 import kotlin.math.cos
 
 open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener {
-
 
     private lateinit var wwd: WorldWindow
 
@@ -42,7 +40,8 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
     /** 已加载的栅格图层：key 为栅格文件路径，渲染位于底图之上、矢量之下 */
     private val rasterLayerMap = mutableMapOf<String, Layer>()
 
-    /** 已加载的矢量图层：key 为图层缓存键（路径|样式版本），一个矢量文件可能产出多个图层（如 KML 文件夹） */
+    /** 已加载的矢量图层：key 为图层缓存键（路径|样式版本|shp 读取引擎，见 [layerKey]），
+     *  一个矢量文件可能产出多个图层（如 KML 文件夹） */
     private val vectorLayerMap = mutableMapOf<String, MutableList<Layer>>()
 
     /** 正在异步加载中的矢量图层路径，防重复加载 */
@@ -52,7 +51,7 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // 全屏显示，沉浸式体验
-        util.enableFullscreen(this)
+        UiUtil.enableFullscreen(this)
 
         super.onCreate(savedInstanceState)
     }
@@ -97,7 +96,7 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
                         context = this,
                         urlTemplate = url,
                         name = src.name ?: "",
-                        imageFormat = if (src.imageFormat.isNullOrEmpty()) "image/png" else src.imageFormat!!,
+                        imageFormat = imageFormatOf(src),
                         sourceMaxLevel = src.maxLevel
                     )
                     baseMapLayers[key] = layer
@@ -162,7 +161,7 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
                     context = this,
                     urlTemplate = url,
                     name = src.name ?: "",
-                    imageFormat = if (src.imageFormat.isNullOrEmpty()) "image/png" else src.imageFormat!!,
+                    imageFormat = imageFormatOf(src),
                     sourceMaxLevel = src.maxLevel
                 )
                 annotationSourceKey = key
@@ -206,6 +205,12 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
                 "|" + (src.token1 ?: "") + "|" + (src.token2 ?: "") + "|" + src.maxLevel
 
     /**
+     * 地图源瓦片图片格式：未声明或为空时回退 [DEFAULT_IMAGE_FORMAT]（底图与注记图层共用）。
+     */
+    private fun imageFormatOf(src: MapSource): String =
+        src.imageFormat?.takeIf { it.isNotEmpty() } ?: DEFAULT_IMAGE_FORMAT
+
+    /**
      * 将 URL 中的 Token 占位符替换为实际 Token。
      */
     private fun resolveUrl(src: MapSource): String? {
@@ -224,10 +229,16 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
     }
 
     /**
-     * 矢量图层缓存键：路径|样式版本。样式修改递增版本号后旧键失效，
-     * 已加载图层被移除并按新样式重载（与可见性增删同构，无需另建通知）。
+     * 矢量图层缓存键：路径|样式版本|shp 读取引擎。样式修改递增版本号后旧键失效，
+     * 已加载图层被移除并按新样式重载（与可见性增删同构，无需另建通知）；
+     * 引擎纳入键后，设置中切换 GDAL / WorldWind 原生同样触发 shp 图层按新引擎重载。
      */
-    private fun layerKey(info: LayerInfo): String = (info.path ?: "") + "|" + info.styleVersion
+    private fun layerKey(info: LayerInfo): String {
+        val base = (info.path ?: "") + "|" + info.styleVersion
+        if (info.path?.endsWith(".shp", ignoreCase = true) != true) return base
+        val useGdal = DocumentManager.getInstance().getDocument()?.systemConfig?.shpUseGdal ?: true
+        return base + "|" + if (useGdal) "gdal" else "native"
+    }
 
     /**
      * 栅格图层同步：按文档中可见的栅格图层（TIF）增删。
@@ -235,8 +246,8 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
      */
     private fun syncRasterLayers(doc: MapDocument) {
         val targetKeys = doc.rasterLayers
-            .filter { it.visible && !it.path.isNullOrEmpty() }
-            .map { it.path!! }
+            .filter { it.visible }
+            .mapNotNull { it.path?.takeIf { p -> p.isNotEmpty() } }
             .toSet()
 
         // 移除不再是目标的栅格图层（删除或置隐）
@@ -405,14 +416,11 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
     }
 
     /**
-     * Create a WorldWindow and add the background layer.
+     * 创建 WorldWindow 并加入背景层。
      */
     protected fun createWorldWindow(): WorldWindow {
         wwd = MapWorldWindow(this)
-
-        wwd.engine.layers.apply {
-            addLayer(BackgroundLayer())
-        }
+        wwd.engine.layers.addLayer(BackgroundLayer())
 
         // 恢复文档中保存的地图位置（文档在 Splash 阶段已加载）
         restoreCameraState()
@@ -421,7 +429,7 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
     }
 
     /**
-     * Resumes the rendering thread.
+     * 恢复渲染线程。
      */
     override fun onResume() {
         super.onResume()
@@ -429,18 +437,15 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
     }
 
     /**
-     * Restores the camera state from the document.
+     * 从文档恢复相机状态。
      */
     private fun restoreCameraState() {
-        val mapDoc = DocumentManager.getInstance().getDocument()
-        if (mapDoc == null) return
-        if (Double.isNaN(mapDoc.camLatitude) ||
-            Double.isNaN(mapDoc.camLongitude) ||
-            Double.isNaN(mapDoc.camAltitude)
-        )
-            return
+        val mapDoc = DocumentManager.getInstance().getDocument() ?: return
+        // 三个位置分量任一未记录即视为无有效视角，避免把相机设到 NaN 坐标
+        if (mapDoc.camLatitude.isNaN() || mapDoc.camLongitude.isNaN() || mapDoc.camAltitude.isNaN()) return
 
-        val altMode = if (mapDoc.camAltitudeMode >= 0) AltitudeMode.entries[mapDoc.camAltitudeMode] else AltitudeMode.ABSOLUTE
+        // 用 getOrNull 兜底：document.json 可能被手改出越界序号，直接 entries[i] 会抛 IndexOutOfBounds
+        val altMode = AltitudeMode.entries.getOrNull(mapDoc.camAltitudeMode) ?: AltitudeMode.ABSOLUTE
 
         val camera = wwd.engine.camera
         camera.set(
@@ -455,32 +460,29 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
     }
 
     /**
-     * Pauses the rendering thread and saves the camera state.
+     * 暂停渲染线程并保存相机状态。
      */
     override fun onPause() {
         super.onPause()
         saveCameraState()
-        // pauses the rendering thread
-        this.wwd.onPause()
+        wwd.onPause()
     }
 
     /**
-     * Saves the camera state to the document.
+     * 把当前相机状态写回文档（含高度模式序号）并落盘。
      */
     private fun saveCameraState() {
         val camera = wwd.engine.camera
-        val doc = DocumentManager.getInstance().getDocument()
-        if (doc != null) {
-            doc.camLatitude = camera.position.latitude.inDegrees
-            doc.camLongitude = camera.position.longitude.inDegrees
-            doc.camAltitude = camera.position.altitude
-            doc.camHeading = camera.heading.inDegrees
-            doc.camTilt = camera.tilt.inDegrees
-            doc.camRoll = camera.roll.inDegrees
-            doc.camAltitudeMode = camera.altitudeMode.ordinal
+        val doc = DocumentManager.getInstance().getDocument() ?: return
+        doc.camLatitude = camera.position.latitude.inDegrees
+        doc.camLongitude = camera.position.longitude.inDegrees
+        doc.camAltitude = camera.position.altitude
+        doc.camHeading = camera.heading.inDegrees
+        doc.camTilt = camera.tilt.inDegrees
+        doc.camRoll = camera.roll.inDegrees
+        doc.camAltitudeMode = camera.altitudeMode.ordinal
 
-            DocumentManager.getInstance().save(applicationContext)
-        }
+        DocumentManager.getInstance().save(applicationContext)
     }
 
     /**
@@ -491,9 +493,10 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
         DocumentManager.getInstance().unregisterDocumentChangeListener(this)
     }
 
-
-
     companion object {
         private const val TAG = "BaseMapActivity"
+
+        /** 瓦片图片格式缺省值：地图源未声明格式时按 PNG 解码 */
+        private const val DEFAULT_IMAGE_FORMAT = "image/png"
     }
 }

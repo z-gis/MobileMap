@@ -7,31 +7,32 @@ import android.graphics.Paint
 import android.util.AttributeSet
 import android.view.View
 
-class CrossView : View {
-    private val paint = Paint()
+/**
+ * 地图中心十字准星：横竖两条红线交于视图中心，指示当前地图中心点。
+ * 由 activity_main.xml 直接声明，故用 @JvmOverloads 生成三个标准 View 构造函数供 XML 反射调用。
+ */
+class CrossView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0
+) : View(context, attrs, defStyleAttr) {
 
-    constructor(context: Context) : super(context) {
-        init()
-    }
-
-    constructor(context: Context, attrs: AttributeSet?) : super(context, attrs) {
-        init()
-    }
-
-    constructor(context: Context, attrs: AttributeSet?, defStyleAttr: Int) :
-            super(context, attrs, defStyleAttr) {
-        init()
-    }
-
-    protected fun init() {
-        paint.setColor(Color.RED)
-        paint.setStrokeWidth(3f)
+    /** 准星画笔：不开抗锯齿、线宽按物理像素给定，保持移植前的锐利观感 */
+    private val paint = Paint().apply {
+        color = Color.RED
+        strokeWidth = STROKE_WIDTH_PX
     }
 
     override fun onDraw(canvas: Canvas) {
-        val w: Int = this.getWidth()
-        val h: Int = this.getHeight()
-        canvas.drawLine((w / 2).toFloat(), 0f, (w / 2).toFloat(), h.toFloat(), paint) // 竖线
-        canvas.drawLine(0f, (h / 2).toFloat(), w.toFloat(), (h / 2).toFloat(), paint) // 横线
+        // 整数除法定中心（与原实现一致，避免半像素偏移使线条发虚）
+        val cx = (width / 2).toFloat()
+        val cy = (height / 2).toFloat()
+        canvas.drawLine(cx, 0f, cx, height.toFloat(), paint) // 竖线
+        canvas.drawLine(0f, cy, width.toFloat(), cy, paint) // 横线
+    }
+
+    companion object {
+        /** 准星线宽（物理像素，不按密度缩放） */
+        private const val STROKE_WIDTH_PX = 3f
     }
 }

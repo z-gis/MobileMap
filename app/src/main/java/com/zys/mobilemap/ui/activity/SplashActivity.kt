@@ -8,19 +8,16 @@ import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import com.zys.mobilemap.ui.activity.MainActivity
 import com.zys.mobilemap.R
 import com.zys.mobilemap.doc.DocumentManager
 import com.zys.mobilemap.util.AppDirectories
+import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.util.PermissionUtil
-import com.zys.mobilemap.util.util
+import com.zys.mobilemap.util.UiUtil
 import java.io.File
 import java.io.FileOutputStream
 
 class SplashActivity : AppCompatActivity() {
-
-    val TAG: String = "SplashActivity"
-    val SPLASH_MIN_DURATION_MS: Long = 800L
 
     private val handler = Handler(Looper.getMainLooper())
     private val launchMainRunnable = Runnable { this.launchMain() }
@@ -30,7 +27,7 @@ class SplashActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         // 与主界面一致的全屏沉浸窗口（隐藏导航栏 + 透明状态栏）：
         // 保证启动页与主界面加载遮罩的窗口内边距完全一致，切换时画面不位移、状态栏不跳变
-        util.enableFullscreen(this)
+        UiUtil.enableFullscreen(this)
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_splash)
 
@@ -59,8 +56,10 @@ class SplashActivity : AppCompatActivity() {
     private fun loadNativeLibrary() {
         try {
             System.loadLibrary("mobilemap")
+            AppLog.i(TAG, "原生库 mobilemap 加载成功")
         } catch (e: UnsatisfiedLinkError) {
             Log.e(TAG, "Failed to load native library 'mobilemap'", e)
+            AppLog.e(TAG, "原生库 mobilemap 加载失败", e)
         }
     }
 
@@ -81,12 +80,13 @@ class SplashActivity : AppCompatActivity() {
 
     private fun initializeAndLaunch() {
         AppDirectories.ensureAll(this)
-        // 初始化缓存
-        //TileCacheManager.getInstance().init(this)
-        // 解压proj数据
+        // 全文件访问权限已就绪，将日志目录切到外部 调查宝/log，便于用户取出反馈
+        AppLog.refreshLogDir(this)
+        // 解压 proj 数据（PROJ 坐标转换依赖 proj.db 与格网改正数文件）
         extractProjData()
         // 加载或创建文档
         DocumentManager.getInstance().loadOrCreate(this)
+        AppLog.i(TAG, "初始化完成，文档已加载")
         // 外部文件打开（ACTION_VIEW）走此入口时初始化完成后直接进主界面，跳过启动页停留
         if (intent?.action == Intent.ACTION_VIEW && intent?.data != null) {
             launchMain()
@@ -97,56 +97,54 @@ class SplashActivity : AppCompatActivity() {
 
     private fun extractProjData() {
         try {
-            val projDir = File(getFilesDir(), "proj")
+            val projDir = File(filesDir, "proj")
             if (!projDir.exists()) {
                 projDir.mkdirs()
             }
             copyAssetFolder("proj", projDir)
-            initProjDataPath(projDir.getAbsolutePath())
+            initProjDataPath(projDir.absolutePath)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to extract proj data", e)
+            AppLog.e(TAG, "解压 proj 数据失败", e)
         }
     }
 
-    private fun copyAssetFolder(assetPath: String, destDir: File?) {
+    /**
+     * 递归复制 assets 目录到 [destDir]：子目录建同名目录后递归（保持层级），
+     * 文件已存在时跳过，避免每次启动重复解压。
+     */
+    private fun copyAssetFolder(assetPath: String, destDir: File) {
         try {
-            val files = getAssets().list(assetPath)
-            if (files == null || files.size == 0) {
-                copyAssetFile(assetPath, File(destDir, assetPath))
+            val children = assets.list(assetPath)
+            // 空清单即叶子节点（assets 对文件返回空数组），按文件复制
+            if (children.isNullOrEmpty()) {
+                val leaf = File(destDir, assetPath.substringAfterLast('/'))
+                if (!leaf.exists()) copyAssetFile(assetPath, leaf)
                 return
             }
-            for (file in files) {
-                val subPath = assetPath + "/" + file
-                val subFiles = getAssets().list(subPath)
-                if (subFiles != null && subFiles.size > 0) {
-                    val subDir = File(destDir, file)
-                    if (!subDir.exists()) subDir.mkdirs()
-                    copyAssetFolder(subPath, destDir)
+            if (!destDir.exists()) destDir.mkdirs()
+            for (child in children) {
+                val subPath = "$assetPath/$child"
+                val subChildren = assets.list(subPath)
+                if (subChildren.isNullOrEmpty()) {
+                    val destFile = File(destDir, child)
+                    if (!destFile.exists()) copyAssetFile(subPath, destFile)
                 } else {
-                    val destFile = File(destDir, file)
-                    if (!destFile.exists()) {
-                        copyAssetFile(subPath, destFile)
-                    }
+                    copyAssetFolder(subPath, File(destDir, child))
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to copy asset: " + assetPath, e)
+            Log.e(TAG, "Failed to copy asset: $assetPath", e)
         }
     }
 
     private fun copyAssetFile(assetPath: String, destFile: File) {
         try {
-            getAssets().open(assetPath).use { `in` ->
-                FileOutputStream(destFile).use { out ->
-                    val buffer = ByteArray(8192)
-                    var len: Int
-                    while ((`in`.read(buffer).also { len = it }) != -1) {
-                        out.write(buffer, 0, len)
-                    }
-                }
+            assets.open(assetPath).use { input ->
+                FileOutputStream(destFile).use { out -> input.copyTo(out) }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to copy: " + assetPath, e)
+            Log.e(TAG, "Failed to copy: $assetPath", e)
         }
     }
 
@@ -155,6 +153,7 @@ class SplashActivity : AppCompatActivity() {
     private fun launchMain() {
         if (launched) return
         launched = true
+        AppLog.i(TAG, "启动 MainActivity")
 
         val mainIntent = Intent(this, MainActivity::class.java)
         // 若 Splash 由外部 ACTION_VIEW（如微信打开矢量文件）拉起，透传 action/data 给 MainActivity，
@@ -175,7 +174,16 @@ class SplashActivity : AppCompatActivity() {
                 android.R.anim.fade_in, android.R.anim.fade_out
             )
         } else {
+            // overridePendingTransition 自 API 34 起弃用，仅低版本分支使用（高版本走 overrideActivityTransition）
+            @Suppress("DEPRECATION")
             overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
         }
+    }
+
+    companion object {
+        private const val TAG = "SplashActivity"
+
+        /** 启动页最短停留时长（毫秒），避免一闪而过 */
+        private const val SPLASH_MIN_DURATION_MS = 800L
     }
 }

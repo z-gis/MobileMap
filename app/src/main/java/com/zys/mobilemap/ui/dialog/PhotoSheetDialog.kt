@@ -8,19 +8,16 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.fragment.app.FragmentManager
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.bottomsheet.BottomSheetBehavior
-import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.zys.mobilemap.R
+import com.zys.mobilemap.control.MaxHeightRecyclerView
 import com.zys.mobilemap.media.MediaAttachment
 import com.zys.mobilemap.media.MediaStore
 import com.zys.mobilemap.ui.activity.PhotoViewerActivity
-import com.google.android.material.R as MaterialR
 
 /**
  * 照片列表 BottomSheet：显示某拍照点位（Placemark）的全部照片，
@@ -28,14 +25,12 @@ import com.google.android.material.R as MaterialR
  */
 class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
 
-    private var placemarkId = -1L
-    private var placemarkName = ""
+    /** 目标点位主键；-1 表示参数缺失（如进程重建后 arguments 丢失），此时按空列表处理 */
+    private val placemarkId: Long
+        get() = arguments?.getLong(ARG_PLACEMARK_ID, -1L) ?: -1L
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        placemarkId = arguments?.getLong(ARG_PLACEMARK_ID, -1L) ?: -1L
-        placemarkName = arguments?.getString(ARG_PLACEMARK_NAME) ?: "照片"
-    }
+    private val placemarkName: String
+        get() = arguments?.getString(ARG_PLACEMARK_NAME) ?: DEFAULT_TITLE
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         val dialog = super.onCreateDialog(savedInstanceState)
@@ -45,29 +40,26 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
         // 同 FeatureDetailDialog 处理方式）
         sheet.findViewById<TextView>(R.id.photo_sheet_title).text = placemarkName
 
-        val attachments = if (placemarkId < 0) emptyList() else
-            MediaStore.getInstance(requireContext()).loadPlacemarks()
-                .firstOrNull { it.id == placemarkId }
+        // 按主键查库只取本点位，不拉全部点位再过滤；非照片附件不列入网格
+        val attachments = if (placemarkId < 0) {
+            emptyList()
+        } else {
+            MediaStore.getInstance(requireContext())
+                .findPlacemark(placemarkId)
                 ?.attachments
                 ?.filter { it.type == MediaAttachment.TYPE_PHOTO }
                 ?: emptyList()
+        }
 
         // 无照片时显示空提示，避免仅剩标题无内容
         sheet.findViewById<TextView>(R.id.photo_sheet_empty).visibility =
             if (attachments.isEmpty()) View.VISIBLE else View.GONE
 
-        val grid = sheet.findViewById<RecyclerView>(R.id.photo_sheet_grid)
-        grid.layoutManager = GridLayoutManager(requireContext(), 3)
-        // 显式指定高度（每行 96dp，上限 360dp），规避折叠态下列表测量高度为 0 的问题
-        if (attachments.isNotEmpty()) {
-            val density = resources.displayMetrics.density
-            val rows = (attachments.size + 2) / 3
-            val height = minOf((rows * 96 * density).toInt(), (360 * density).toInt())
-            (grid.layoutParams as? ViewGroup.MarginLayoutParams)?.let { lp ->
-                lp.height = height
-                grid.layoutParams = lp
-            }
-        }
+        val grid = sheet.findViewById<MaxHeightRecyclerView>(R.id.photo_sheet_grid)
+        grid.layoutManager = GridLayoutManager(requireContext(), GRID_SPAN_COUNT)
+        // 网格高度须由内容驱动（wrap_content）才能形成手势档位，但必须给上限：
+        // 无上限时照片过多会测得超过屏高，弹层被父布局截断后网格底部滚不到
+        grid.maxHeightPx = listMaxHeightPx()
         grid.adapter = PhotoThumbAdapter(attachments) { index ->
             val intent = Intent(requireContext(), PhotoViewerActivity::class.java)
             intent.putExtra(PhotoViewerActivity.EXTRA_PLACEMARK_ID, placemarkId)
@@ -75,20 +67,7 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
             startActivity(intent)
         }
 
-        // 覆盖基类 onShowListener：圆角背景 + 布局完成后按内容实测高度设 peekHeight 并展开（同 FeatureDetailDialog）
-        dialog.setOnShowListener { d ->
-            val bottomSheet = (d as BottomSheetDialog)
-                .findViewById<FrameLayout>(MaterialR.id.design_bottom_sheet)
-            bottomSheet?.let { bs ->
-                bs.setBackgroundResource(R.drawable.bg_bottom_sheet_rounded)
-                sheet.post {
-                    BottomSheetBehavior.from(bs).apply {
-                        peekHeight = sheet.height
-                        state = BottomSheetBehavior.STATE_EXPANDED
-                    }
-                }
-            }
-        }
+        // 圆角背景与可手势调整的高度档位由基类统一配置（见 BaseBottomSheetDialog）
         return dialog
     }
 
@@ -110,7 +89,7 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
 
         override fun onBindViewHolder(holder: Holder, position: Int) {
             val attachment = attachments[position]
-            val thumbnail = decodeThumbnail(attachment.path, 240, 240)
+            val thumbnail = decodeThumbnail(attachment.path, THUMBNAIL_SIZE_PX, THUMBNAIL_SIZE_PX)
             if (thumbnail != null) {
                 holder.image.setImageBitmap(thumbnail)
             } else {
@@ -140,6 +119,13 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
     companion object {
         private const val ARG_PLACEMARK_ID = "arg_placemark_id"
         private const val ARG_PLACEMARK_NAME = "arg_placemark_name"
+        private const val DEFAULT_TITLE = "照片"
+
+        /** 缩略图网格列数 */
+        private const val GRID_SPAN_COUNT = 3
+
+        /** 缩略图解码边长（像素）：采样解码到此尺寸，避免原图 OOM */
+        private const val THUMBNAIL_SIZE_PX = 240
 
         fun show(manager: FragmentManager, placemarkId: Long, placemarkName: String) {
             val dialog = PhotoSheetDialog()

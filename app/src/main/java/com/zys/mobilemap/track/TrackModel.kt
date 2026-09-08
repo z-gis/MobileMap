@@ -23,16 +23,18 @@ import earth.worldwind.shape.Path
 import earth.worldwind.shape.ShapeAttributes
 import java.util.Date
 import java.util.Locale
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.math.sqrt
+import java.util.concurrent.Executors
 
 /**
  * 轨迹记录模块（参照上一版本）：
  * 开始/暂停/继续/停止轨迹记录，活动轨迹实时绘制，
  * 停止后轨迹保存至 /调查宝/map/map.db，启动时读取数据库渲染历史轨迹。
  * 图层可见性由设置（[com.zys.mobilemap.doc.SystemConfig.showTrackLayer]）驱动。
+ *
+ * 采集数据不丢失：
+ *  - 横竖屏切换：MainActivity 已声明 configChanges，Activity 不重建，本模块内存状态与地图视角全部保留；
+ *  - 进程被系统回收/异常退出：采集开始即建立“记录中”草稿轨迹，轨迹点实时落库，
+ *    重启后 [restoreDraftTrack] 从数据库恢复采集状态与已采集但未保存的轨迹点。
  */
 class TrackModel(
     private val activity: Activity,
@@ -58,6 +60,15 @@ class TrackModel(
     /** 是否暂停 */
     private var paused = false
 
+    /** 记录中的草稿轨迹主键（-1 表示无）：采集点实时落库，进程重启后据此恢复 */
+    private var draftTrackId = -1L
+
+    /** 本次采集起始时间：停止时据此生成轨迹名称（与开始时间一致） */
+    private var draftCreatedTime = 0L
+
+    /** 轨迹点落库线程：单线程串行写入，避免每点一次 SQLite 写入阻塞主线程 */
+    private val dbExecutor = Executors.newSingleThreadExecutor()
+
     /** 已保存轨迹缓存（点击命中判定用，与数据库同步） */
     private var recordsCache: List<TrackRecord> = emptyList()
 
@@ -82,6 +93,41 @@ class TrackModel(
         binding.mainIvTrkStart.setOnClickListener { resumeTrackRecording() }
         binding.mainIvTrkStop.setOnClickListener { stopTrackRecording() }
         updateControlButtons()
+
+        // 上次采集未结束（进程被回收/异常退出）时恢复采集状态与已采集轨迹点
+        restoreDraftTrack()
+    }
+
+    /**
+     * 恢复未结束的草稿轨迹：读回已落库的采集点重建活动轨迹线，并恢复“记录中”状态，
+     * 保证采集过程被中断后原采集但未保存的数据不丢失。
+     */
+    private fun restoreDraftTrack() {
+        val store = MapDataStore.getInstance(activity)
+        val draft = store.loadDraftTrack() ?: return
+        if (draft.points.isEmpty()) {
+            // 无采集点的空草稿（刚开始就中断）直接清理，避免残留
+            store.deleteTrack(draft.id)
+            return
+        }
+
+        draftTrackId = draft.id
+        draftCreatedTime = draft.createdTime
+        activePoints.clear()
+        for (p in draft.points) {
+            activePoints.add(Position.fromDegrees(p[0], p[1], 0.0))
+        }
+        activeTrackLine = createTrackLine(activePoints, true)
+        recording = true
+        paused = false
+
+        reloadSavedTracks()
+        updateControlButtons()
+        Toast.makeText(
+            activity,
+            "已恢复上次未完成的轨迹记录（${activePoints.size} 个点）",
+            Toast.LENGTH_LONG
+        ).show()
     }
 
     /**
@@ -90,6 +136,13 @@ class TrackModel(
     fun setEnabled(visible: Boolean) {
         layer.isEnabled = visible
         worldWindow.requestRedraw()
+    }
+
+    /**
+     * 释放落库线程（宿主 Activity 销毁时调用）：已入队的采集点写入仍会执行完毕。
+     */
+    fun shutdown() {
+        dbExecutor.shutdown()
     }
 
     /**
@@ -137,44 +190,11 @@ class TrackModel(
         return meters.coerceIn(20.0, 10000.0)
     }
 
-    /** 轨迹为折线：点到各段最小距离在阈值内即命中 */
+    /** 轨迹为折线：点到各段最小距离在阈值内即命中（量算走 GeoCalc，与测量模块同一实现） */
     private fun isHitTrack(record: TrackRecord, lat: Double, lon: Double, threshold: Double): Boolean {
         if (record.points.size < 2) return false
         val edgeThreshold = maxOf(20.0, threshold)
-        return minEdgeDistanceMeters(record.points, lat, lon) <= edgeThreshold
-    }
-
-    /** 点到折线各段最小距离 */
-    private fun minEdgeDistanceMeters(points: List<DoubleArray>, lat: Double, lon: Double): Double {
-        if (points.size < 2) return Double.MAX_VALUE
-        var min = Double.MAX_VALUE
-        for (i in 1 until points.size) {
-            min = minOf(min, distanceToSegmentMeters(lat, lon, points[i - 1], points[i]))
-        }
-        return min
-    }
-
-    /** 点到线段距离（局部等角平面近似，同测量模块） */
-    private fun distanceToSegmentMeters(lat: Double, lon: Double, a: DoubleArray, b: DoubleArray): Double {
-        val lat0 = Math.toRadians((a[0] + b[0] + lat) / 3.0)
-        val r = 6371000.0
-        val px = r * Math.toRadians(lon) * cos(lat0)
-        val py = r * Math.toRadians(lat)
-        val ax = r * Math.toRadians(a[1]) * cos(lat0)
-        val ay = r * Math.toRadians(a[0])
-        val bx = r * Math.toRadians(b[1]) * cos(lat0)
-        val by = r * Math.toRadians(b[0])
-        val dx = bx - ax
-        val dy = by - ay
-        if (dx == 0.0 && dy == 0.0) {
-            val sx = px - ax
-            val sy = py - ay
-            return sqrt(sx * sx + sy * sy)
-        }
-        val t = (((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)).coerceIn(0.0, 1.0)
-        val ex = px - (ax + t * dx)
-        val ey = py - (ay + t * dy)
-        return sqrt(ex * ex + ey * ey)
+        return GeoCalc.minEdgeDistanceMeters(record.points, lat, lon) <= edgeThreshold
     }
 
     /**
@@ -309,6 +329,11 @@ class TrackModel(
         recording = true
         paused = false
 
+        // 建立“记录中”草稿轨迹：采集点随采集实时落库，中断后不丢失未保存数据
+        draftCreatedTime = System.currentTimeMillis()
+        draftTrackId = MapDataStore.getInstance(activity)
+            .beginDraftTrack(trackNameOf(draftCreatedTime), draftCreatedTime)
+
         // 当前位置作为轨迹起点
         locationManager.getLastLocation()?.let {
             appendTrackPoint(it.latitude, it.longitude, it.altitude)
@@ -340,7 +365,8 @@ class TrackModel(
     }
 
     /**
-     * 停止轨迹记录：点串保存到数据库，清理活动轨迹状态。
+     * 停止轨迹记录：采集点已实时落库，此处仅结束草稿（写入最终名称 + 清除“记录中”标记）
+     * 并清理活动轨迹状态；采集点不足时删除草稿。
      */
     private fun stopTrackRecording() {
         if (!recording) return
@@ -349,39 +375,75 @@ class TrackModel(
         paused = false
         updateControlButtons()
 
+        val draftId = draftTrackId
+        draftTrackId = -1L
+        val store = MapDataStore.getInstance(activity)
+
         if (activePoints.size < 2) {
+            if (draftId > 0) dbExecutor.execute { store.deleteTrack(draftId) }
             clearActiveTrack()
             reloadSavedTracks()
             Toast.makeText(activity, "轨迹点不足，未生成轨迹线", Toast.LENGTH_SHORT).show()
             return
         }
 
-        val now = System.currentTimeMillis()
-        val name = String.format(
-            Locale.getDefault(),
-            "轨迹 %1\$tY-%1\$tm-%1\$td %1\$tH:%1\$tM:%1\$tS",
-            Date(now)
-        )
-        val points = activePoints.map { doubleArrayOf(it.latitude.inDegrees, it.longitude.inDegrees, it.altitude) }
-        MapDataStore.getInstance(activity).addTrack(name, now, points)
+        // 名称取采集起始时间（与开始记录时刻一致，而非停止时刻）
+        val name = trackNameOf(draftCreatedTime)
+        if (draftId > 0) {
+            // 与待写入的采集点同一单线程队列，结束后再回主线程重载，保证渲染含全部点
+            dbExecutor.execute {
+                store.finishDraftTrack(draftId, name)
+                activity.runOnUiThread { onTrackSaved() }
+            }
+        } else {
+            // 草稿建立失败的兜底：整串一次性保存
+            val points = activePoints.map {
+                doubleArrayOf(it.latitude.inDegrees, it.longitude.inDegrees, it.altitude)
+            }
+            dbExecutor.execute {
+                store.addTrack(name, draftCreatedTime, points)
+                activity.runOnUiThread { onTrackSaved() }
+            }
+        }
+    }
 
+    /** 轨迹保存完成：清理活动轨迹并重载历史轨迹（主线程） */
+    private fun onTrackSaved() {
         clearActiveTrack()
         reloadSavedTracks()
         Toast.makeText(activity, "轨迹记录已停止", Toast.LENGTH_SHORT).show()
     }
 
+    /** 轨迹默认名称：轨迹 yyyy-MM-dd HH:mm:ss */
+    private fun trackNameOf(time: Long): String = String.format(
+        Locale.getDefault(),
+        "轨迹 %1\$tY-%1\$tm-%1\$td %1\$tH:%1\$tM:%1\$tS",
+        Date(time)
+    )
+
     /**
-     * 追加轨迹点：按地表米制距离过滤过近的点（消除步走/静止时的 GPS 抖动摆动）。
+     * 追加轨迹点：按地表米制距离过滤过近的点（消除步走/静止时的 GPS 抖动摆动），
+     * 并实时写入草稿轨迹（单线程队列，不阻塞主线程）。
      */
     private fun appendTrackPoint(lat: Double, lon: Double, alt: Double) {
-        val point = Position.fromDegrees(lat, lon, 0.0)
+        val point = Position.fromDegrees(lat, lon, alt)
         val last = activePoints.lastOrNull()
+        // 最小间距过滤：消除静止/步走时 GPS 抖动导致的轨迹来回摆动（行车点间距远大于阈值不受影响）
         if (last != null &&
-            distanceBetween(last.latitude.inDegrees, last.longitude.inDegrees, lat, lon) < MIN_TRACK_POINT_DISTANCE_METERS) {
+            GeoCalc.distanceMeters(last.latitude.inDegrees, last.longitude.inDegrees, lat, lon)
+            < MIN_TRACK_POINT_DISTANCE_METERS) {
             return
         }
 
         activePoints.add(point)
+        // 采集点实时落库：seq 与活动点序号一致，恢复时按 seq 升序读回
+        val draftId = draftTrackId
+        if (draftId > 0) {
+            val seq = activePoints.size - 1
+            dbExecutor.execute {
+                MapDataStore.getInstance(activity).appendTrackPoint(draftId, seq, lat, lon, alt)
+            }
+        }
         // Path 需要至少 2 个点才渲染，重建共享同一位置列表的轨迹线
         activeTrackLine?.let { line ->
             line.positions = activePoints.toList()
@@ -390,20 +452,6 @@ class TrackModel(
             }
         }
         worldWindow.requestRedraw()
-    }
-
-    /**
-     * 两点地表距离（Haversine，单位米）：用于轨迹点最小间距过滤，
-     * 消除静止/步走时 GPS 抖动导致的来回摆动（行车点间距远大于阈值不受影响）。
-     */
-    private fun distanceBetween(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-        val r = 6371000.0
-        val dLat = Math.toRadians(lat2 - lat1)
-        val dLon = Math.toRadians(lon2 - lon1)
-        val a = sin(dLat / 2) * sin(dLat / 2) +
-            cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLon / 2) * sin(dLon / 2)
-        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
-        return r * c
     }
 
     /**

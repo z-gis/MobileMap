@@ -20,3 +20,6 @@ local.properties
 # 构建产物与临时脚本
 /app/release/
 grep.ps1
+
+# 项目文档：仅本地维护，不推送远程
+/doc/

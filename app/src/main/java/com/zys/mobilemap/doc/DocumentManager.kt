@@ -1,11 +1,9 @@
 package com.zys.mobilemap.doc
 
 import android.content.Context
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import androidx.annotation.RequiresApi
 import com.zys.mobilemap.util.AppDirectories
 import org.json.JSONException
 import org.json.JSONObject
@@ -16,7 +14,10 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 
 /**
- * Simple document manager: load / save MapDocument to JSON under config directory.
+ * 地图文档单例管理：在 /调查宝/config/document.json 上读写 [MapDocument]，
+ * 并在加载/保存成功后向已注册的监听者广播变更（地图图层同步均由此驱动）。
+ *
+ * 读写均宽容失败：读不出就建默认文档，写不下就记日志，不抛异常中断宿主流程。
  */
 class DocumentManager private constructor() {
 
@@ -40,9 +41,8 @@ class DocumentManager private constructor() {
     fun getDocument(): MapDocument? = synchronized(this) { document }
 
     /**
-     * Load document from config dir or create default one.
+     * 从 config 目录加载文档；不存在或解析失败时创建默认文档并立即落盘。
      */
-    @RequiresApi(Build.VERSION_CODES.KITKAT)
     fun loadOrCreate(context: Context) {
         synchronized(this) {
             val cfgDir = AppDirectories.getConfigDir(context)
@@ -52,33 +52,35 @@ class DocumentManager private constructor() {
                 try {
                     val content = docFile.readText(StandardCharsets.UTF_8)
                     val o = JSONObject(content)
-                    document = MapDocument.fromJson(o)
-                    migrateAnnotationSource(document!!)
-                    unifyTiandituTokens(document!!)
+                    val doc = MapDocument.fromJson(o)
+                    document = doc
+                    migrateAnnotationSource(doc)
+                    unifyTiandituTokens(doc)
                     notifyListeners()
                     loaded = true
                 } catch (e: IOException) {
-                    Log.w(TAG, "failed to read document.json, will create default", e)
+                    Log.w(TAG, "读取 document.json 失败，将创建默认文档", e)
                 } catch (e: JSONException) {
-                    Log.w(TAG, "failed to read document.json, will create default", e)
+                    Log.w(TAG, "读取 document.json 失败，将创建默认文档", e)
                 }
             }
 
             if (!loaded) {
-                // create default document
-                document = createDefaultDocument()
-                // notify immediately
+                // 创建默认文档
+                val doc = createDefaultDocument()
+                document = doc
+                // 立即通知，不等落盘
                 notifyListeners()
-                // try to save synchronously first so file exists on disk for first-run checks
+                // 先同步写一次，保证首次启动的后续检查能读到磁盘上的文件
                 try {
-                    docFile.writeText(document!!.toJson().toString(2), StandardCharsets.UTF_8)
+                    docFile.writeText(doc.toJson().toString(2), StandardCharsets.UTF_8)
                 } catch (e: IOException) {
-                    Log.w(TAG, "failed to write document.json synchronously, will retry async", e)
-                    // fallback to async save
+                    Log.w(TAG, "同步写 document.json 失败，转为异步重试", e)
+                    // 回退到异步保存
                     save(context)
                 } catch (e: JSONException) {
-                    Log.w(TAG, "failed to write document.json synchronously, will retry async", e)
-                    // fallback to async save
+                    Log.w(TAG, "同步写 document.json 失败，转为异步重试", e)
+                    // 回退到异步保存
                     save(context)
                 }
             }
@@ -87,30 +89,28 @@ class DocumentManager private constructor() {
 
     private fun createDefaultDocument(): MapDocument {
         val doc = MapDocument()
-        // 系统自带地图源：天地图-影像（默认可见）
-        val img = MapSource(SYSTEM_SOURCE_TIANDITU_IMG, TIANDITU_IMG_URL, true)
-        img.token1 = TIANDITU_TOKEN
-        img.imageFormat = "image/jpeg"
-        img.isSystem = true
-        doc.mapSources.add(img)
-        // 系统自带地图源：天地图-电子，由地图源管理界面管理
-        val vec = MapSource(SYSTEM_SOURCE_TIANDITU_VEC, TIANDITU_VEC_URL, false)
-        vec.token1 = TIANDITU_TOKEN
-        vec.imageFormat = "image/png"
-        vec.isSystem = true
-        doc.mapSources.add(vec)
-        // 系统自带地图源：天地图-地形，由地图源管理界面管理
-        val ter = MapSource(SYSTEM_SOURCE_TIANDITU_TER, TIANDITU_TER_URL, false)
-        ter.token1 = TIANDITU_TOKEN
-        ter.imageFormat = "image/png"
-        ter.isSystem = true
-        doc.mapSources.add(ter)
+        // 系统自带地图源：天地图-影像默认可见，电子/地形由地图源管理界面按需开启
+        doc.mapSources.add(createTiandituSource(SYSTEM_SOURCE_TIANDITU_IMG, TIANDITU_IMG_URL, true, "image/jpeg"))
+        doc.mapSources.add(createTiandituSource(SYSTEM_SOURCE_TIANDITU_VEC, TIANDITU_VEC_URL, false, "image/png"))
+        doc.mapSources.add(createTiandituSource(SYSTEM_SOURCE_TIANDITU_TER, TIANDITU_TER_URL, false, "image/png"))
         // 系统自带地图源：天地图-注记（默认可见，不在地图源列表中显示，由主界面按钮控制）
         doc.mapSources.add(createAnnotationSource(true))
-        // raster/vector empty by default
+        // 栅格/矢量图层默认为空
         doc.systemConfig.showCenterCross = true
         doc.systemConfig.photoAddWatermark = true
         return doc
+    }
+
+    /** 构造一个系统自带天地图地图源（全部图层共用同一 Token） */
+    private fun createTiandituSource(
+        name: String,
+        url: String,
+        visible: Boolean,
+        imageFormat: String
+    ): MapSource = MapSource(name, url, visible).apply {
+        token1 = TIANDITU_TOKEN
+        this.imageFormat = imageFormat
+        isSystem = true
     }
 
     /**
@@ -133,14 +133,10 @@ class DocumentManager private constructor() {
         }
     }
 
-    private fun createAnnotationSource(visible: Boolean): MapSource {
-        val cia = MapSource(SYSTEM_SOURCE_TIANDITU_CIA, TIANDITU_CIA_URL, visible)
-        cia.token1 = TIANDITU_TOKEN
-        cia.imageFormat = "image/png"
-        cia.isSystem = true
-        cia.isAnnotation = true
-        return cia
-    }
+    private fun createAnnotationSource(visible: Boolean): MapSource =
+        createTiandituSource(SYSTEM_SOURCE_TIANDITU_CIA, TIANDITU_CIA_URL, visible, "image/png").apply {
+            isAnnotation = true
+        }
 
     /**
      * 天地图 Token 共用：修改任一天地图地图源的 Token 后，
@@ -174,28 +170,30 @@ class DocumentManager private constructor() {
         synchronized(this) {
             val doc = document ?: return
             val appCtx = context.applicationContext
-            // perform save asynchronously
+            // 写盘耗时，放到单线程执行器上异步做（同一执行器也保证了写入顺序）
             executor.submit {
                 val cfgDir = AppDirectories.getConfigDir(appCtx)
                 val docFile = File(cfgDir, DOCUMENT_FILE)
                 try {
                     docFile.writeText(doc.toJson().toString(2), StandardCharsets.UTF_8)
-                    // after successful save, notify listeners on main thread
+                    // 保存成功后再回主线程通知监听者，避免监听者读到未落盘的旧文件
                     mainHandler.post { notifyListeners() }
                 } catch (e: IOException) {
-                    Log.e(TAG, "failed to save document.json", e)
+                    Log.e(TAG, "保存 document.json 失败", e)
                 } catch (e: JSONException) {
-                    Log.e(TAG, "failed to save document.json", e)
+                    Log.e(TAG, "保存 document.json 失败", e)
                 }
             }
         }
     }
 
     private fun notifyListeners() {
+        val doc = document ?: return
         for (l in listeners) {
             try {
-                l.onDocumentChanged(document!!)
+                l.onDocumentChanged(doc)
             } catch (ignored: Throwable) {
+                // 单个监听器抛异常（如宿主界面已销毁）不得影响其余监听器
             }
         }
     }
@@ -222,8 +220,7 @@ class DocumentManager private constructor() {
 
         @JvmStatic
         fun getInstance(): DocumentManager = synchronized(this) {
-            if (instance == null) instance = DocumentManager()
-            instance!!
+            instance ?: DocumentManager().also { instance = it }
         }
     }
 }

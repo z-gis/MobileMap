@@ -2,6 +2,7 @@ package com.zys.mobilemap.vector
 
 import android.content.Context
 import android.util.Log
+import com.zys.mobilemap.doc.DocumentManager
 import com.zys.mobilemap.doc.LayerInfo
 import com.zys.mobilemap.doc.VectorStyle
 import earth.worldwind.formats.kml.KmlLayerFactory
@@ -36,9 +37,12 @@ import javax.xml.parsers.DocumentBuilderFactory
 
 /**
  * 本地矢量数据加载：按格式分发，产出可加入 WorldWindow 的图层列表。
- *  - kml/kmz：WorldWind 原生解析，按源文件配色渲染（坐标恒为 WGS84，无需 GDAL）；
- *  - shp：原生优先（地理坐标/UTM/无 prj），其余投影走 GDAL 重投影到 WGS84；
- *  - dwg/dxf：WorldWind 无读取器，走 GDAL。
+ *  - shp：两条读取路径并存，由设置开关 [com.zys.mobilemap.doc.SystemConfig.shpUseGdal] 选定：
+ *    默认 GDAL/OGR 读取并重投影到 WGS84（任意坐标系含 CGCS2000、北京54 等需基准转换的
+ *    地理坐标系均能正确落位）；关闭时走 WorldWind 原生字节入口（原生不支持的投影仍自动回退 GDAL）；
+ *  - dwg/dxf：WorldWind 无读取器，恒走 GDAL/OGR；
+ *  - kml/kmz：WorldWind 原生解析优先（保留源文件配色/图标/地面覆盖物，为 LocalLayer.md
+ *    明确要求的渲染效果，GDAL 通用要素读取无法保留），失败或超大文件时回退 GDAL。
  */
 object LocalVectorLoader {
 
@@ -47,6 +51,10 @@ object LocalVectorLoader {
     /** 原生解析的 KML 文件大小上限：超过则直接走 GDAL（原生解析需整文读入+全文档建模，
      * 内存峰值约为文件十余倍，15MB 级 KML 极易 OOM，且失败后再回退相当于双倍消耗） */
     private const val NATIVE_KML_MAX_BYTES = 5L * 1024 * 1024
+
+    /** 空间过滤生效的文件大小下限：小文件全量读取（平移/缩小后视野外要素仍在），
+     * 大文件按屏幕四至限制读取量防 OOM（GDAL 路径平移不重载，过滤会造成要素缺失） */
+    private const val SPATIAL_FILTER_MIN_BYTES = 6L * 1024 * 1024
 
     /** 矢量图层标记：拾取时据此过滤出矢量要素（底图/注记不参与点选） */
     const val VECTOR_LAYER_KEY = "isVectorLayer"
@@ -92,15 +100,20 @@ object LocalVectorLoader {
         outlineWidth = 3f
     }
 
+    /** 原生 shp 点要素选中高亮：同图标放大 1.4 倍 + 黄色着色 */
     private val highlightPlacemarkAttributes = PlacemarkAttributes().apply {
         imageScale = 1.4
         imageColor = Color(1f, 1f, 0f, 1f)
     }
 
+    /** SQL 查询结果高亮样式：洋红半透明填充 + 洋红粗描边，与原图层默认/文档样式显著区分 */
+    private const val QUERY_FILL_COLOR = "#59FF00FF"
+    private const val QUERY_OUTLINE_COLOR = "#FFFF00FF"
+
     /**
      * 按文档图层信息加载矢量图层，加载失败抛异常由调用方提示。
      * extent 为当前屏幕四至（WGS84 [minLon,minLat,maxLon,maxLat]），
-     * GDAL 路径仅读取该范围内的要素（屏幕中心点要素及其相邻要素），从源头控制读取量防 OOM。
+     * 仅对大文件生效：从源头控制读取量防 OOM；小文件全量读取，保证平移后要素不缺失。
      */
     suspend fun loadLayers(context: Context, layerInfo: LayerInfo, extent: DoubleArray? = null): List<Layer> {
         val path = layerInfo.path ?: throw IllegalArgumentException("图层路径为空")
@@ -108,16 +121,20 @@ object LocalVectorLoader {
         if (!file.exists()) throw IllegalArgumentException("文件不存在: $path")
 
         val style = layerInfo.vectorStyle?.takeIf { !it.isEmpty() }
+        val filterExtent = extent?.takeIf { file.length() > SPATIAL_FILTER_MIN_BYTES }
         val layers = when (file.extension.lowercase(Locale.getDefault())) {
-            "kml" -> loadKml(context, file, layerInfo.name, extent, style)
+            "kml" -> loadKml(context, file, layerInfo.name, filterExtent, style)
             "kmz" -> {
                 // 正常导入流程文档记录的是解压后的 kml 路径，此处兜底解压
                 val result = VectorFileImporter.importFile(context, path)
                     ?: throw IllegalArgumentException("kmz 解压失败: ${file.name}")
-                loadKml(context, File(result.path), layerInfo.name, extent, style)
+                loadKml(context, File(result.path), layerInfo.name, filterExtent, style)
             }
-            "shp" -> loadShp(file, layerInfo.name, extent, style)
-            "dwg", "dxf" -> loadWithGdal(file, layerInfo.name, extent, style)
+            // shp 读取引擎由设置开关决定（默认 GDAL），两条路径并存不删除
+            "shp" -> if (shpUseGdal()) loadWithGdal(file, layerInfo.name, filterExtent, style)
+            else loadShpNative(file, layerInfo.name, filterExtent, style)
+            // dwg/dxf 无 WorldWind 原生读取器，恒走 GDAL/OGR
+            "dwg", "dxf" -> loadWithGdal(file, layerInfo.name, filterExtent, style)
             else -> throw IllegalArgumentException("不支持的矢量格式: ${file.extension}")
         }
         // 图层写入文档路径，点击拾取后据此定位 LayerInfo（样式写回）
@@ -195,18 +212,26 @@ object LocalVectorLoader {
         return layers
     }
 
+    /** shp 读取引擎开关：文档未加载时缺省按 GDAL 读取（新功能统一走 GDAL） */
+    private fun shpUseGdal(): Boolean =
+        DocumentManager.getInstance().getDocument()?.systemConfig?.shpUseGdal ?: true
+
     /**
-     * SHP：读 .prj 判定坐标系——地理坐标/UTM/无 prj 用原生字节入口加载；
-     * 其余投影坐标系（如 CGCS2000 高斯-克吕格）原生会原样透传坐标导致错位，改走 GDAL 重投影。
-     * 原生路径经 emitRecordRenderables 逐记录生成渲染对象，记录号作为要素标识（后期属性表/编辑定位）。
+     * SHP 原生路径（WorldWind 字节入口，设置关闭 GDAL 时使用）：
+     * 读 .prj 判定坐标系——地理坐标/UTM/无 prj 用原生加载；其余投影坐标系（如 CGCS2000
+     * 高斯-克吕格）原生会原样透传坐标导致错位，仍自动回退 GDAL 重投影。
+     * 原生路径经 emitRecordRenderables 逐记录生成渲染对象，记录号（1 基）作为要素标识；
+     * 注意与 GDAL 路径的 FID（0 基）相差 1，切换引擎后已保存的单要素样式会整体错位一位。
      * 样式覆盖按记录号区分单要素（featureStyles），标注取 DBF 属性。
+     * 原生入口需整文件读入内存，不参与屏幕四至空间过滤。
      */
-    private suspend fun loadShp(file: File, name: String?, extent: DoubleArray?, style: VectorStyle?): List<Layer> {
+    private suspend fun loadShpNative(
+        file: File, name: String?, extent: DoubleArray?, style: VectorStyle?
+    ): List<Layer> {
         val dbf = findSidecar(file, "dbf")
         val prj = findSidecar(file, "prj")
         val cpg = findSidecar(file, "cpg")
 
-        //
         val prjBytes = prj?.let { withContext(Dispatchers.IO) { it.readBytes() } }
         val prjFile = prjBytes?.let { runCatching { PrjFile(it.decodeToString()) }.getOrNull() }
         val needGdal = prjFile != null &&
@@ -256,8 +281,6 @@ object LocalVectorLoader {
     /**
      * GDAL 路径：读取要素（已重投影 WGS84）构建渲染图层；
      * extent 非空时仅读取屏幕四至范围内的要素。
-     * 要素携带源数据 FID（写入 userProperty），供点击拾取后读取属性/回写定位。
-     * 样式覆盖按 FID 区分单要素，标注取 GDAL 属性字段。
      */
     private suspend fun loadWithGdal(file: File, name: String?, extent: DoubleArray?, style: VectorStyle?): List<Layer> = withContext(Dispatchers.Default) {
         val features = GdalVectorReader.readFeatures(file.absolutePath, extent)
@@ -269,6 +292,37 @@ object LocalVectorLoader {
             isPickEnabled = true
             putUserProperty(VECTOR_LAYER_KEY, true)
         }
+        buildRenderables(layer, features, style)
+        listOf(layer)
+    }
+
+    /**
+     * SQL 查询结果图层：以醒目高亮样式叠加在原图层之上，仅呈现筛选命中的要素。
+     * 不打矢量图层标记（[VECTOR_LAYER_KEY]）且关闭拾取——点击穿透到下方原始图层要素，
+     * 弹出的仍是源数据属性与要素标识（可继续编辑样式），避免结果图层遮蔽交互。
+     */
+    fun buildQueryResultLayer(name: String?, features: List<VectorFeature>): RenderableLayer {
+        val layer = RenderableLayer(name).apply { isPickEnabled = false }
+        val style = VectorStyle().apply {
+            fillColor = QUERY_FILL_COLOR
+            outlineColor = QUERY_OUTLINE_COLOR
+            outlineWidth = 3f
+        }
+        buildRenderables(layer, features, style)
+        // 点要素由图标承担视觉，单独着色为查询高亮色（buildRenderables 仅对线/面应用填充色）
+        val tint = parseColor(QUERY_OUTLINE_COLOR)
+        for (r in layer) {
+            if (r is Placemark) r.attributes.imageColor = tint
+        }
+        return layer
+    }
+
+    /**
+     * 按要素列表构建渲染对象加入图层（矢量读取与 SQL 查询结果共用）：
+     * 要素携带源数据 FID（写入 userProperty），供点击拾取后读取属性/回写定位；
+     * 样式覆盖按 FID 区分单要素（featureStyles），标注取 GDAL 属性字段。
+     */
+    private fun buildRenderables(layer: RenderableLayer, features: List<VectorFeature>, style: VectorStyle?) {
         for (f in features) {
             // 单要素样式优先，缺省继承整层样式
             val s = style?.let { it.featureStyles[f.fid] ?: it }
@@ -337,7 +391,6 @@ object LocalVectorLoader {
                 }
             }
         }
-        listOf(layer)
     }
 
     /** 渲染对象写入源数据要素标识 */
@@ -410,22 +463,6 @@ object LocalVectorLoader {
         return Position.fromDegrees(lat / count, lon / count, 0.0)
     }
 
-    /** 摊平坐标数组质心 [lon0,lat0,lon1,lat1,…] */
-    private fun centroidOfFlat(flat: DoubleArray): Position {
-        var lon = 0.0
-        var lat = 0.0
-        var i = 0
-        var count = 0
-        while (i + 1 < flat.size) {
-            lon += flat[i]
-            lat += flat[i + 1]
-            count++
-            i += 2
-        }
-        if (count == 0) return Position.fromDegrees(0.0, 0.0, 0.0)
-        return Position.fromDegrees(lat / count, lon / count, 0.0)
-    }
-
     /**
      * 原生 shp 默认样式回调：多边形半透明填充+白描边、线纯色贴地、点默认 Placemark，
      * 均携带黄色高亮样式（选中态）。
@@ -453,6 +490,22 @@ object LocalVectorLoader {
             it.isFile && it.nameWithoutExtension.equals(base, ignoreCase = true) &&
                     it.extension.equals(ext, ignoreCase = true)
         }
+    }
+
+    /** 摊平坐标数组质心 [lon0,lat0,lon1,lat1,…] */
+    private fun centroidOfFlat(flat: DoubleArray): Position {
+        var lon = 0.0
+        var lat = 0.0
+        var i = 0
+        var count = 0
+        while (i + 1 < flat.size) {
+            lon += flat[i]
+            lat += flat[i + 1]
+            count++
+            i += 2
+        }
+        if (count == 0) return Position.fromDegrees(0.0, 0.0, 0.0)
+        return Position.fromDegrees(lat / count, lon / count, 0.0)
     }
 
     /** 摊平数组 [lon0,lat0,lon1,lat1,…] -> Position 列表 */

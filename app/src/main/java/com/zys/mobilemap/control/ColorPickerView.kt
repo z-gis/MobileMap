@@ -12,7 +12,11 @@ import android.widget.LinearLayout
  * 下方两条滑条分别负责深度（亮度 [BrightnessSliderView]）与透明度（[AlphaSliderView]）。
  * 主色板按内容宽度取正方形（尽量占满屏幕宽），颜色变化通过 [onColorChangedListener] 回调。
  */
-class ColorPickerView : LinearLayout {
+class ColorPickerView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0
+) : LinearLayout(context, attrs, defStyleAttr) {
 
     var onColorChangedListener: ((Int) -> Unit)? = null
 
@@ -23,12 +27,7 @@ class ColorPickerView : LinearLayout {
     private val sliderMarginPx: Int
     private val sliderHeightPx: Int
 
-    constructor(context: Context) : this(context, null)
-
-    constructor(context: Context, attrs: AttributeSet?) : this(context, attrs, 0)
-
-    constructor(context: Context, attrs: AttributeSet?, defStyleAttr: Int) :
-            super(context, attrs, defStyleAttr) {
+    init {
         orientation = VERTICAL
         val density = resources.displayMetrics.density
         val paddingPx = (8 * density).toInt()
@@ -70,30 +69,33 @@ class ColorPickerView : LinearLayout {
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         // 主色板为内容宽度的正方形，尽量占满屏幕宽
-        val width = MeasureSpec.getSize(widthMeasureSpec)
-        val side = width - paddingLeft - paddingRight
-        (colorPanel.layoutParams as LayoutParams).let {
-            it.width = side
-            it.height = side
+        // （局部量不叫 width/height：否则会遮蔽下面 apply 里 LayoutParams 的同名属性）
+        val totalWidth = MeasureSpec.getSize(widthMeasureSpec)
+        val side = totalWidth - paddingLeft - paddingRight
+        (colorPanel.layoutParams as LayoutParams).apply {
+            width = side
+            height = side
         }
-        val height = side + paddingTop + paddingBottom + 2 * (sliderMarginPx + sliderHeightPx)
+        val totalHeight = side + paddingTop + paddingBottom + 2 * (sliderMarginPx + sliderHeightPx)
         super.onMeasure(
-            MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
-            MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY)
+            MeasureSpec.makeMeasureSpec(totalWidth, MeasureSpec.EXACTLY),
+            MeasureSpec.makeMeasureSpec(totalHeight, MeasureSpec.EXACTLY)
         )
     }
 
-    /** 设置当前颜色（保留透明度，不触发回调） */
-    fun setColor(color: Int) {
-        val hsv = FloatArray(3)
-        Color.colorToHSV(color, hsv)
-        colorPanel.setSelection(hsv[0], hsv[1])
-        brightnessSlider.updateBaseColor(Color.HSVToColor(floatArrayOf(hsv[0], hsv[1], 1f)))
-        brightnessSlider.setValue(hsv[2])
-        alphaSlider.updateBaseColor(brightnessSlider.color)
-        alphaSlider.setValue(Color.alpha(color) / 255f)
-    }
-
-    /** 获取当前选中颜色（含透明度） */
-    fun getColor(): Int = alphaSlider.color
+    /**
+     * 当前选中颜色（含透明度）。
+     * 赋值时同步主色板选标与两条滑条位置，不触发 [onColorChangedListener]（用于回显初值）。
+     */
+    var color: Int
+        get() = alphaSlider.color
+        set(value) {
+            val hsv = FloatArray(3)
+            Color.colorToHSV(value, hsv)
+            colorPanel.setSelection(hsv[0], hsv[1])
+            brightnessSlider.updateBaseColor(Color.HSVToColor(floatArrayOf(hsv[0], hsv[1], 1f)))
+            brightnessSlider.value = hsv[2]
+            alphaSlider.updateBaseColor(brightnessSlider.color)
+            alphaSlider.value = Color.alpha(value) / 255f
+        }
 }

@@ -1,15 +1,12 @@
 package com.zys.mobilemap.ui.activity
 
 import android.content.Intent
-import android.location.Location
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.util.Log
 import android.view.View
 import android.widget.Toast
-import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import com.zys.mobilemap.R
@@ -31,11 +28,14 @@ import com.zys.mobilemap.ui.dialog.MediaManageDialog
 import com.zys.mobilemap.ui.dialog.MoveToDialog
 import com.zys.mobilemap.ui.dialog.PhotoSheetDialog
 import com.zys.mobilemap.util.AppDirectories
+import com.zys.mobilemap.util.AppLog
+import com.zys.mobilemap.util.ColorHex
 import com.zys.mobilemap.util.GeoCalc
 import com.zys.mobilemap.vector.LocalVectorLoader
 import com.zys.mobilemap.vector.PickedFeatureInfo
 import com.zys.mobilemap.vector.VectorFileImporter
 import com.zys.mobilemap.vector.VectorPickModel
+import com.zys.mobilemap.vector.VectorQueryModel
 import earth.worldwind.PickedObjectList
 import earth.worldwind.layer.RenderableLayer
 import earth.worldwind.render.Color
@@ -49,18 +49,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class MainActivity : BaseMapActivity() {
 
     lateinit var binding: ActivityMainBinding
 
-    private var savedCenterLon = Double.Companion.NaN
-    private var savedCenterLat = Double.Companion.NaN
-
     private var locationDisplayManager: LocationModel? = null
     private var navigatorModel: NavigatorModel? = null
     private var vectorPickModel: VectorPickModel? = null
+
+    /** 矢量 SQL 查询：命中要素以高亮图层叠加在源图层之上（临时结果，不写入文档） */
+    private var vectorQueryModel: VectorQueryModel? = null
 
     private var mediaCaptureHelper: MediaCaptureHelper? = null
     private var mediaOverlayModel: MediaOverlayModel? = null
@@ -71,7 +72,6 @@ class MainActivity : BaseMapActivity() {
     private val loadingOverlayTimeout = Runnable { hideLoadingOverlay() }
 
     companion object {
-        private const val LOCATION_PERMISSION_REQUEST = 1002
         private const val TAG = "MainActivity"
 
         /** 拍照标识"缩放至"目标相机高度（米） */
@@ -81,12 +81,12 @@ class MainActivity : BaseMapActivity() {
         private const val LOADING_OVERLAY_TIMEOUT_MS = 8000L
     }
 
-    @RequiresApi(Build.VERSION_CODES.M)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        AppLog.i(TAG, "MainActivity onCreate")
 
         // 拍照会话：尽早注册 Activity 结果回调（拍照完成后刷新标注图层）
         mediaCaptureHelper = MediaCaptureHelper(this) { mediaOverlayModel?.reload() }
@@ -133,12 +133,17 @@ class MainActivity : BaseMapActivity() {
         )
         vectorPickModel?.setup(this)
 
+        // 矢量 SQL 查询：查询结果高亮图层叠加到地图，并缩放到命中要素四至
+        vectorQueryModel = VectorQueryModel(getWorldWindow(), lifecycleScope) { minLon, minLat, maxLon, maxLat ->
+            zoomToExtent(minLon, minLat, maxLon, maxLat)
+        }
+
         // 读取文档
-        val doc = DocumentManager.Companion.getInstance().getDocument()
+        val doc = DocumentManager.getInstance().getDocument()
         if (doc != null) {
             syncMapLayers(doc)
         }
-        DocumentManager.Companion.getInstance().registerDocumentChangeListener(this)
+        DocumentManager.getInstance().registerDocumentChangeListener(this)
 
         // 初始化定位
         locationDisplayManager = LocationModel(this, getWorldWindow()) {
@@ -162,21 +167,23 @@ class MainActivity : BaseMapActivity() {
 
         // 定位锁定开关：点击锁定并跟随定位，再次点击解锁（参照 0.2.5.3 MainLocationModule）
         binding.mainIvGotoLocation.setOnClickListener { locationDisplayManager?.toggleLocationLock() }
-        binding.mainTvLocation.setOnClickListener({ v -> showMoveToDialog() })
+        binding.mainTvLocation.setOnClickListener { showMoveToDialog() }
         // 北朝向按键：点击动画纠正到正北
         binding.mainIvNorth.setOnClickListener { (getWorldWindow() as? MapWorldWindow)?.orientNorth() }
 
-        binding.mainIvLayerManage.setOnClickListener { v ->
+        binding.mainIvLayerManage.setOnClickListener {
             LayerManageDialog(
                 R.layout.dialog_layer_manage,
                 onZoomToExtent = { minLon, minLat, maxLon, maxLat ->
                     zoomToExtent(minLon, minLat, maxLon, maxLat)
                 },
-                layerRenderColors = { path -> layerRenderColorsOf(path) }
+                layerRenderColors = { path -> layerRenderColorsOf(path) },
+                onSqlQuery = { path, sql -> runSqlQuery(path, sql) },
+                onClearSqlQuery = { clearSqlQuery() }
             ).show(supportFragmentManager, "LayerManageDialog")
         }
 
-        // 拍照入口：列表对话框（拍照/设置）
+        // 拍照入口：列表对话框（拍照/管理），菜单用词与轨迹菜单一致
         binding.mainIvPoto.setOnClickListener { showPhotoMenu() }
 
         // 系统外部打开矢量数据（文件管理器分享/打开）
@@ -204,25 +211,52 @@ class MainActivity : BaseMapActivity() {
     }
 
     override fun onDestroy() {
+        AppLog.i(TAG, "MainActivity onDestroy")
         binding.root.removeCallbacks(loadingOverlayTimeout)
         (getWorldWindow() as? MapWorldWindow)?.onFirstFrameSettled = null
+        vectorQueryModel?.clear()
+        // 关闭轨迹落库线程（采集点已实时写库，下次启动可恢复未完成的记录）
+        trackModel?.shutdown()
         super.onDestroy()
     }
 
     /**
-     * 拍照入口菜单：选择拍照进入拍摄会话（连拍），选择设置管理在库拍照标识
-     * （重命名/可见性/缩放至/删除）。
+     * 执行 shp 图层 SQL 查询：命中要素高亮叠加并缩放到结果范围，
+     * 语句错误时按 GDAL/OGR 上报的原因长时间提示（便于阅读完整错误）。
+     */
+    private fun runSqlQuery(path: String, sql: String) {
+        Toast.makeText(this, R.string.sql_query_running, Toast.LENGTH_SHORT).show()
+        vectorQueryModel?.query(path, sql) { success, count, error ->
+            val message = when {
+                !success -> getString(R.string.sql_query_failed, error ?: "")
+                count == 0 -> getString(R.string.sql_query_result_empty)
+                else -> getString(R.string.sql_query_result_count, count)
+            }
+            Toast.makeText(this, message, if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /**
+     * 清除地图上的 SQL 查询高亮结果。
+     */
+    private fun clearSqlQuery() {
+        vectorQueryModel?.clear()
+        Toast.makeText(this, R.string.sql_query_cleared, Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * 拍照入口菜单：选择拍照进入拍摄会话（连拍），选择管理打开"采集数据管理"界面
+     * 管理在库拍照标识（重命名/可见性/缩放至/删除）；用词与轨迹菜单（开始轨迹/管理）一致。
      */
     private fun showPhotoMenu() {
         AlertDialog.Builder(this)
-            .setItems(arrayOf("拍照", "设置")) { _, which ->
+            .setItems(arrayOf("拍照", "管理")) { _, which ->
                 when (which) {
                     0 -> mediaCaptureHelper?.launchPhotoCapture()
-                    1 -> MediaManageDialog.show(
-                        this,
+                    1 -> MediaManageDialog(
                         onChanged = { mediaOverlayModel?.reload() },
                         onZoomTo = { placemark -> zoomToMediaPlacemark(placemark) }
-                    )
+                    ).show(supportFragmentManager, "MediaManageDialog")
                 }
             }
             .show()
@@ -260,7 +294,7 @@ class MainActivity : BaseMapActivity() {
      * kml/kmz 无要素 id（待二期）、dwg/dxf 不改样式，仅属性表可见。
      */
     private fun showFeatureDetail(info: PickedFeatureInfo) {
-        val doc = DocumentManager.Companion.getInstance().getDocument() ?: return
+        val doc = DocumentManager.getInstance().getDocument() ?: return
         val layerInfo = doc.vectorLayers.firstOrNull { it.path == info.layerPath }
         val ext = info.layerPath?.substringAfterLast('.', "")?.lowercase(Locale.getDefault()) ?: ""
         val styleEditable = ext == "shp" && info.featureId >= 0
@@ -281,6 +315,8 @@ class MainActivity : BaseMapActivity() {
             iconKey = featureStyle?.iconKey ?: layerStyle?.iconKey
         }
 
+        // 渲染色只采样一次（填充/描边两个兜底色块共用同一结果）
+        val renderColors = renderColorsOf(info.renderable)
         FeatureDetailDialog(
             R.layout.dialog_feature_detail,
             featureName = info.name,
@@ -290,8 +326,8 @@ class MainActivity : BaseMapActivity() {
             description = info.description,
             initialStyle = merged.takeIf { !it.isEmpty() },
             styleEditable = styleEditable,
-            fallbackFill = renderColorsOf(info.renderable).first,
-            fallbackOutline = renderColorsOf(info.renderable).second,
+            fallbackFill = renderColors.first,
+            fallbackOutline = renderColors.second,
             isPointFeature = info.renderable is Placemark,
             geometryText = featureGeometryText(info.renderable)
         ) { style ->
@@ -302,7 +338,7 @@ class MainActivity : BaseMapActivity() {
             li.styleVersion++
             // 保存后图层将重载，旧渲染对象失效，先取消选中态
             vectorPickModel?.clearSelection()
-            DocumentManager.Companion.getInstance().save(this)
+            DocumentManager.getInstance().save(this)
         }.show(supportFragmentManager, "FeatureDetailDialog")
     }
 
@@ -335,7 +371,7 @@ class MainActivity : BaseMapActivity() {
                 perimeter += GeoCalc.ringPerimeterMeters(degrees)
             }
             if (!hasBoundary) return null
-            return "面积：" + GeoCalc.formatArea(kotlin.math.abs(signedArea)) +
+            return "面积：" + GeoCalc.formatArea(abs(signedArea)) +
                     "    周长：" + GeoCalc.formatDistance(perimeter)
         }
         if (renderable is Path) {
@@ -364,14 +400,13 @@ class MainActivity : BaseMapActivity() {
         return null to null
     }
 
-    /** wwd 颜色转 #AARRGGBB 十六进制字符串 */
-    private fun colorToHex(c: Color): String {
-        val a = (c.alpha * 255).roundToInt().coerceIn(0, 255)
-        val r = (c.red * 255).roundToInt().coerceIn(0, 255)
-        val g = (c.green * 255).roundToInt().coerceIn(0, 255)
-        val b = (c.blue * 255).roundToInt().coerceIn(0, 255)
-        return String.format("#%02X%02X%02X%02X", a, r, g, b)
-    }
+    /** wwd 颜色转 #AARRGGBB 十六进制字符串（分量先限幅到 0..255） */
+    private fun colorToHex(c: Color): String = ColorHex.fromArgb(
+        alpha = (c.alpha * 255).roundToInt().coerceIn(0, 255),
+        red = (c.red * 255).roundToInt().coerceIn(0, 255),
+        green = (c.green * 255).roundToInt().coerceIn(0, 255),
+        blue = (c.blue * 255).roundToInt().coerceIn(0, 255)
+    )
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -397,10 +432,10 @@ class MainActivity : BaseMapActivity() {
                 Toast.makeText(this@MainActivity, R.string.vector_import_failed, Toast.LENGTH_SHORT).show()
                 return@launch
             }
-            val doc = DocumentManager.Companion.getInstance().getDocument() ?: return@launch
+            val doc = DocumentManager.getInstance().getDocument() ?: return@launch
             if (doc.vectorLayers.none { it.path == imported.path }) {
-                doc.vectorLayers.add(LayerInfo(imported.name, imported.path, "vector", true))
-                DocumentManager.Companion.getInstance().save(this@MainActivity)
+                doc.vectorLayers.add(LayerInfo(imported.name, imported.path, LayerInfo.TYPE_VECTOR, true))
+                DocumentManager.getInstance().save(this@MainActivity)
             }
             zoomToLayerExtent(imported.path)
         }
@@ -424,7 +459,7 @@ class MainActivity : BaseMapActivity() {
                         name = uri.lastPathSegment?.substringAfterLast('/') ?: "import_file"
                     }
                     val dir = File(
-                        AppDirectories.Companion.getLayerDir(this),
+                        AppDirectories.getLayerDir(this),
                         "import_${System.currentTimeMillis()}"
                     )
                     dir.mkdirs()
@@ -473,7 +508,7 @@ class MainActivity : BaseMapActivity() {
      * 按系统配置显示/隐藏中心十字
      */
     private fun updateCenterCrossVisibility() {
-        val show = DocumentManager.Companion.getInstance().getDocument()?.systemConfig?.showCenterCross ?: true
+        val show = DocumentManager.getInstance().getDocument()?.systemConfig?.showCenterCross ?: true
         binding.mainCross.visibility = if (show) View.VISIBLE else View.GONE
     }
 
@@ -481,10 +516,10 @@ class MainActivity : BaseMapActivity() {
      * 切换天地图-注记图层可见性，保存后由文档监听同步地图。
      */
     private fun toggleAnnotationLayer() {
-        val doc = DocumentManager.Companion.getInstance().getDocument() ?: return
+        val doc = DocumentManager.getInstance().getDocument() ?: return
         val src = doc.mapSources.firstOrNull { it.isAnnotation } ?: return
         src.visible = !src.visible
-        DocumentManager.Companion.getInstance().save(this)
+        DocumentManager.getInstance().save(this)
         updateAnnotationIcon()
     }
 
@@ -492,14 +527,12 @@ class MainActivity : BaseMapActivity() {
      * 按注记图层可见性更新主界面开关图标。
      */
     private fun updateAnnotationIcon() {
-        val visible = DocumentManager.Companion.getInstance().getDocument()
+        val visible = DocumentManager.getInstance().getDocument()
             ?.mapSources?.firstOrNull { it.isAnnotation }?.visible ?: false
         binding.mainIvIsCIA.setImageResource(
             if (visible) R.drawable.nav_ic_cia_open else R.drawable.nav_ic_cia_close
         )
     }
-
-
 
     override fun onRequestPermissionsResult(
         requestCode: Int,
@@ -510,33 +543,28 @@ class MainActivity : BaseMapActivity() {
         locationDisplayManager?.handlePermissionResult(requestCode, grantResults)
     }
 
+    /**
+     * “移动到”对话框初值：优先取当前定位（由定位文本点开，与上下文一致），
+     * 无定位时回退到当前相机中心。
+     */
     private fun showMoveToDialog() {
-        var initLon = savedCenterLon
-        var initLat = savedCenterLat
+        val loc = LocationManager.getInstance().getLastLocation()
+        var initLon = loc?.longitude ?: Double.NaN
+        var initLat = loc?.latitude ?: Double.NaN
 
-        // 尚无地图中心点时，优先使用定位坐标
-        if (java.lang.Double.isNaN(initLon) || java.lang.Double.isNaN(initLat)) {
-            val loc: Location? = LocationManager.Companion.getInstance().getLastLocation()
-            if (loc != null) {
-                initLon = loc.longitude
-                initLat = loc.latitude
-            }
-        }
-
-        // 仍然没有可用坐标时，使用当前相机位置兜底
-        if (java.lang.Double.isNaN(initLon) || java.lang.Double.isNaN(initLat)) {
+        if (initLon.isNaN() || initLat.isNaN()) {
             val pos = getWorldWindow().engine.camera.position
             initLon = pos.longitude.inDegrees
             initLat = pos.latitude.inDegrees
         }
 
-        MoveToDialog(this, initLon, initLat, { lon: Double, lat: Double ->
+        MoveToDialog(this, initLon, initLat) { lon: Double, lat: Double ->
             val camera = getWorldWindow().engine.camera
             // 动画移动到输入坐标：保持当前高度与航向，远距离自动走飞越弧线
             (getWorldWindow() as? MapWorldWindow)?.smoothMoveTo(
                 lat, lon, camera.position.altitude, camera.heading.inDegrees
             )
-        }).create().show()
+        }.create().show()
     }
 
     override fun onResume() {
@@ -547,14 +575,16 @@ class MainActivity : BaseMapActivity() {
     }
 
     /**
-     * 按系统配置驱动拍照标注/轨迹/测量图层可见性（设置页返回后生效）。
+     * 按系统配置驱动拍照标注/轨迹/测量图层可见性与坐标文本格式（设置页返回后生效）。
      */
     private fun applyModuleVisibility() {
-        val config = DocumentManager.Companion.getInstance().getDocument()?.systemConfig ?: return
+        val config = DocumentManager.getInstance().getDocument()?.systemConfig ?: return
         mediaOverlayModel?.setEnabled(config.showMediaLayer)
         mediaOverlayModel?.reload()
         trackModel?.setEnabled(config.showTrackLayer)
         measureModel?.setEnabled(config.showMeasureLayer)
+        // 坐标显示格式（十进制度 / 米）可能已变更，立即重算中心与定位坐标文本
+        navigatorModel?.refresh()
+        locationDisplayManager?.refresh()
     }
-
 }

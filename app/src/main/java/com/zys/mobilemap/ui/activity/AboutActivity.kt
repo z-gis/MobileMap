@@ -7,13 +7,16 @@ import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
 import android.view.View
-import com.zys.mobilemap.R
 import com.zys.mobilemap.databinding.ActivityAboutBinding
 import com.zys.mobilemap.update.APKVersionUtil
 import com.zys.mobilemap.update.AppUpdateManager
 
+/**
+ * 关于页：展示 GDAL / PROJ 版本与本机版本号，提供检查更新与项目主页入口。
+ * GDAL 版本行可点击折叠/展开其支持的矢量驱动列表。
+ */
 class AboutActivity : AppSourcesActivity() {
-    private val TAG = "-------" + AboutActivity::class.java.simpleName + "-------"
+
     private var updateManager: AppUpdateManager? = null
 
     override fun appSourcesInstallCallBack() {
@@ -23,9 +26,8 @@ class AboutActivity : AppSourcesActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        setContentView(R.layout.activity_about)
-
-        val binding: ActivityAboutBinding = ActivityAboutBinding.inflate(layoutInflater)
+        // 仅用 ViewBinding 的根视图作内容：再调一次 setContentView(R.layout.*) 会白白 inflate 一棵随即丢弃的布局
+        val binding = ActivityAboutBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         applyDefaultPageStyle()
@@ -35,36 +37,39 @@ class AboutActivity : AppSourcesActivity() {
 
         updateManager = AppUpdateManager(this)
 
-        binding.gdalText.text = "gdal Version: " + getGDALVersion() + "  \u25B8"
+        // GDAL 版本经 JNI 获取，只取一次；折叠箭头随展开态切换
+        val gdalVersion = getGDALVersion()
+        binding.gdalText.text = "gdal Version: $gdalVersion  \u25B8"
 
         // gdal 版本行点击折叠/展开支持的矢量驱动列表（首次展开时惰性加载）
         binding.gdalText.setOnClickListener {
             val drivers = binding.gdalDriversText
             if (drivers.visibility == View.VISIBLE) {
                 drivers.visibility = View.GONE
-                binding.gdalText.text = "gdal Version: " + getGDALVersion() + "  \u25B8"
+                binding.gdalText.text = "gdal Version: $gdalVersion  \u25B8"
             } else {
                 if (drivers.text.isEmpty()) drivers.text = getVectorDrivers() ?: ""
                 drivers.visibility = View.VISIBLE
-                binding.gdalText.text = "gdal Version: " + getGDALVersion() + "  \u25BE"
+                binding.gdalText.text = "gdal Version: $gdalVersion  \u25BE"
             }
         }
 
-        binding.projText.text = "proj Version: " + getProjVersionString()
+        binding.projText.text = "proj Version: ${getProjVersionString()}"
 
-        binding.VersionCode.text = "VersionCode: " + APKVersionUtil.getVersionCode(this)
+        binding.VersionCode.text = "VersionCode: ${APKVersionUtil.getVersionCode(this)}"
 
-        binding.VersionName.text = "当前版本 V" + APKVersionUtil.getVersionName(this)
+        binding.VersionName.text = "当前版本 V${APKVersionUtil.getVersionName(this)}"
 
         binding.aboutCheckUpdate.setOnClickListener {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls()) {
                 updateManager?.checkForUpdates(true)
             } else {
-                Log.e(TAG, "Call Permission ACTION_MANAGE_UNKNOWN_APP_SOURCES")
+                // 未授予“安装未知应用”权限：跳系统授权页，返回后经 appSourcesInstallCallBack 续跑检查
+                Log.w(TAG, "未授予安装未知应用权限，跳转系统授权页")
                 val packageUri = Uri.parse("package:$packageName")
                 val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, packageUri)
                 @Suppress("DEPRECATION")
-                startActivityForResult(intent, Settings_ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+                startActivityForResult(intent, REQUEST_CODE_INSTALL_UNKNOWN_SOURCES)
             }
         }
 
@@ -103,5 +108,7 @@ class AboutActivity : AppSourcesActivity() {
         super.onDestroy()
     }
 
-
+    companion object {
+        private const val TAG = "AboutActivity"
+    }
 }

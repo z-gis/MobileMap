@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <!-- 可用字段提示：辅助书写 WHERE 条件（OGR 读取的 DBF 字段名） -->
+    <TextView
+        android:id="@+id/sql_query_tv_fields"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#757575"
+        android:textSize="12sp" />
+
+    <!-- SQL 语句输入：预填 SELECT 骨架，仅输入条件时自动包装 -->
+    <EditText
+        android:id="@+id/sql_query_et_sql"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="top|start"
+        android:hint="@string/sql_query_hint"
+        android:inputType="textMultiLine"
+        android:minLines="3"
+        android:textSize="14sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:orientation="horizontal">
+
+        <!-- 清除地图上已有的查询高亮结果 -->
+        <Button
+            android:id="@+id/sql_query_btn_clear"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/sql_query_clear" />
+
+        <Button
+            android:id="@+id/sql_query_btn_execute"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:text="@string/sql_query_execute" />
+    </LinearLayout>
+
+</LinearLayout>

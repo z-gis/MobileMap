@@ -7,6 +7,7 @@
 
 #include "gdal/ogrsf_frmts.h"
 #include "gdal/gdal_priv.h"
+#include "gdal/cpl_error.h"
 
 // ==================== 矢量要素读取（GDAL/OGR -> JSON，GdalVectorReader） ====================
 
@@ -237,6 +238,68 @@ static OGRGeometry *createSpatialFilterGeometry(double minLon, double minLat, do
     return bbox;
 }
 
+/**
+ * 读取并输出单个图层的全部要素：图层 SRS 非空时重投影到 WGS84（传统 GIS 轴序 经度,纬度），
+ * hasFilter 为真时先按 WGS84 四至做空间过滤（反变换到源坐标系），仅遍历范围内要素。
+ * 全量读取与 SQL 查询结果输出共用，保证要素 JSON 结构与坐标处理一致。
+ */
+static void emitLayerFeatures(std::string &out, OGRLayer *layer,
+                              bool &firstFeature, int &count, bool &truncated,
+                              bool hasFilter, double minLon, double minLat,
+                              double maxLon, double maxLat) {
+    if (layer == nullptr || truncated) return;
+
+    OGRCoordinateTransformation *ct = nullptr;
+    OGRSpatialReference *srcClone = nullptr;
+    OGRSpatialReference *srcRef = layer->GetSpatialRef();
+    if (srcRef != nullptr) {
+        srcClone = srcRef->Clone();
+        srcClone->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+        OGRSpatialReference dstRef;
+        dstRef.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+        dstRef.SetWellKnownGeogCS("WGS84");
+        ct = OGRCreateCoordinateTransformation(srcClone, &dstRef);
+        if (ct == nullptr) {
+            // 创建失败（常见：proj.db 搜索路径未配置）时坐标将按源坐标系原样输出，
+            // 投影米制被当经纬度渲染导致位置错误，必须提示而非静默
+            __android_log_print(ANDROID_LOG_ERROR, "GdalVectorReader",
+                                "图层[%s]创建坐标变换失败（proj.db 未配置？），坐标将按源坐标系原样输出",
+                                layer->GetName());
+        }
+    }
+
+    // 空间过滤：过滤几何由 SetSpatialFilter 接管，后续无需释放；
+    // 范围无效/变换失败则不过滤兜底读全部。
+    if (hasFilter) {
+        OGRGeometry *filterGeom = createSpatialFilterGeometry(minLon, minLat, maxLon, maxLat, srcRef);
+        if (filterGeom != nullptr) {
+            layer->SetSpatialFilter(filterGeom);
+        } else if (srcRef == nullptr) {
+            layer->SetSpatialFilterRect(minLon, minLat, maxLon, maxLat);
+        }
+    }
+
+    layer->ResetReading();
+    OGRFeature *feat;
+    while (!truncated && (feat = layer->GetNextFeature()) != nullptr) {
+        OGRGeometry *geom = feat->GetGeometryRef();
+        if (geom != nullptr) {
+            if (ct != nullptr) {
+                geom->transform(ct);
+            }
+            emitGeometry(out, firstFeature, count, truncated, geom, feat, layer->GetName());
+        }
+        OGRFeature::DestroyFeature(feat);
+    }
+
+    if (ct != nullptr) {
+        OGRCoordinateTransformation::DestroyCT(ct);
+    }
+    if (srcClone != nullptr) {
+        srcClone->Release();
+    }
+}
+
 extern "C"
 JNIEXPORT jstring JNICALL
 Java_com_zys_mobilemap_vector_GdalVectorReader_nativeReadVectorFeatures(
@@ -265,59 +328,8 @@ Java_com_zys_mobilemap_vector_GdalVectorReader_nativeReadVectorFeatures(
     // 遍历全部图层（dwg 等格式的实体分布在多个子图层）
     int layerCount = ds->GetLayerCount();
     for (int li = 0; li < layerCount && !truncated; li++) {
-        OGRLayer *layer = ds->GetLayer(li);
-        if (layer == nullptr) continue;
-
-        // 图层 SRS 非空时重投影到 WGS84（传统 GIS 轴序 经度,纬度），空则按 WGS84 处理
-        OGRCoordinateTransformation *ct = nullptr;
-        OGRSpatialReference *srcClone = nullptr;
-        OGRSpatialReference *srcRef = layer->GetSpatialRef();
-        if (srcRef != nullptr) {
-            srcClone = srcRef->Clone();
-            srcClone->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-            OGRSpatialReference dstRef;
-            dstRef.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-            dstRef.SetWellKnownGeogCS("WGS84");
-            ct = OGRCreateCoordinateTransformation(srcClone, &dstRef);
-            if (ct == nullptr) {
-                // 创建失败（常见：proj.db 搜索路径未配置）时坐标将按源坐标系原样输出，
-                // 投影米制被当经纬度渲染导致位置错误，必须提示而非静默
-                __android_log_print(ANDROID_LOG_ERROR, "GdalVectorReader",
-                                    "图层[%s]创建坐标变换失败（proj.db 未配置？），坐标将按源坐标系原样输出",
-                                    layer->GetName());
-            }
-        }
-
-        // 空间过滤：将 WGS84 四至反变换到图层源坐标系后设置，仅遍历范围内要素；
-        // 过滤几何由 SetSpatialFilter 接管，后续无需释放；范围无效/变换失败则不过滤兜底读全部。
-        if (hasFilter) {
-            OGRGeometry *filterGeom = createSpatialFilterGeometry(minLon, minLat, maxLon, maxLat, srcRef);
-            if (filterGeom != nullptr) {
-                layer->SetSpatialFilter(filterGeom);
-            } else if (srcRef == nullptr) {
-                layer->SetSpatialFilterRect(minLon, minLat, maxLon, maxLat);
-            }
-        }
-
-        layer->ResetReading();
-        OGRFeature *feat;
-        while (!truncated && (feat = layer->GetNextFeature()) != nullptr) {
-            OGRGeometry *geom = feat->GetGeometryRef();
-            if (geom != nullptr) {
-                if (ct != nullptr) {
-                    geom->transform(ct);
-                }
-                emitGeometry(out, firstFeature, count, truncated, geom, feat, layer->GetName());
-            }
-            OGRFeature::DestroyFeature(feat);
-        }
-
-        if (ct != nullptr) {
-            OGRCoordinateTransformation::DestroyCT(ct);
-        }
-        if (srcClone != nullptr) {
-            srcClone->Release();
-        }
+        emitLayerFeatures(out, ds->GetLayer(li), firstFeature, count, truncated,
+                          hasFilter, minLon, minLat, maxLon, maxLat);
     }
 
     if (truncated) {
@@ -326,6 +338,66 @@ Java_com_zys_mobilemap_vector_GdalVectorReader_nativeReadVectorFeatures(
     }
 
     out += "]}";
+    GDALClose(ds);
+    return env->NewStringUTF(out.c_str());
+}
+
+/**
+ * 对矢量数据执行 SQL 查询（OGR SQL / SQLite 方言，由驱动能力决定）并输出命中要素。
+ * 返回 JSON：成功 {"features":[…]}（命中为空则数组为空），失败 {"error":"…"}。
+ * 查询结果图层同样按源坐标系重投影到 WGS84，不做空间过滤（查询结果需完整呈现）。
+ */
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_com_zys_mobilemap_vector_GdalVectorReader_nativeQueryVectorFeatures(
+        JNIEnv *env, jobject thiz, jstring path, jstring sql) {
+
+    GDALAllRegister();
+
+    const char *p = env->GetStringUTFChars(path, nullptr);
+    const char *q = env->GetStringUTFChars(sql, nullptr);
+    std::string sqlText(q);
+    env->ReleaseStringUTFChars(sql, q);
+
+    GDALDataset *ds = (GDALDataset *) GDALOpenEx(p, GDAL_OF_VECTOR | GDAL_OF_READONLY,
+                                                 nullptr, nullptr, nullptr);
+    env->ReleaseStringUTFChars(path, p);
+    if (ds == nullptr) {
+        __android_log_print(ANDROID_LOG_WARN, "GdalVectorReader", "GDALOpenEx 打开矢量数据失败");
+        return nullptr;
+    }
+
+    // 语法/字段错误经 CPL 错误处理器上报，静默处理后取错误文本回传界面提示
+    CPLPushErrorHandler(CPLQuietErrorHandler);
+    OGRLayer *result = ds->ExecuteSQL(sqlText.c_str(), nullptr, nullptr);
+    const char *errMsg = CPLGetLastErrorMsg();
+    std::string errText = (errMsg != nullptr) ? errMsg : "";
+    CPLPopErrorHandler();
+
+    if (result == nullptr) {
+        __android_log_print(ANDROID_LOG_WARN, "GdalVectorReader", "SQL 执行失败: %s",
+                            errText.empty() ? "(无错误信息)" : errText.c_str());
+        GDALClose(ds);
+        std::string out = "{\"error\":\"";
+        jsonEscape(out, errText.empty() ? "SQL 语句执行失败" : errText.c_str());
+        out += "\"}";
+        return env->NewStringUTF(out.c_str());
+    }
+
+    std::string out = "{\"features\":[";
+    bool firstFeature = true;
+    int count = 0;
+    bool truncated = false;
+    emitLayerFeatures(out, result, firstFeature, count, truncated, false, 0, 0, 0, 0);
+
+    if (truncated) {
+        __android_log_print(ANDROID_LOG_WARN, "GdalVectorReader",
+                            "查询命中要素数超过上限 %d，已截断", MAX_VECTOR_FEATURES);
+    }
+
+    out += "]}";
+    // 结果集由数据集拥有，须经 ReleaseResultSet 释放（不可 delete）
+    ds->ReleaseResultSet(result);
     GDALClose(ds);
     return env->NewStringUTF(out.c_str());
 }

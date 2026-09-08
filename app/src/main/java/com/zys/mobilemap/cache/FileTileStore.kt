@@ -33,8 +33,10 @@ class FileTileStore(private val dir: File) : TileStore {
         // 负结果（服务器确认无此瓦片）不落盘，保持缓存目录干净
         if (blob.isEmpty) return@withContext
         val target = tileFile(z, x, y)
-        if (!target.parentFile.exists()) target.parentFile.mkdirs()
-        val tmp = File(target.parentFile, target.name + ".tmp")
+        // 级别目录可能尚未创建；parentFile 理论上非空，防御性判空避免空指针
+        val parent = target.parentFile ?: return@withContext
+        if (!parent.exists()) parent.mkdirs()
+        val tmp = File(parent, target.name + ".tmp")
         tmp.writeBytes(blob.bytes)
         if (target.exists()) target.delete()
         // 原子替换，避免渲染中断产生半截文件

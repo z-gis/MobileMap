@@ -9,14 +9,15 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import android.location.Location
-import android.os.Build
+import android.util.Log
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.annotation.RequiresApi
 import com.zys.mobilemap.R
 import com.zys.mobilemap.doc.DocumentManager
 import com.zys.mobilemap.ui.activity.MapWorldWindow
+import com.zys.mobilemap.util.CoordFormatter
+import com.zys.mobilemap.util.GeoCalc
 import earth.worldwind.WorldWindow
 import earth.worldwind.geom.Angle
 import earth.worldwind.geom.Position
@@ -30,11 +31,11 @@ import java.util.Locale
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
-import kotlin.math.sqrt
 
 /**
  * 主界面定位展示管理：负责定位权限申请、定位启动，
  * 以及定位坐标文本和地图定位标记的更新。
+ * 定位坐标文本格式（十进制度 / 米 CGCS2000）与中心坐标一致，由系统设置驱动。
  */
 @SuppressLint("MissingPermission")
 class LocationModel(
@@ -69,10 +70,12 @@ class LocationModel(
     /** 最近一次有效移动方位角（度）：位移不足阈值时沿用，避免箭头抖动 */
     private var lastTrackHeadingDegrees: Double? = null
 
+    /** 定位标记更新失败是否已记过日志（只记首次，避免 1Hz 回调灌满日志） */
+    private var markerErrorLogged = false
+
     /**
      * 初始化定位：已有权限则直接开始定位，否则申请定位权限
      */
-    @RequiresApi(Build.VERSION_CODES.M)
     fun init() {
         val locationManager = LocationManager.getInstance()
         locationManager.init(activity.application)
@@ -110,14 +113,11 @@ class LocationModel(
     }
 
     private fun updateLocationUI(location: Location) {
-        locationTextView.text = String.Companion.format(
-            Locale.getDefault(),
-            "定位: %.4f %.4f",
-            location.longitude, location.latitude
-        )
+        // 定位坐标：按设置在十进制度与米（CGCS2000 3 度带）之间切换（与中心坐标同格式）
+        locationTextView.text = CoordFormatter.format("定位", location.longitude, location.latitude)
 
         if (location.hasAltitude()) {
-            scaleTextView.text = String.Companion.format(
+            scaleTextView.text = String.format(
                 Locale.getDefault(),
                 "H: %.2f", location.altitude
             )
@@ -127,7 +127,7 @@ class LocationModel(
 
         updateLocationMarker(location.latitude, location.longitude)
 
-        // 定位锁定：首次待定位点对齐正北并提示，其后每次更新动画跟随（保持当前航向/高度）
+        // 定位锁定：首次待定位点对齐正北并提示，其后每次更新只平移经纬度跟随
         if (pendingLocateAction) {
             moveToLocation(location.latitude, location.longitude, alignNorth = true, notify = true)
             pendingLocateAction = false
@@ -136,15 +136,26 @@ class LocationModel(
         }
     }
 
+    /**
+     * 按当前配置刷新定位坐标文本（坐标显示格式切换后由宿主立即调用，
+     * 无需等待下一次定位更新）。
+     */
+    fun refresh() {
+        LocationManager.getInstance().getLastLocation()?.let {
+            locationTextView.text = CoordFormatter.format("定位", it.longitude, it.latitude)
+        }
+    }
+
     private fun updateLocationMarker(lat: Double, lon: Double) {
         try {
-            val current = Position(Angle.Companion.fromDegrees(lat), Angle.Companion.fromDegrees(lon), 0.0)
+            val current = Position(Angle.fromDegrees(lat), Angle.fromDegrees(lon), 0.0)
             var placemark = compassPlacemark
             if (placemark == null) {
-                if (locationLayer == null) {
-                    locationLayer = RenderableLayer()
-                    locationLayer?.displayName = "Location"
-                    worldWindow.engine.layers.addLayer(locationLayer ?: return)
+                // 定位图层只建一次：罗盘图标与方向箭头都挂在这一层上
+                val layer = locationLayer ?: RenderableLayer().also { created ->
+                    created.displayName = "Location"
+                    locationLayer = created
+                    worldWindow.engine.layers.addLayer(created)
                 }
 
                 val attrs = PlacemarkAttributes.createWithImage(
@@ -155,14 +166,14 @@ class LocationModel(
                 attrs.imageScale = COMPASS_IMAGE_SCALE * activity.resources.displayMetrics.density.coerceAtLeast(1f).toDouble()
 
                 placemark = Placemark(
-                    Position(Angle.Companion.fromDegrees(lat), Angle.Companion.fromDegrees(lon), 0.0),
+                    Position(Angle.fromDegrees(lat), Angle.fromDegrees(lon), 0.0),
                     attrs
                 )
                 // 旋转基准相对地球：地图方向变化时图标随地图旋转，保持北与图标一致；
                 // imageRotation 保持 0，图标始终指向真北，无需监听导航事件手动补偿。
                 placemark.imageRotationReference = OrientationMode.RELATIVE_TO_GLOBE
 
-                locationLayer?.addRenderable(placemark)
+                layer.addRenderable(placemark)
                 compassPlacemark = placemark
 
                 // 移动方向箭头：叠加在罗盘中心，箭头中心即定位点，指向地理移动方位
@@ -171,32 +182,38 @@ class LocationModel(
                 )
                 arrowAttrs.imageScale = ARROW_IMAGE_SCALE * activity.resources.displayMetrics.density.coerceAtLeast(1f).toDouble()
                 val arrow = Placemark(
-                    Position(Angle.Companion.fromDegrees(lat), Angle.Companion.fromDegrees(lon), 0.0),
+                    Position(Angle.fromDegrees(lat), Angle.fromDegrees(lon), 0.0),
                     arrowAttrs
                 )
                 // 相对地球旋转：imageRotation 设为移动方位角（顺时针自北），箭头即指向该地理方位
                 arrow.imageRotationReference = OrientationMode.RELATIVE_TO_GLOBE
-                lastTrackHeadingDegrees?.let { arrow.imageRotation = Angle.Companion.fromDegrees(it) }
-                locationLayer?.addRenderable(arrow)
+                lastTrackHeadingDegrees?.let { arrow.imageRotation = Angle.fromDegrees(it) }
+                layer.addRenderable(arrow)
                 headingPlacemark = arrow
 
                 lastMarkerPosition = current
             } else {
-                placemark.position = Position(Angle.Companion.fromDegrees(lat), Angle.Companion.fromDegrees(lon), 0.0)
+                placemark.position = Position(Angle.fromDegrees(lat), Angle.fromDegrees(lon), 0.0)
                 headingPlacemark?.let { arrow ->
                     // 位移超过阈值才更新方位，避免静止/漂移时箭头抖动
                     val heading = computeHeading(lastMarkerPosition, current)
                     if (heading != null) {
                         lastTrackHeadingDegrees = heading
-                        arrow.imageRotation = Angle.Companion.fromDegrees(heading)
+                        arrow.imageRotation = Angle.fromDegrees(heading)
                     }
-                    arrow.position = Position(Angle.Companion.fromDegrees(lat), Angle.Companion.fromDegrees(lon), 0.0)
+                    arrow.position = Position(Angle.fromDegrees(lat), Angle.fromDegrees(lon), 0.0)
                 }
                 lastMarkerPosition = current
             }
             worldWindow.requestRedraw()
         } catch (e: Exception) {
-            // Placemark API may vary across WorldWind versions
+            // 定位标记更新失败不得影响定位文本与相机跟随；但必须留痕，
+            // 否则“定位图标不显示”无从排查（不同 WorldWind 版本的 Placemark API 存在差异）。
+            // 定位回调约 1Hz，只记首次，避免失败时灌满日志文件
+            if (!markerErrorLogged) {
+                markerErrorLogged = true
+                Log.w(TAG, "更新定位标记失败（本次运行不再重复记录）", e)
+            }
         }
     }
 
@@ -225,23 +242,31 @@ class LocationModel(
     }
 
     /**
-     * 动画移动相机到定位点。
-     * @param alignNorth true：北向归零并用默认观察高度（首次锁定）；false：保持当前航向与高度（跟随）。
+     * 移动相机到定位点：只锁定纬度与经度，不锁定高度。
+     * @param alignNorth true：首次锁定——动画飞至定位点并对齐正北，观察高度沿用用户当前缩放级别
+     *                   （无效时才回退默认高度 [LOCK_ALTITUDE]）；
+     *                   false：跟随——仅平移经纬度，高度与航向逐帧取相机当前值，
+     *                   用户的缩放/旋转不被跟随动画覆盖。
      */
     private fun moveToLocation(lat: Double, lon: Double, alignNorth: Boolean, notify: Boolean) {
         val ww = worldWindow as? MapWorldWindow ?: return
+        if (!alignNorth) {
+            ww.smoothFollowTo(lat, lon)
+            return
+        }
         val camera = worldWindow.engine.camera
-        val alt = if (alignNorth) LOCK_ALTITUDE
-            else camera.position.altitude.takeIf { it > 0.0 } ?: LOCK_ALTITUDE
-        val heading = if (alignNorth) 0.0 else camera.heading.inDegrees
-        ww.smoothMoveTo(lat, lon, alt, heading)
+        val alt = camera.position.altitude.takeIf { it > 0.0 } ?: LOCK_ALTITUDE
+        ww.smoothMoveTo(lat, lon, alt, 0.0)
         if (notify) Toast.makeText(activity, "已定位到当前位置", Toast.LENGTH_SHORT).show()
     }
 
     companion object {
+
+        private const val TAG = "LocationModel"
+
         const val LOCATION_PERMISSION_REQUEST = 1002
 
-        /** 首次锁定定位时的默认观察高度（米） */
+        /** 首次锁定定位时的兜底观察高度（米）：仅在相机高度无效时使用，不覆盖用户缩放级别 */
         private const val LOCK_ALTITUDE = 1200.0
 
         /** 罗盘图标基准缩放（原图 150×150 像素，乘以屏幕密度：密度 3 真机上约 225 像素/75dp） */
@@ -298,15 +323,10 @@ class LocationModel(
             return (heading + 360.0) % 360.0
         }
 
-        /** 两定位点间地表距离（米，Haversine） */
-        private fun distanceMeters(from: Position, to: Position): Double {
-            val lat1 = Math.toRadians(from.latitude.inDegrees)
-            val lat2 = Math.toRadians(to.latitude.inDegrees)
-            val dLat = lat2 - lat1
-            val dLon = Math.toRadians(to.longitude.inDegrees - from.longitude.inDegrees)
-            val a = sin(dLat / 2) * sin(dLat / 2) + cos(lat1) * cos(lat2) * sin(dLon / 2) * sin(dLon / 2)
-            val c = 2 * atan2(sqrt(a), sqrt(1 - a))
-            return 6371000.0 * c
-        }
+        /** 两定位点间地表距离（米）：委托 [GeoCalc.distanceMeters]，全项目统一球面量算实现 */
+        private fun distanceMeters(from: Position, to: Position): Double = GeoCalc.distanceMeters(
+            from.latitude.inDegrees, from.longitude.inDegrees,
+            to.latitude.inDegrees, to.longitude.inDegrees
+        )
     }
 }

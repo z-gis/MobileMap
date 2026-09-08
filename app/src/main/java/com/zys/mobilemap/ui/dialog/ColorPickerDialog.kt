@@ -14,6 +14,7 @@ import android.widget.Button
 import android.widget.EditText
 import com.zys.mobilemap.R
 import com.zys.mobilemap.control.ColorPickerView
+import com.zys.mobilemap.util.ColorHex
 
 /**
  * 颜色选取对话框：主色板 + 色相色谱条选择颜色，下方显示旧颜色、新颜色
@@ -30,7 +31,7 @@ class ColorPickerDialog(
         fun onConfirm(color: Int)
     }
 
-    private lateinit var dialog: Dialog
+    private val dialog: Dialog
     private val etHex: EditText
 
     /** 防止选择器回调与文本框输入互相触发 */
@@ -57,7 +58,7 @@ class ColorPickerDialog(
         // 旧颜色固定为初始颜色
         oldColorView.setBackgroundColor(initialColor)
         newColorView.setBackgroundColor(initialColor)
-        picker.setColor(initialColor)
+        picker.color = initialColor
         updateHexText(initialColor)
 
         // 色板/色谱条拖动 -> 更新新颜色与十六进制显示
@@ -76,7 +77,7 @@ class ColorPickerDialog(
             override fun afterTextChanged(s: Editable?) {
                 if (updatingFromPicker) return
                 val color = parseHexOrNull(s?.toString()) ?: return
-                picker.setColor(color)
+                picker.color = color
                 newColorView.setBackgroundColor(color)
             }
         })
@@ -84,7 +85,7 @@ class ColorPickerDialog(
         btnCancel.setOnClickListener { dialog.dismiss() }
 
         btnConfirm.setOnClickListener {
-            val color = parseHexOrNull(etHex.text.toString()) ?: picker.getColor()
+            val color = parseHexOrNull(etHex.text.toString()) ?: picker.color
             listener.onConfirm(color)
             dialog.dismiss()
         }
@@ -94,7 +95,7 @@ class ColorPickerDialog(
 
     /** 十六进制显示为 8 位 AARRGGBB（含透明度） */
     private fun updateHexText(color: Int) {
-        etHex.setText(String.format("%08X", color))
+        etHex.setText(ColorHex.toArgbDigits(color))
         etHex.setSelection(etHex.text.length)
     }
 

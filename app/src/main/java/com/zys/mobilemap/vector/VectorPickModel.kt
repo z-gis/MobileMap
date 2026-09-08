@@ -96,7 +96,8 @@ class VectorPickModel(
         setHighlighted(renderable, true)
         worldWindow.requestRedraw()
 
-        onFeaturePicked(if (renderable == null || po == null) null else PickedFeatureInfo(
+        // renderable 由 po 安全转换而来，非空即蕴含 po 非空（此处已智能转换为非空型）
+        onFeaturePicked(if (renderable == null) null else PickedFeatureInfo(
             layerName = po.layer?.displayName,
             layerPath = po.layer?.getUserProperty(LocalVectorLoader.LAYER_PATH_KEY) as? String,
             featureId = renderable.getUserProperty(LocalVectorLoader.FEATURE_ID_KEY) as? Long ?: -1L,

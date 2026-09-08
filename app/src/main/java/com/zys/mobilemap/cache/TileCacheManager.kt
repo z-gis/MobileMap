@@ -68,14 +68,13 @@ object TileCacheManager {
      *                       相机继续放大时末级瓦片纹理拉伸显示（无限放大，不再出现"此级别无影像"）
      */
     fun createCachedLayer(
-        context: Context?,
+        context: Context,
         urlTemplate: String,
         name: String,
         imageFormat: String,
         sourceMaxLevel: Int = DEFAULT_SOURCE_MAX_LEVEL,
     ): WebMercatorImageLayer {
-        val cacheRoot = AppDirectories.getTileCacheDir(context) ?: File(".")
-        val cacheDir = File(cacheRoot, sanitizeDirName(name))
+        val cacheDir = File(AppDirectories.getTileCacheDir(context), sanitizeDirName(name))
         val store = FileTileStore(cacheDir)
         Log.i(TAG, "创建缓存图层[$name]，瓦片缓存目录: ${cacheDir.absolutePath}")
         val source = CachedTileSource(UrlTemplateImageTileSource(urlTemplate), store)

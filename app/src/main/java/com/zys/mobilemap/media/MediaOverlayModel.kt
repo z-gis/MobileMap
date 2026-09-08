@@ -8,6 +8,7 @@ import earth.worldwind.geom.AltitudeMode
 import earth.worldwind.geom.Angle
 import earth.worldwind.geom.Position
 import earth.worldwind.layer.RenderableLayer
+import earth.worldwind.render.Renderable
 import earth.worldwind.render.image.ImageSource
 import earth.worldwind.shape.Placemark
 import earth.worldwind.shape.PlacemarkAttributes
@@ -56,6 +57,7 @@ class MediaOverlayModel(private val context: Context, private val worldWindow: W
 
     /**
      * 从数据库重新加载全部拍照点位（仅渲染可见点位，隐藏的保留记录供管理对话框恢复）。
+     * 分组可见性由管理对话框批量写入组内各点位的 visible，故渲染层只需判断点位自身 visible。
      */
     fun reload() {
         placemarks = store.loadPlacemarks()
@@ -71,10 +73,12 @@ class MediaOverlayModel(private val context: Context, private val worldWindow: W
     /**
      * 按渲染对象查询对应点位记录（点击拾取后使用）。
      */
-    fun findPlacemark(renderable: earth.worldwind.render.Renderable?): MediaPlacemark? {
-        val id = renderable?.getUserProperty(MEDIA_PLACEMARK_ID_KEY) as? Long ?: return null
-        return placemarks.firstOrNull { it.id == id }
-            ?: store.loadPlacemarks().firstOrNull { it.id == id }
+    fun findPlacemark(renderable: Renderable?): MediaPlacemark? {
+        // 先归为 Any? 再安全转换：类型不符时返回 null 而非抛 ClassCastException
+        val raw: Any? = renderable?.getUserProperty(MEDIA_PLACEMARK_ID_KEY)
+        val id = raw as? Long ?: return null
+        // 已渲染列表未命中时回退按主键查库（如图层刷新与点击之间的窗口期）
+        return placemarks.firstOrNull { it.id == id } ?: store.findPlacemark(id)
     }
 
     private fun createPlacemark(record: MediaPlacemark, showName: Boolean): Placemark {

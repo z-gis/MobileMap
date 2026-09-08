@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -33,20 +34,26 @@ import com.zys.mobilemap.doc.MapSource
 import com.zys.mobilemap.doc.VectorStyle
 import com.zys.mobilemap.ui.activity.OpenFileActivity
 import com.zys.mobilemap.util.AppDirectories
+import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.vector.VectorFileImporter
 import java.io.File
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /**
  * 图层管理对话框。
  * [onZoomToExtent] 点击图层名称时回调图层四至范围，由宿主 Activity 完成地图缩放。
  * [layerRenderColors] 按图层路径查询当前实际渲染色（填充/描边），
  * 整层样式对话框色块回显所见即所得，图层未加载时返回 null。
+ * [onSqlQuery] shp 图层 SQL 查询按键确认语句后回调，由宿主执行查询并高亮命中要素。
+ * [onClearSqlQuery] 清除地图上已有的查询结果。
  */
 class LayerManageDialog(
     resource: Int,
     private val onZoomToExtent: ((minLon: Double, minLat: Double, maxLon: Double, maxLat: Double) -> Unit)? = null,
-    private val layerRenderColors: ((path: String) -> Pair<String?, String?>)? = null
+    private val layerRenderColors: ((path: String) -> Pair<String?, String?>)? = null,
+    private val onSqlQuery: ((path: String, sql: String) -> Unit)? = null,
+    private val onClearSqlQuery: (() -> Unit)? = null
 ) : BaseBottomSheetDialog(resource) {
 
     private var rvLayerList: RecyclerView? = null
@@ -77,7 +84,8 @@ class LayerManageDialog(
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             // 得到导入文件路径
-            val path = result.data!!.getStringExtra(OpenFileActivity.RESULT_PATH) ?: return@registerForActivityResult
+            val path = result.data?.getStringExtra(OpenFileActivity.RESULT_PATH) ?: return@registerForActivityResult
+            AppLog.event("导入图层文件: $path (页签=$currentTab)")
             // 获取当前文档
             val doc = DocumentManager.getInstance().getDocument() ?: return@registerForActivityResult
             if (currentTab == TAB_VECTOR) {
@@ -88,10 +96,10 @@ class LayerManageDialog(
                         R.string.vector_import_failed, Toast.LENGTH_SHORT).show()
                     return@registerForActivityResult
                 }
-                doc.vectorLayers.add(LayerInfo(imported.name, imported.path, "vector", true))
+                doc.vectorLayers.add(LayerInfo(imported.name, imported.path, LayerInfo.TYPE_VECTOR, true))
             } else if (currentTab == TAB_RASTER) {
                 val name = AppDirectories.deriveBaseName(path)
-                doc.rasterLayers.add(LayerInfo(name, path, "raster", true))
+                doc.rasterLayers.add(LayerInfo(name, path, LayerInfo.TYPE_RASTER, true))
             }
             // 立即保存到文档 -> 通知监听者（地图同步）-> 刷新列表
             DocumentManager.getInstance().save(requireContext())
@@ -117,9 +125,11 @@ class LayerManageDialog(
 
         // TAB 标签页
         tabLayout = sheet.findViewById(R.id.layer_manage_tab_layout)
-        tabLayout?.addTab(tabLayout!!.newTab().setText("矢量图层"))
-        tabLayout?.addTab(tabLayout!!.newTab().setText("栅格图层"))
-        tabLayout?.addTab(tabLayout!!.newTab().setText("地图源"))
+        tabLayout?.let { tabs ->
+            tabs.addTab(tabs.newTab().setText("矢量图层"))
+            tabs.addTab(tabs.newTab().setText("栅格图层"))
+            tabs.addTab(tabs.newTab().setText("地图源"))
+        }
 
         tabLayout?.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
@@ -140,12 +150,19 @@ class LayerManageDialog(
             showAddMapSourceDialog()
         } else {
             val fileTypes = if (currentTab == TAB_VECTOR) {
+                // dwg/dxf 由 GDAL/OGR 内置驱动读取（DXF 驱动 + libopencad 的 CAD 驱动，只读）
                 arrayOf("shp", "kml", "kmz", "zip", "dwg", "dxf")
             } else {
-                arrayOf("tif", "tiff")
+                // img 为 ERDAS Imagine 栅格，由 GDAL HFA 驱动读取（与 GeoTIFF 同一格式无关渲染链路）
+                arrayOf("tif", "tiff", "img")
             }
             val intent = Intent(requireContext(), OpenFileActivity::class.java)
             intent.putExtra(OpenFileActivity.EXTRA_FILE_TYPES, fileTypes)
+            // 默认目录：每次启动固定为 调查宝/layer
+            intent.putExtra(
+                OpenFileActivity.EXTRA_DEFAULT_DIR,
+                AppDirectories.getLayerDir(requireContext()).absolutePath
+            )
             openFileLauncher.launch(intent)
         }
     }
@@ -333,6 +350,35 @@ class LayerManageDialog(
     }
 
     /**
+     * 点击 shp 图层的 SQL 查询按键：弹出语句输入对话框（预填表名与字段提示），
+     * 确认后交由宿主执行查询并在地图上高亮命中要素。
+     */
+    private fun onSqlQueryClick(position: Int) {
+        val item = layerItems.getOrNull(position) ?: return
+        val path = item.path
+        if (path.isNullOrEmpty()) return
+        val handler = onSqlQuery
+        if (handler == null) {
+            Toast.makeText(requireContext(), R.string.layer_style_not_open, Toast.LENGTH_SHORT).show()
+            return
+        }
+        // 字段名供语句书写提示（OGR 读 DBF 字段），读取失败不阻断查询
+        val fields = runCatching { nativeGetVectorFieldNames(path)?.toList() }.getOrNull()
+        SqlQueryDialog(
+            requireContext(),
+            path,
+            displayLayerName(item),
+            fields,
+            object : SqlQueryDialog.Listener {
+                override fun onExecute(sql: String) = handler.invoke(path, sql)
+                override fun onClear() {
+                    onClearSqlQuery?.invoke()
+                }
+            }
+        ).create().show()
+    }
+
+    /**
      * 矢量图层单选：点击项名称高亮（粗体），原选中项恢复常规字重；
      * 重复点击同一项保持高亮不变。
      */
@@ -377,7 +423,7 @@ class LayerManageDialog(
         val layerInfo = doc.vectorLayers.firstOrNull { it.path == item.path } ?: return
         val isShp = ext == "shp"
         // 标注字段候选：shp 取 DBF 字段清单（GDAL）；kml 标注随源文件不开放设置
-        val fieldOptions = if (isShp) nativeGetVectorFieldNames(item.path!!)?.toList() else null
+        val fieldOptions = if (isShp) item.path?.let { nativeGetVectorFieldNames(it)?.toList() } else null
         // 所见即所得：优先取地图上该图层当前实际渲染色（已含文档样式效果），
         // 图层未加载时回退默认渲染色（与 LocalVectorLoader 面默认样式一致）
         val renderColors = item.path?.let { layerRenderColors?.invoke(it) }
@@ -438,14 +484,14 @@ class LayerManageDialog(
         val rect = RectF(inset, inset, widthPx - inset, heightPx - inset)
 
         val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-        try { fillPaint.color = android.graphics.Color.parseColor(fillHex) } catch (e: Exception) { }
+        fillPaint.color = parseColorOr(fillHex, Color.BLACK)
         style?.fillOpacity?.let { fillPaint.alpha = (it.coerceIn(0f, 1f) * 255).toInt() }
         canvas.drawRoundRect(rect, 4 * density, 4 * density, fillPaint)
 
         val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             this.style = Paint.Style.STROKE
             this.strokeWidth = strokeWidth.coerceIn(density, 4 * density)
-            try { color = android.graphics.Color.parseColor(outlineHex) } catch (e: Exception) { }
+            color = parseColorOr(outlineHex, Color.BLACK)
         }
         canvas.drawRoundRect(rect, 4 * density, 4 * density, strokePaint)
 
@@ -455,7 +501,7 @@ class LayerManageDialog(
             val base = 11 * density * (style.labelSize ?: 1f)
             val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 textSize = base.coerceIn(8 * density, 16 * density)
-                try { color = android.graphics.Color.parseColor(style.labelColor ?: "#FF212121") } catch (e: Exception) { }
+                color = parseColorOr(style.labelColor ?: DEFAULT_LABEL_COLOR, Color.BLACK)
                 textAlign = Paint.Align.CENTER
             }
             val cx = widthPx / 2f
@@ -464,7 +510,7 @@ class LayerManageDialog(
                 val outline = Paint(labelPaint).apply {
                     this.style = Paint.Style.STROKE
                     this.strokeWidth = textSize / 6
-                    try { color = android.graphics.Color.parseColor(style.labelOutlineColor ?: "#FF000000") } catch (e: Exception) { }
+                    color = parseColorOr(style.labelOutlineColor ?: DEFAULT_LABEL_OUTLINE_COLOR, Color.BLACK)
                 }
                 canvas.drawText(labelField, cx, cy, outline)
             }
@@ -472,6 +518,21 @@ class LayerManageDialog(
         }
         return bitmap
     }
+
+    /**
+     * 解析 `#AARRGGBB` 颜色串；为空或非法（document.json 可能被手改坏）时回退 [fallback]，
+     * 保证样式预览绘制不因单个坏值中断。
+     */
+    private fun parseColorOr(hex: String?, fallback: Int): Int =
+        if (hex.isNullOrEmpty()) {
+            fallback
+        } else {
+            try {
+                Color.parseColor(hex)
+            } catch (ignored: IllegalArgumentException) {
+                fallback
+            }
+        }
 
     /**
      * 图层显示名：文档名称 + 文件扩展名（如 kmz 解压后文档名为压缩包名，
@@ -492,15 +553,18 @@ class LayerManageDialog(
         val sizeStr = if (file != null && file.exists()) formatFileSize(file.length())
         else getString(R.string.layer_info_size_unknown)
         val typeStr = when (item.type) {
-            "vector" -> getString(R.string.layer_info_type_vector)
-            "raster" -> getString(R.string.layer_info_type_raster)
+            LayerInfo.TYPE_VECTOR -> getString(R.string.layer_info_type_vector)
+            LayerInfo.TYPE_RASTER -> getString(R.string.layer_info_type_raster)
             else -> item.type ?: ""
         }
-        // 坐标系：读取原始文件 SRS（名称 + proj4）；kmz 压缩包走 GDAL /vsizip/ 虚拟文件；读取失败/无 SRS 显示未知
+        // 坐标系：读取原始文件 SRS（原生返回“名称\nproj4”）；kmz 压缩包走 GDAL /vsizip/ 虚拟文件；
+        // 界面只显示第一个名称（截取 proj4 前的首行），读取失败/无 SRS 显示未知
         val srsPath = item.path?.let {
             if (it.lowercase(Locale.getDefault()).endsWith(".kmz")) "/vsizip/$it" else it
         }
         val srsStr = srsPath?.let { nativeGetLayerSrs(it) }
+            ?.substringBefore('\n')
+            ?.trim()
             ?.takeIf { it.isNotBlank() }
             ?: getString(R.string.layer_info_srs_unknown)
         val message = getString(
@@ -592,12 +656,13 @@ class LayerManageDialog(
     /**
      * 矢量/栅格图层项：
      * 左侧样式图标（矢量可点击弹出样式设置，栅格统一图标无点击）；
-     * 右侧上层名称（点击选中高亮），右侧下层缩放到/可见性/信息/移除按钮。
+     * 右侧上层名称（点击选中高亮），右侧下层 SQL 查询（仅 shp）/缩放到/可见性/信息/移除按键。
      */
     private inner class LayerViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
 
         private val ivIcon: ImageView = itemView.findViewById(R.id.item_layer_iv_icon)
         private val tvName: TextView = itemView.findViewById(R.id.item_layer_tv_name)
+        private val ivSql: ImageView = itemView.findViewById(R.id.item_layer_iv_sql)
         private val ivZoomTo: ImageView = itemView.findViewById(R.id.item_layer_iv_zoom_to)
         private val ivVisibility: ImageView = itemView.findViewById(R.id.item_layer_iv_visibility)
         private val ivInfo: ImageView = itemView.findViewById(R.id.item_layer_iv_info)
@@ -611,7 +676,7 @@ class LayerManageDialog(
             val selected = currentTab == TAB_VECTOR && item.path != null && item.path == selectedVectorPath
             tvName.setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
 
-            val isVector = "vector" == item.type
+            val isVector = item.type == LayerInfo.TYPE_VECTOR
             if (isVector) {
                 // 样式图标按图层当前样式实时绘制（文档样式优先），点击弹出样式设置；
                 // 位图绘制时清除 XML 灰色 tint，避免污染样式色；首次绑定未测量用 36dp 兜底；
@@ -619,8 +684,8 @@ class LayerManageDialog(
                 ivIcon.imageTintList = null
                 val density = ivIcon.resources.displayMetrics.density
                 // 位图按 ImageView 实际宽高绘制（首次绑定未测量时用布局声明的 72dp×36dp 兜底）
-                val w = if (ivIcon.measuredWidth > 0) ivIcon.measuredWidth else Math.round(72 * density)
-                val h = if (ivIcon.measuredHeight > 0) ivIcon.measuredHeight else Math.round(36 * density)
+                val w = if (ivIcon.measuredWidth > 0) ivIcon.measuredWidth else (72 * density).roundToInt()
+                val h = if (ivIcon.measuredHeight > 0) ivIcon.measuredHeight else (36 * density).roundToInt()
                 val preview = drawStylePreview(item, w, h)
                 if (preview != null) ivIcon.setImageBitmap(preview)
                 else ivIcon.setImageResource(R.drawable.ic_layer_vector_style)
@@ -636,6 +701,13 @@ class LayerManageDialog(
             }
 
             tvName.setOnClickListener { layerItems.getOrNull(adapterPosition)?.let { selectLayer(adapterPosition, it) } }
+
+            // SQL 查询仅对 shp 开放（表名与文件主名一致，语句预填可靠）；
+            // 回收复用时需显式隐藏，避免栅格/其他格式项残留按键
+            val isShp = isVector &&
+                    item.path?.substringAfterLast('.', "")?.lowercase(Locale.getDefault()) == "shp"
+            ivSql.visibility = if (isShp) View.VISIBLE else View.GONE
+            ivSql.setOnClickListener { onSqlQueryClick(adapterPosition) }
 
             ivZoomTo.setOnClickListener { onZoomToLayer(adapterPosition) }
 
@@ -678,5 +750,9 @@ class LayerManageDialog(
         /** 无样式覆盖时面要素默认渲染色（与 LocalVectorLoader 面默认样式一致，色块所见即所得） */
         private const val DEFAULT_SHAPE_FILL = "#664A8FE3"
         private const val DEFAULT_SHAPE_OUTLINE = "#FFFFFFFF"
+
+        /** 标注色 / 标注轮廓色未设置时的缺省色串（与 FeatureDetailDialog 默认标注色一致） */
+        private const val DEFAULT_LABEL_COLOR = "#FF212121"
+        private const val DEFAULT_LABEL_OUTLINE_COLOR = "#FF000000"
     }
 }

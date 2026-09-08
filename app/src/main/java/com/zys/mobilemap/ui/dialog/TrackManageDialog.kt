@@ -84,8 +84,9 @@ object TrackManageDialog {
             isSingleLine = true
         }
         val container = FrameLayout(activity).apply {
-            val horizontal = (16 * activity.resources.displayMetrics.density).toInt()
-            val vertical = (8 * activity.resources.displayMetrics.density).toInt()
+            val density = activity.resources.displayMetrics.density
+            val horizontal = (PADDING_H_DP * density).toInt()
+            val vertical = (PADDING_V_DP * density).toInt()
             setPadding(horizontal, vertical, horizontal, 0)
             addView(edit, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
@@ -140,7 +141,7 @@ object TrackManageDialog {
         override fun onBindViewHolder(holder: Holder, position: Int) {
             val track = tracks[position]
             holder.name.text = track.name
-            holder.subtitle.text = formatTime(track.createdTime) + "　·　${track.points.size}个点"
+            holder.subtitle.text = "${formatTime(track.createdTime)}　·　${track.points.size}个点"
 
             // 先设状态再挂监听，避免回显触发写库
             holder.visibleSwitch.setOnCheckedChangeListener(null)
@@ -154,7 +155,16 @@ object TrackManageDialog {
             holder.deleteButton.setOnClickListener { onDelete(track) }
         }
 
-        private fun formatTime(time: Long): String =
-            SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(time))
+        /** 副标题时间格式；onBindViewHolder 恒在主线程，可复用同一实例（SimpleDateFormat 非线程安全） */
+        private val timeFormat = SimpleDateFormat(TIME_PATTERN, Locale.getDefault())
+
+        private fun formatTime(time: Long): String = timeFormat.format(Date(time))
     }
+
+    /** 重命名对话框输入框的左右/上内边距（dp） */
+    private const val PADDING_H_DP = 16
+    private const val PADDING_V_DP = 8
+
+    /** 轨迹创建时间的副标题格式 */
+    private const val TIME_PATTERN = "yyyy-MM-dd HH:mm"
 }

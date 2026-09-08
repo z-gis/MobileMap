@@ -77,6 +77,9 @@ class LocationManager private constructor() {
                 }
             }
 
+            // onStatusChanged 自 API 29 起弃用且无实际回调；低版本设备上仍为抽象方法，
+            // 必须保留空实现（删除会在旧设备抛 AbstractMethodError），仅抑制弃用告警
+            @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
             override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
 
             override fun onProviderEnabled(provider: String) {}
@@ -91,9 +94,11 @@ class LocationManager private constructor() {
                 try {
                     lm.requestLocationUpdates(provider, MIN_INTERVAL_MS, MIN_DISTANCE_M, callback,
                         Looper.getMainLooper())
-                    // 用各提供者的最后已知位置刷新缓存
+                    // 用各提供者的最后已知位置刷新缓存（取时间更新的一条）
                     val last = lm.getLastKnownLocation(provider)
-                    if (last != null && (lastLocation == null || last.time > lastLocation!!.time)) {
+                    // 先存局部变量：lastLocation 为可空字段无法智能转换，免写 !!
+                    val cached = lastLocation
+                    if (last != null && (cached == null || last.time > cached.time)) {
                         lastLocation = last
                         listener?.onLocationChanged(last)
                         for (extra in extraListeners) {

@@ -71,7 +71,7 @@
     <string name="map_source_name_required">请输入地图源名称</string>
     <string name="map_source_url_required">请输入地图源网址</string>
     <string name="layer_info_title">图层信息</string>
-    <string name="layer_info_content">名称：%1$s\n类型：%2$s\n大小：%3$s\n坐标系：%4$s\n路径：%5$s</string>
+    <string name="layer_info_content">名称：%1$s\n\n类型：%2$s\n\n大小：%3$s\n\n坐标系：%4$s\n\n路径：%5$s</string>
     <string name="layer_info_type_vector">矢量图层</string>
     <string name="layer_info_type_raster">栅格图层</string>
     <string name="layer_info_size_unknown">未知</string>
@@ -84,6 +84,22 @@
     <string name="dialog_cancel">取消</string>
     <string name="layer_icon_desc">图标</string>
     <string name="media_zoom_to">缩放至</string>
+
+    <!-- SqlQueryDialog -->
+    <string name="layer_sql_query">SQL 查询</string>
+    <string name="sql_query_title">SQL 查询：%1$s</string>
+    <string name="sql_query_hint">输入 SQL 语句，仅输入条件也可（自动补全为 SELECT）</string>
+    <string name="sql_query_fields">可用字段：%1$s</string>
+    <string name="sql_query_fields_none">该图层无属性字段，仅可按 FID 查询</string>
+    <string name="sql_query_fields_title">选择字段</string>
+    <string name="sql_query_execute">执行查询</string>
+    <string name="sql_query_clear">清除结果</string>
+    <string name="sql_query_empty_input">请输入 SQL 语句</string>
+    <string name="sql_query_running">正在查询…</string>
+    <string name="sql_query_result_count">查询命中 %1$d 个要素</string>
+    <string name="sql_query_result_empty">查询无命中要素</string>
+    <string name="sql_query_failed">查询失败：%1$s</string>
+    <string name="sql_query_cleared">已清除查询结果</string>
 
     <!-- ColorPickerDialog -->
     <string name="color_picker_title">颜色选择</string>
@@ -120,6 +136,8 @@
     <string name="settings_show_photo_name">显示照片名称</string>
     <string name="settings_show_track_layer">显示轨迹记录</string>
     <string name="settings_show_measure_layer">显示测量结果</string>
+    <string name="settings_coord_display_meter">坐标以米显示（2000坐标系）</string>
+    <string name="settings_shp_use_gdal">shp 使用 GDAL 读取（关闭则走 WorldWind 原生）</string>
     <string name="settings_personal_info_list">关于</string>
 
     <!-- AboutActivity -->

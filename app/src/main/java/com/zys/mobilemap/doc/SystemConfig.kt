@@ -1,6 +1,5 @@
 package com.zys.mobilemap.doc
 
-import org.json.JSONException
 import org.json.JSONObject
 
 class SystemConfig {
@@ -12,6 +11,19 @@ class SystemConfig {
     var showTrackLayer: Boolean = true
     var showMeasureLayer: Boolean = true
 
+    /**
+     * 定位/中心坐标显示格式：false = 十进制度（经纬度），
+     * true = 米（CGCS2000 3 度带高斯-克吕格投影坐标系，带号按经度自动选取）。
+     */
+    var coordDisplayMeter: Boolean = false
+
+    /**
+     * shp 读取引擎：true = GDAL/OGR（默认，任意坐标系经重投影，与 dwg/dxf 同一条路径），
+     * false = WorldWind 原生字节入口（地理坐标/UTM/无 prj；其余投影仍自动回退 GDAL）。
+     * 两条路径并存不删除，切换后 shp 图层按新引擎重载。
+     */
+    var shpUseGdal: Boolean = true
+
     fun toJson(): JSONObject {
         val o = JSONObject()
         o.put("showCenterCross", showCenterCross)
@@ -21,6 +33,8 @@ class SystemConfig {
         o.put("showPhotoName", showPhotoName)
         o.put("showTrackLayer", showTrackLayer)
         o.put("showMeasureLayer", showMeasureLayer)
+        o.put("coordDisplayMeter", coordDisplayMeter)
+        o.put("shpUseGdal", shpUseGdal)
         return o
     }
 
@@ -34,6 +48,8 @@ class SystemConfig {
             if (o.has("showPhotoName")) c.showPhotoName = o.getBoolean("showPhotoName")
             if (o.has("showTrackLayer")) c.showTrackLayer = o.getBoolean("showTrackLayer")
             if (o.has("showMeasureLayer")) c.showMeasureLayer = o.getBoolean("showMeasureLayer")
+            if (o.has("coordDisplayMeter")) c.coordDisplayMeter = o.getBoolean("coordDisplayMeter")
+            if (o.has("shpUseGdal")) c.shpUseGdal = o.getBoolean("shpUseGdal")
             return c
         }
     }

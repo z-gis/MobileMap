@@ -1,6 +1,8 @@
 package com.zys.mobilemap.raster
 
 import android.content.Context
+import android.util.Log
+import com.zys.mobilemap.util.AppDirectories
 import earth.worldwind.WorldWindow
 import earth.worldwind.geom.Location
 import earth.worldwind.geom.Sector
@@ -14,7 +16,6 @@ import earth.worldwind.util.Level
 import earth.worldwind.util.LevelSet
 import earth.worldwind.util.Tile
 import earth.worldwind.util.TileFactory
-import com.zys.mobilemap.util.AppDirectories
 import java.io.File
 import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentHashMap
@@ -136,13 +137,15 @@ class GdalRasterLayer(
                     liveTiles[key]?.get()?.imageSource = source
                     worldWindow.requestRedraw()
                 } catch (t: Throwable) {
-                    android.util.Log.e(TAG, "瓦片生成失败 key=$key", t)
+                    Log.e(TAG, "瓦片生成失败 key=$key", t)
                 } finally {
                     inProgress.remove(key)
                 }
             }
         } catch (e: Exception) {
+            // 提交线程池失败（如队列被拒）：释放生成中标记，下次进屏可重试
             inProgress.remove(key)
+            Log.e(TAG, "瓦片生成任务提交失败 key=$key", e)
         }
     }
 
@@ -155,7 +158,7 @@ class GdalRasterLayer(
                 if (ref.get() == null) {
                     if (liveTiles.remove(key, ref)) removed++
                 }
-                if (liveTiles.size <= MAX_LIVE_TILE_REFS || removed >= 256) break
+                if (liveTiles.size <= MAX_LIVE_TILE_REFS || removed >= TRIM_BATCH_LIMIT) break
             }
         }
         if (resolvedSources.size > MAX_RESOLVED_SOURCE_CACHE) {
@@ -184,15 +187,19 @@ class GdalRasterLayer(
         private const val MAX_RESOLVED_SOURCE_CACHE = 3000
         private const val MAX_LIVE_TILE_REFS = 6000
 
+        /** 单次缓存清理的淘汰上限，避免一次 createTile 耗时过长阻塞渲染线程 */
+        private const val TRIM_BATCH_LIMIT = 256
+
         /** 全部栅格图层共用的瓦片生成线程池（重投影渲染耗时，限制并发） */
         private val tileExecutor = Executors.newFixedThreadPool(2)
 
         /** 瓦片缓存目录：/调查宝/tiles/raster/<路径哈希> */
         private fun prepareCacheDir(context: Context, rasterPath: String): File {
-            val base = AppDirectories.getTileCacheDir(context) ?: context.cacheDir
-            val dir = File(base, "raster/" + Integer.toHexString(rasterPath.hashCode()))
+            val base = AppDirectories.getTileCacheDir(context)
+            // 目录名用无符号十六进制（Integer.toHexString）：Int.toString(16) 对负哈希会带负号，与已有缓存目录不一致
+            val dir = File(base, "raster/${Integer.toHexString(rasterPath.hashCode())}")
             if (!dir.exists() && !dir.mkdirs()) {
-                android.util.Log.w(TAG, "瓦片缓存目录创建失败: ${dir.absolutePath}")
+                Log.w(TAG, "瓦片缓存目录创建失败: ${dir.absolutePath}")
             }
             return dir
         }

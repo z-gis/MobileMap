@@ -31,6 +31,7 @@
         tools:ignore="AllFilesAccessPolicy,ScopedStorage" />
 
     <application
+        android:name=".MobileMapApp"
         android:allowBackup="true"
         android:largeHeap="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -76,11 +77,13 @@
         </activity>
 
         <!-- 外部文件打开（ACTION_VIEW）统一由 SplashActivity 承接并转发，故此处不再声明 VIEW intent-filter；
-             singleTask 保证转发时复用已运行实例（走 onNewIntent） -->
+             singleTask 保证转发时复用已运行实例（走 onNewIntent）；
+             configChanges 使横竖屏切换不重建 Activity，避免重新触发启动加载遮罩（WorldWindow 自行处理 GL surface 尺寸变化） -->
         <activity
             android:name=".ui.activity.MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:theme="@style/Theme.MobileMap.Main" />
 
         <activity

@@ -8,7 +8,6 @@ import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.lifecycleScope
 import com.zys.mobilemap.databinding.ActivityMainBinding
 import com.zys.mobilemap.db.MapDataStore
 import com.zys.mobilemap.db.MeasurementRecord
@@ -31,9 +30,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.util.Date
 import java.util.Locale
-import kotlin.math.abs
-import kotlin.math.cos
-import kotlin.math.sqrt
 
 /**
  * 测量工具模块（参照上一版本）：点（位置）/距离/面积三种测量模式。
@@ -176,45 +172,9 @@ class MeasureModel(
             }
             MeasurementRecord.TYPE_AREA ->
                 containsInRing(record.points, lat, lon) ||
-                        minEdgeDistanceMeters(record.points, lat, lon, closed = true) <= edgeThreshold
-            else -> minEdgeDistanceMeters(record.points, lat, lon, closed = false) <= edgeThreshold
+                        GeoCalc.minEdgeDistanceMeters(record.points, lat, lon, closed = true) <= edgeThreshold
+            else -> GeoCalc.minEdgeDistanceMeters(record.points, lat, lon) <= edgeThreshold
         }
-    }
-
-    /** 点到折线各段最小距离（面要素含闭合边） */
-    private fun minEdgeDistanceMeters(points: List<DoubleArray>, lat: Double, lon: Double, closed: Boolean): Double {
-        if (points.size < 2) return Double.MAX_VALUE
-        var min = Double.MAX_VALUE
-        for (i in 1 until points.size) {
-            min = minOf(min, distanceToSegmentMeters(lat, lon, points[i - 1], points[i]))
-        }
-        if (closed && points.size >= 3) {
-            min = minOf(min, distanceToSegmentMeters(lat, lon, points.last(), points.first()))
-        }
-        return min
-    }
-
-    /** 点到线段距离（局部等角平面近似，同上一版） */
-    private fun distanceToSegmentMeters(lat: Double, lon: Double, a: DoubleArray, b: DoubleArray): Double {
-        val lat0 = Math.toRadians((a[0] + b[0] + lat) / 3.0)
-        val r = 6371000.0
-        val px = r * Math.toRadians(lon) * cos(lat0)
-        val py = r * Math.toRadians(lat)
-        val ax = r * Math.toRadians(a[1]) * cos(lat0)
-        val ay = r * Math.toRadians(a[0])
-        val bx = r * Math.toRadians(b[1]) * cos(lat0)
-        val by = r * Math.toRadians(b[0])
-        val dx = bx - ax
-        val dy = by - ay
-        if (dx == 0.0 && dy == 0.0) {
-            val sx = px - ax
-            val sy = py - ay
-            return sqrt(sx * sx + sy * sy)
-        }
-        val t = (((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)).coerceIn(0.0, 1.0)
-        val ex = px - (ax + t * dx)
-        val ey = py - (ay + t * dy)
-        return sqrt(ex * ex + ey * ey)
     }
 
     /** 射线法判定点是否在多边形内（经纬度平面近似） */
@@ -664,44 +624,10 @@ class MeasureModel(
     private fun edgeLength(a: Position, b: Position): Double =
         GeoCalc.distanceMeters(a.latitude.inDegrees, a.longitude.inDegrees, b.latitude.inDegrees, b.longitude.inDegrees)
 
-    /** 球面多边形质心（标注位置） */
+    /** 球面多边形质心（标注位置）：委托 [GeoCalc.polygonCentroid]，全项目统一球面量算实现 */
     private fun polygonCentroid(points: List<Position>): Position {
-        if (points.size < 3) return Position(points.firstOrNull() ?: Position())
-
-        var lat0 = 0.0
-        for (p in points) lat0 += Math.toRadians(p.latitude.inDegrees)
-        lat0 /= points.size
-
-        val r = 6371000.0
-        var area2 = 0.0
-        var cx = 0.0
-        var cy = 0.0
-        for (i in points.indices) {
-            val a = points[i]
-            val b = points[(i + 1) % points.size]
-            val ax = r * Math.toRadians(a.longitude.inDegrees) * cos(lat0)
-            val ay = r * Math.toRadians(a.latitude.inDegrees)
-            val bx = r * Math.toRadians(b.longitude.inDegrees) * cos(lat0)
-            val by = r * Math.toRadians(b.latitude.inDegrees)
-            val cross = ax * by - bx * ay
-            area2 += cross
-            cx += (ax + bx) * cross
-            cy += (ay + by) * cross
-        }
-
-        if (abs(area2) < 1e-9) {
-            var lat = 0.0
-            var lon = 0.0
-            for (p in points) {
-                lat += p.latitude.inDegrees
-                lon += p.longitude.inDegrees
-            }
-            return Position.fromDegrees(lat / points.size, lon / points.size, 0.0)
-        }
-
-        cx /= 3.0 * area2
-        cy /= 3.0 * area2
-        return Position.fromDegrees(Math.toDegrees(cy / r), Math.toDegrees(cx / (r * cos(lat0))), 0.0)
+        val c = GeoCalc.polygonCentroid(pointsAsDegrees(points))
+        return Position.fromDegrees(c[0], c[1], 0.0)
     }
 
     private fun midpoint(a: Position, b: Position): Position = Position.fromDegrees(
@@ -723,11 +649,10 @@ class MeasureModel(
         /** 测量图层标记 */
         const val MEASURE_LAYER_KEY = "mobilemap.measure.layer"
 
+        /** 各测量模式默认颜色：距离=蓝、面积=绿、点位=黄 */
         private const val COLOR_BLUE = 0xFF57ACFD.toInt()
         private const val COLOR_GREEN = 0xFF2ECC71.toInt()
         private const val COLOR_YELLOW = 0xFFF1C40F.toInt()
-        private const val COLOR_RED = 0xFFE74C3C.toInt()
-        private const val COLOR_PURPLE = 0xFF9B59B6.toInt()
 
         /** 测量过程线颜色与线宽 */
         private val LIVE_LINE_COLOR = Color(0.34f, 0.76f, 1f, 1f)

@@ -5,7 +5,6 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import com.zys.mobilemap.util.AppDirectories
 import org.json.JSONArray
-import org.json.JSONObject
 import java.io.File
 
 /**
@@ -64,7 +63,7 @@ class MapDataStore private constructor(context: Context) {
     private val db: SQLiteDatabase
 
     init {
-        val dir = AppDirectories.getMapDir(context) ?: context.filesDir
+        val dir = AppDirectories.getMapDir(context)
         db = SQLiteDatabase.openOrCreateDatabase(File(dir, DB_NAME), null)
         db.execSQL(
             "CREATE TABLE IF NOT EXISTS track (" +
@@ -73,7 +72,8 @@ class MapDataStore private constructor(context: Context) {
                     "created_time INTEGER, " +
                     "visible INTEGER DEFAULT 1, " +
                     "color INTEGER DEFAULT -13382401, " +
-                    "line_width INTEGER DEFAULT 3)"
+                    "line_width INTEGER DEFAULT 3, " +
+                    "recording INTEGER DEFAULT 0)"
         )
         db.execSQL(
             "CREATE TABLE IF NOT EXISTS track_point (" +
@@ -93,44 +93,26 @@ class MapDataStore private constructor(context: Context) {
                     "created_time INTEGER, " +
                     "points TEXT)"
         )
-        // 旧库迁移：补线宽列（点击测量详情 BottomSheet 编辑线宽）
-        val hasLineWidth = db.rawQuery("PRAGMA table_info(measurement)", null).use { c ->
-            val nameIdx = c.getColumnIndex("name")
-            var found = false
-            while (c.moveToNext()) {
-                if (nameIdx >= 0 && c.getString(nameIdx) == "line_width") found = true
-            }
-            found
-        }
-        if (!hasLineWidth) {
+        // 旧库迁移：PRAGMA 检测缺列后 ALTER TABLE 补列，不重建表不丢数据（见 [SqliteSchema]）
+        // measurement 线宽列：点击测量详情 BottomSheet 编辑线宽
+        val measurementColumns = SqliteSchema.tableColumns(db, "measurement")
+        if ("line_width" !in measurementColumns) {
             db.execSQL("ALTER TABLE measurement ADD COLUMN line_width INTEGER DEFAULT 3")
         }
-        // 旧库迁移：补轨迹逐条可见性列（管理界面显示/隐藏单条轨迹）
-        val hasTrackVisible = db.rawQuery("PRAGMA table_info(track)", null).use { c ->
-            val nameIdx = c.getColumnIndex("name")
-            var found = false
-            while (c.moveToNext()) {
-                if (nameIdx >= 0 && c.getString(nameIdx) == "visible") found = true
-            }
-            found
-        }
-        if (!hasTrackVisible) {
+        // track 逐条可见性（管理界面显示/隐藏）、样式列（详情 BottomSheet 编辑颜色/线宽）、
+        // “记录中”标记列（采集过程实时落库，进程被回收后可恢复未保存轨迹）
+        val trackColumns = SqliteSchema.tableColumns(db, "track")
+        if ("visible" !in trackColumns) {
             db.execSQL("ALTER TABLE track ADD COLUMN visible INTEGER DEFAULT 1")
         }
-        // 旧库迁移：补轨迹样式列（点击轨迹详情 BottomSheet 编辑颜色/线宽）
-        val trackColumns = db.rawQuery("PRAGMA table_info(track)", null).use { c ->
-            val nameIdx = c.getColumnIndex("name")
-            val columns = mutableSetOf<String>()
-            while (c.moveToNext()) {
-                if (nameIdx >= 0) columns.add(c.getString(nameIdx))
-            }
-            columns
-        }
-        if (!trackColumns.contains("color")) {
+        if ("color" !in trackColumns) {
             db.execSQL("ALTER TABLE track ADD COLUMN color INTEGER DEFAULT -13382401")
         }
-        if (!trackColumns.contains("line_width")) {
+        if ("line_width" !in trackColumns) {
             db.execSQL("ALTER TABLE track ADD COLUMN line_width INTEGER DEFAULT 3")
+        }
+        if ("recording" !in trackColumns) {
+            db.execSQL("ALTER TABLE track ADD COLUMN recording INTEGER DEFAULT 0")
         }
     }
 
@@ -172,12 +154,14 @@ class MapDataStore private constructor(context: Context) {
     }
 
     /**
-     * 加载全部轨迹（含坐标点），按创建时间降序。
+     * 加载全部已结束的历史轨迹（含坐标点），按创建时间降序。
+     * 记录中的草稿轨迹（recording=1）不作为历史轨迹返回，避免出现在管理列表与历史渲染中。
      */
     fun loadTracks(): List<TrackRecord> {
         val tracks = LinkedHashMap<Long, TrackRecord>()
         db.rawQuery(
-            "SELECT id, name, created_time, visible, color, line_width FROM track ORDER BY created_time DESC", null
+            "SELECT id, name, created_time, visible, color, line_width FROM track " +
+                    "WHERE recording = 0 ORDER BY created_time DESC", null
         ).use { c ->
             while (c.moveToNext()) {
                 val record = TrackRecord(c.getLong(0), c.getString(1) ?: "", c.getLong(2), mutableListOf())
@@ -199,6 +183,72 @@ class MapDataStore private constructor(context: Context) {
             }
         }
         return tracks.values.filter { it.points.size >= 2 }
+    }
+
+    /**
+     * 新建一条“记录中”的草稿轨迹，返回主键（失败返回 -1）。
+     * 采集开始后即落库，轨迹点随采集实时追加，进程被系统回收/异常退出后据此恢复。
+     */
+    fun beginDraftTrack(name: String, createdTime: Long): Long {
+        val values = ContentValues()
+        values.put("name", name)
+        values.put("created_time", createdTime)
+        values.put("visible", 1)
+        values.put("color", TrackRecord.DEFAULT_COLOR)
+        values.put("line_width", TrackRecord.DEFAULT_LINE_WIDTH)
+        values.put("recording", 1)
+        return db.insert("track", null, values)
+    }
+
+    /**
+     * 追加一个轨迹坐标点（采集过程中实时落库）。
+     */
+    fun appendTrackPoint(trackId: Long, seq: Int, lat: Double, lon: Double, alt: Double) {
+        val values = ContentValues()
+        values.put("track_id", trackId)
+        values.put("seq", seq)
+        values.put("latitude", lat)
+        values.put("longitude", lon)
+        values.put("altitude", alt)
+        db.insert("track_point", null, values)
+    }
+
+    /**
+     * 结束草稿轨迹：写入最终名称并清除“记录中”标记，此后作为历史轨迹显示。
+     */
+    fun finishDraftTrack(trackId: Long, name: String) {
+        val values = ContentValues()
+        values.put("name", name)
+        values.put("recording", 0)
+        db.update("track", values, "id = ?", arrayOf(trackId.toString()))
+    }
+
+    /**
+     * 读取最近一条未结束的草稿轨迹（含已采集坐标点），无则返回 null。
+     */
+    fun loadDraftTrack(): TrackRecord? {
+        val record = db.rawQuery(
+            "SELECT id, name, created_time, visible, color, line_width FROM track " +
+                    "WHERE recording = 1 ORDER BY created_time DESC LIMIT 1", null
+        ).use { c ->
+            if (!c.moveToNext()) return@use null
+            val r = TrackRecord(c.getLong(0), c.getString(1) ?: "", c.getLong(2), mutableListOf())
+            r.visible = c.getInt(3) != 0
+            val colorValue = c.getInt(4)
+            r.color = if (colorValue == 0) TrackRecord.DEFAULT_COLOR else colorValue
+            r.lineWidth = c.getInt(5).takeIf { it > 0 } ?: TrackRecord.DEFAULT_LINE_WIDTH
+            r
+        } ?: return null
+
+        db.rawQuery(
+            "SELECT latitude, longitude, altitude FROM track_point " +
+                    "WHERE track_id = ? ORDER BY seq ASC", arrayOf(record.id.toString())
+        ).use { c ->
+            while (c.moveToNext()) {
+                record.points.add(doubleArrayOf(c.getDouble(0), c.getDouble(1), c.getDouble(2)))
+            }
+        }
+        return record
     }
 
     /**

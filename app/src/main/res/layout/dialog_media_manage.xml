@@ -8,15 +8,31 @@
     android:paddingEnd="8dp"
     android:paddingBottom="8dp">
 
-    <TextView
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
         android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:text="拍照标识管理"
-        android:textColor="#131313"
-        android:textSize="16sp"
-        android:textStyle="bold"/>
+        android:paddingEnd="4dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="采集数据管理"
+            android:textColor="#131313"
+            android:textSize="15sp"
+            android:textStyle="bold"/>
+
+        <ImageView
+            android:id="@+id/media_manage_add_group"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:contentDescription="新建分组"
+            android:padding="6dp"
+            android:src="@drawable/baseline_playlist_add_24"/>
+    </LinearLayout>
 
     <TextView
         android:id="@+id/media_manage_empty"
@@ -25,15 +41,13 @@
         android:gravity="center"
         android:text="暂无拍照标识"
         android:textColor="#888888"
-        android:textSize="14sp"
+        android:textSize="13sp"
         android:visibility="gone"/>
 
-    <androidx.recyclerview.widget.RecyclerView
+    <com.zys.mobilemap.control.MaxHeightRecyclerView
         android:id="@+id/media_manage_list"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:maxHeight="360dp"
-        android:nestedScrollingEnabled="false"/>
+        android:layout_marginTop="8dp"/>
 
 </LinearLayout>

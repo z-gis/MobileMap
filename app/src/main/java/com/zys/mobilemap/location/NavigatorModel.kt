@@ -4,18 +4,17 @@ import android.app.Activity
 import android.widget.ImageView
 import android.widget.TextView
 import com.zys.mobilemap.R
+import com.zys.mobilemap.util.CoordFormatter
 import earth.worldwind.WorldWindow
 import earth.worldwind.geom.Camera
 import earth.worldwind.navigator.NavigatorEvent
 import earth.worldwind.navigator.NavigatorListener
-import java.util.Locale
+import kotlin.math.PI
 import kotlin.math.ln
-import kotlin.math.max
-import kotlin.math.min
 
 /**
  * 主界面导航管理：负责导航事件监听、中心点/层级文本展示，
- * 以及缩放操作。
+ * 以及缩放操作。中心坐标文本格式（十进制度 / 米 CGCS2000）由系统设置驱动。
  */
 class NavigatorModel(
     private val activity: Activity,
@@ -42,24 +41,27 @@ class NavigatorModel(
         updateNavigatorDisplay(worldWindow.engine.camera)
     }
 
+    /**
+     * 按当前配置刷新一轮显示（坐标显示格式切换后由宿主立即调用，无需等待下一次导航事件）。
+     */
+    fun refresh() {
+        updateNavigatorDisplay(worldWindow.engine.camera)
+    }
+
     fun zoomIn() {
-        val camera = worldWindow.engine.camera
-        camera.position.altitude = camera.position.altitude * 0.8
-        worldWindow.requestRedraw()
+        scaleAltitude(ZOOM_IN_FACTOR)
     }
 
     fun zoomOut() {
-        val camera = worldWindow.engine.camera
-        camera.position.altitude = camera.position.altitude * 1.2
-        worldWindow.requestRedraw()
+        scaleAltitude(ZOOM_OUT_FACTOR)
     }
 
     private fun updateNavigatorDisplay(camera: Camera) {
-        centerTextView.text = String.format(
-            Locale.getDefault(),
-            "中心: %.4f %.4f",
-            camera.position.longitude.inDegrees.toFloat(),
-            camera.position.latitude.inDegrees.toFloat()
+        // 中心坐标：按设置在十进制度与米（CGCS2000 3 度带）之间切换
+        centerTextView.text = CoordFormatter.format(
+            "中心",
+            camera.position.longitude.inDegrees,
+            camera.position.latitude.inDegrees
         )
 
         levelTextView.text = altitudeToLevel(camera.position.altitude).toString()
@@ -69,10 +71,36 @@ class NavigatorModel(
         northButton.rotation = -camera.heading.inDegrees.toFloat()
     }
 
+    /** 按系数缩放相机高度实现缩放（<1 拉近，>1 拉远） */
+    private fun scaleAltitude(factor: Double) {
+        val camera = worldWindow.engine.camera
+        camera.position.altitude = camera.position.altitude * factor
+        worldWindow.requestRedraw()
+    }
+
+    /**
+     * 相机高度 -> Web Mercator 瓦片层级：层级每加 1 地面分辨率减半，
+     * 故 level = log2(赤道周长 / 高度)，并限幅到 0..[MAX_LEVEL]。
+     */
     private fun altitudeToLevel(altitude: Double): Int {
         if (altitude <= 0) return 0
-        val circumference = 2.0 * Math.PI * 6378137.0
+        val circumference = 2.0 * PI * WGS84_EQUATORIAL_RADIUS
         val level = (ln(circumference / altitude) / ln(2.0)).toInt()
-        return max(0, min(level, 20))
+        return level.coerceIn(0, MAX_LEVEL)
+    }
+
+    companion object {
+        /** 缩放步进系数：每次点击把相机高度乘/除约 1.25 倍 */
+        private const val ZOOM_IN_FACTOR = 0.8
+        private const val ZOOM_OUT_FACTOR = 1.2
+
+        /**
+         * WGS84 赤道半径（米）。层级换算属 Web Mercator 金字塔口径，用赤道半径；
+         * 与 [com.zys.mobilemap.util.GeoCalc] 量算用的平均半径 6371000 米不是同一个值，勿混用。
+         */
+        private const val WGS84_EQUATORIAL_RADIUS = 6378137.0
+
+        /** 层级显示上限（超出后底图走祖先瓦片拉伸，层级号不再增长） */
+        private const val MAX_LEVEL = 20
     }
 }

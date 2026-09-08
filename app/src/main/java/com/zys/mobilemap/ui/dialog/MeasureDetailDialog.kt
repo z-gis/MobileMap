@@ -4,13 +4,9 @@ import android.app.Dialog
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
-import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
-import com.google.android.material.bottomsheet.BottomSheetBehavior
-import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.zys.mobilemap.R
-import com.google.android.material.R as MaterialR
 
 /**
  * 测量详情 BottomSheet：点击已保存测量几何后弹出（与要素详情弹层样式一致）。
@@ -38,21 +34,7 @@ class MeasureDetailDialog(
         val dialog = super.onCreateDialog(savedInstanceState)
         val sheet = sheetView ?: return dialog
 
-        // 覆盖基类 onShowListener：圆角背景 + 初始展开态（内容全量显示）
-        dialog.setOnShowListener { d ->
-            val bottomSheet = (d as BottomSheetDialog)
-                .findViewById<FrameLayout>(MaterialR.id.design_bottom_sheet)
-            bottomSheet?.let { bs ->
-                bs.setBackgroundResource(R.drawable.bg_bottom_sheet_rounded)
-                sheet.post {
-                    BottomSheetBehavior.from(bs).apply {
-                        peekHeight = sheet.height
-                        state = BottomSheetBehavior.STATE_EXPANDED
-                    }
-                }
-            }
-        }
-
+        // 圆角背景与可手势调整的高度档位由基类统一配置（见 BaseBottomSheetDialog）
         sheet.findViewById<TextView>(R.id.measure_detail_tv_title).text = title
         sheet.findViewById<TextView>(R.id.measure_detail_tv_close).setOnClickListener { dismiss() }
 
@@ -77,17 +59,17 @@ class MeasureDetailDialog(
         if (!widthEditable) {
             sheet.findViewById<View>(R.id.measure_detail_ll_width_row).visibility = View.GONE
         } else {
-            lineWidth = lineWidth.coerceIn(WIDTH_MIN, WIDTH_MAX)
             val tvWidth = sheet.findViewById<TextView>(R.id.measure_detail_tv_width_value)
-            tvWidth.text = lineWidth.toString()
-            sheet.findViewById<TextView>(R.id.measure_detail_btn_width_minus).setOnClickListener {
-                lineWidth = (lineWidth - 1).coerceIn(WIDTH_MIN, WIDTH_MAX)
+            // 步进统一经此函数限幅并回显，避免加/减两个监听各写一遍
+            fun applyWidth(value: Int) {
+                lineWidth = value.coerceIn(WIDTH_MIN, WIDTH_MAX)
                 tvWidth.text = lineWidth.toString()
             }
-            sheet.findViewById<TextView>(R.id.measure_detail_btn_width_plus).setOnClickListener {
-                lineWidth = (lineWidth + 1).coerceIn(WIDTH_MIN, WIDTH_MAX)
-                tvWidth.text = lineWidth.toString()
-            }
+            applyWidth(lineWidth)
+            sheet.findViewById<TextView>(R.id.measure_detail_btn_width_minus)
+                .setOnClickListener { applyWidth(lineWidth - 1) }
+            sheet.findViewById<TextView>(R.id.measure_detail_btn_width_plus)
+                .setOnClickListener { applyWidth(lineWidth + 1) }
         }
 
         // 底部按键：删除（宿主确认）/ 保存

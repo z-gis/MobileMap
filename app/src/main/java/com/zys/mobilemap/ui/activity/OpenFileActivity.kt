@@ -5,7 +5,6 @@ import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
-import android.text.TextUtils
 import android.view.View
 import android.view.ViewGroup
 import android.widget.BaseAdapter
@@ -49,6 +48,9 @@ class OpenFileActivity : BaseStyledActivity() {
 
     /** 当前目录 */
     private var currentDirectory: File? = null
+
+    /** Intent 传入的默认目录（授权返回后复用，避免退回外部存储根） */
+    private var defaultDirArg: String? = null
 
     /** 是否已提示过全文件访问权限 */
     private var promptedAllFilesPermission = false
@@ -99,8 +101,11 @@ class OpenFileActivity : BaseStyledActivity() {
     private fun readArguments() {
         fileTypeArray = intent.getStringArrayExtra(EXTRA_FILE_TYPES)
         val defaultDir = intent.getStringExtra(EXTRA_DEFAULT_DIR)
-        rootDirectory = resolveReadableRoot(defaultDir)
-        currentDirectory = rootDirectory
+        defaultDirArg = defaultDir
+        // 根目录固定为可读存储根：作为面包屑起点与向上导航边界，保留完整多级面包屑
+        rootDirectory = resolveReadableRoot(null)
+        // 初始目录：优先默认目录（需存在、是目录、且位于根目录之下），否则回退根目录
+        currentDirectory = resolveInitialDir(defaultDir, rootDirectory) ?: rootDirectory
 
         // Android 11+ 需要申请全文件访问权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
@@ -113,13 +118,25 @@ class OpenFileActivity : BaseStyledActivity() {
     }
 
     /**
+     * 解析初始浏览目录：传入的默认目录需存在、是目录且位于根目录之下，
+     * 以保证面包屑能从根目录逐级构建并支持向上导航；不满足时返回 null 由调用方回退根目录。
+     */
+    private fun resolveInitialDir(defaultDir: String?, root: File?): File? {
+        if (defaultDir.isNullOrEmpty() || root == null) return null
+        val dir = File(defaultDir)
+        if (!dir.exists() || !dir.isDirectory) return null
+        if (!dir.absolutePath.startsWith(root.absolutePath)) return null
+        return dir
+    }
+
+    /**
      * 解析可读的根目录。
      * 优先使用默认目录，其次使用外部存储根目录，最后兜底到应用目录。
      */
     private fun resolveReadableRoot(defaultDir: String?): File {
         val candidates = mutableListOf<File>()
-        if (!TextUtils.isEmpty(defaultDir)) {
-            candidates.add(File(defaultDir!!))
+        if (!defaultDir.isNullOrEmpty()) {
+            candidates.add(File(defaultDir))
         }
 
         val externalRoot = Environment.getExternalStorageDirectory()
@@ -136,12 +153,8 @@ class OpenFileActivity : BaseStyledActivity() {
 
         candidates.add(filesDir)
 
-        for (candidate in candidates) {
-            if (candidate.exists() && candidate.isDirectory) {
-                return candidate
-            }
-        }
-        return filesDir
+        // 逐个候选目录取首个已存在的目录；均不可用时兜底应用内部目录
+        return candidates.firstOrNull { it.exists() && it.isDirectory } ?: filesDir
     }
 
     /**
@@ -157,7 +170,7 @@ class OpenFileActivity : BaseStyledActivity() {
         ) {
             promptedAllFilesPermission = false
             rootDirectory = resolveReadableRoot(null)
-            currentDirectory = rootDirectory
+            currentDirectory = resolveInitialDir(defaultDirArg, rootDirectory) ?: rootDirectory
             updateList(currentDirectory)
         }
     }
@@ -244,31 +257,25 @@ class OpenFileActivity : BaseStyledActivity() {
     private fun matchesExtension(file: File): Boolean {
         // 如果没有指定文件类型，则允许所有文件
         val types = fileTypeArray
-        if (types == null || types.isEmpty()) {
+        if (types.isNullOrEmpty()) {
             return true
         }
 
         val fileName = file.name
-        if (TextUtils.isEmpty(fileName)) {
+        if (fileName.isEmpty()) {
             return false
         }
 
         val lowerFileName = fileName.trim().lowercase(Locale.ROOT)
         for (item in types) {
-            // 规范化扩展名（移除 * 和 .）
-            var normalized = item.trim().lowercase(Locale.ROOT)
-            if (normalized.startsWith("*")) {
-                normalized = normalized.substring(1)
-            }
-            if (normalized.startsWith(".")) {
-                normalized = normalized.substring(1)
-            }
+            // 规范化扩展名：去空白转小写，并依次移除通配前缀 * 与点号
+            val normalized = item.trim().lowercase(Locale.ROOT).removePrefix("*").removePrefix(".")
             if (normalized.isEmpty()) {
                 continue
             }
 
-            // 通配符匹配
-            if ("*" == normalized || "*.*" == normalized) {
+            // 通配符匹配全部文件
+            if (normalized == "*" || normalized == "*.*") {
                 return true
             }
 

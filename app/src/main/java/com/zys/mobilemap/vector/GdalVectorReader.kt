@@ -23,11 +23,19 @@ class VectorFeature(
 )
 
 /**
- * GDAL/OGR 矢量读取：供 WorldWind 原生不支持的格式（dwg/dxf）
- * 与原生无法识别投影的 shp（重投影到 WGS84）使用。
+ * SQL 查询结果：成功时 [features] 为命中要素（可能为空列表）；
+ * 失败时 [error] 为 GDAL/OGR 上报的语句错误文本（语法错/字段不存在等），供界面提示。
+ */
+class VectorQueryResult(val features: List<VectorFeature>?, val error: String?) {
+    val isSuccess: Boolean get() = features != null
+}
+
+/**
+ * GDAL/OGR 矢量读取：矢量数据的统一读取入口（shp/dwg/dxf/kml/kmz 均经此重投影到 WGS84），
+ * 并提供 SQL 查询（[queryFeatures]）供属性筛选高亮。
  *
  * JNI 返回 JSON：{"features":[{"geom":"POINT|LINE|POLYGON",…,"fields":{"k":"v"}}]}，
- * 要素数上限在 C++ 层控制，防大文件 OOM。
+ * 查询失败额外返回 {"error":"…"}；要素数上限在 C++ 层控制，防大文件 OOM。
  */
 object GdalVectorReader {
 
@@ -37,6 +45,9 @@ object GdalVectorReader {
     private external fun nativeReadVectorFeatures(
         path: String, minLon: Double, minLat: Double, maxLon: Double, maxLat: Double
     ): String?
+
+    // JNI 符号为 Java_com_zys_mobilemap_vector_GdalVectorReader_nativeQueryVectorFeatures
+    private external fun nativeQueryVectorFeatures(path: String, sql: String): String?
 
     /**
      * 读取矢量要素列表，打开失败（如不支持的格式）返回 null。
@@ -55,6 +66,34 @@ object GdalVectorReader {
             return null
         }
         if (json == null) return null
+        return parseFeatures(json, path)
+    }
+
+    /**
+     * 对矢量数据执行 SQL 查询，返回命中要素（坐标已重投影到 WGS84）。
+     * 语句错误/文件无法打开时通过 [VectorQueryResult.error] 回传提示文本，不抛异常。
+     */
+    fun queryFeatures(path: String, sql: String): VectorQueryResult {
+        val json = try {
+            nativeQueryVectorFeatures(path, sql)
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "nativeQueryVectorFeatures 未加载", e)
+            return VectorQueryResult(null, "原生库未加载，无法执行查询")
+        }
+        if (json == null) return VectorQueryResult(null, "无法打开数据文件")
+        return try {
+            val obj = JSONObject(json)
+            val error = obj.optString("error", "")
+            if (error.isNotBlank()) return VectorQueryResult(null, error)
+            VectorQueryResult(parseFeatures(json, path) ?: emptyList(), null)
+        } catch (e: Exception) {
+            Log.e(TAG, "解析查询结果失败: $path", e)
+            VectorQueryResult(null, "查询结果解析失败")
+        }
+    }
+
+    /** 解析要素 JSON（读取与查询共用），格式异常返回 null */
+    private fun parseFeatures(json: String, path: String): List<VectorFeature>? {
         return try {
             val arr = JSONObject(json).getJSONArray("features")
             val list = ArrayList<VectorFeature>(arr.length())

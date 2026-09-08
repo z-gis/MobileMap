@@ -16,7 +16,11 @@ import android.view.View
  * 拖动选标选择色相与饱和度，回调 [onColorSelected] 输出基色（亮度 1、不透明），
  * 亮度与透明度由 [BrightnessSliderView]、[AlphaSliderView] 两条滑条分别控制。
  */
-class ColorPanelView : View {
+class ColorPanelView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0
+) : View(context, attrs, defStyleAttr) {
 
     /** 用户拖动选标回调：基色（亮度 1、不透明） */
     var onColorSelected: ((Int) -> Unit)? = null
@@ -28,25 +32,14 @@ class ColorPanelView : View {
     private val satPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val selectorPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-    private var selectorRadiusPx = 0f
+    /** 选标半径（像素）：构造时按屏幕密度换算，保证各机型视觉一致 */
+    private val selectorRadiusPx: Float
 
-    constructor(context: Context) : super(context) {
-        init()
-    }
-
-    constructor(context: Context, attrs: AttributeSet?) : super(context, attrs) {
-        init()
-    }
-
-    constructor(context: Context, attrs: AttributeSet?, defStyleAttr: Int) :
-            super(context, attrs, defStyleAttr) {
-        init()
-    }
-
-    private fun init() {
-        selectorRadiusPx = 9f * resources.displayMetrics.density
+    init {
+        val density = resources.displayMetrics.density
+        selectorRadiusPx = SELECTOR_RADIUS_DP * density
         selectorPaint.style = Paint.Style.STROKE
-        selectorPaint.strokeWidth = 2.5f * resources.displayMetrics.density
+        selectorPaint.strokeWidth = SELECTOR_STROKE_WIDTH_DP * density
         selectorPaint.color = Color.BLACK
     }
 
@@ -57,8 +50,9 @@ class ColorPanelView : View {
         invalidate()
     }
 
-    /** 当前基色（亮度 1、不透明） */
-    fun getBaseColor(): Int = Color.HSVToColor(floatArrayOf(hue, saturation, 1f))
+    /** 当前基色（亮度 1、不透明）：仅用于向外回调，最终色由两条滑条继续叠加亮度/透明度 */
+    private val baseColor: Int
+        get() = Color.HSVToColor(floatArrayOf(hue, saturation, 1f))
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
@@ -102,10 +96,15 @@ class ColorPanelView : View {
         hue = (event.x / width * 360f).coerceIn(0f, 360f)
         saturation = (1f - event.y / height).coerceIn(0f, 1f)
         invalidate()
-        onColorSelected?.invoke(getBaseColor())
+        onColorSelected?.invoke(baseColor)
     }
 
     companion object {
+        /** 选标半径 / 线宽（dp） */
+        private const val SELECTOR_RADIUS_DP = 9f
+        private const val SELECTOR_STROKE_WIDTH_DP = 2.5f
+
+        /** 横向色相谱取样点：红→黄→绿→青→蓝→品红→红（首尾同为红以接成一周） */
         private val HUE_COLORS = intArrayOf(
             Color.RED, Color.YELLOW, Color.GREEN, Color.CYAN,
             Color.BLUE, Color.MAGENTA, Color.RED

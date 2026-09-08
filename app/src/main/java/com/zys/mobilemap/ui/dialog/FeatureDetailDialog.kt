@@ -9,32 +9,30 @@ import android.webkit.WebView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
-import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
-import com.google.android.material.bottomsheet.BottomSheetBehavior
-import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.tabs.TabLayout
 import com.zys.mobilemap.R
 import com.zys.mobilemap.doc.VectorStyle
+import com.zys.mobilemap.util.ColorHex
 import com.zys.mobilemap.vector.FeatureIcons
-import com.google.android.material.R as MaterialR
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /**
  * 要素详情 BottomSheet：点击矢量要素后弹出，样式编辑/属性表双标签页。
  *
- * 初始高度为展开态（[BottomSheetBehavior.STATE_EXPANDED] 且 skipCollapsed），
- * 保证样式页控件全量显示；内容超出屏幕高度时页内滚动。
+ * 初始为展开态（样式页控件全量显示），高度档位由基类统一配置：下拉收到约四成屏高、
+ * 上拉回到展开态；内容超出屏幕高度时页内滚动。
  *
  * [styleEditable] 为 false（kml/kmz 单要素待二期、dwg/dxf 不改样式）时隐藏样式页；
  * 保存经 [onSave] 写回 [VectorStyle]，由宿主写入文档并递增样式版本触发图层重载。
  *
  * [layerStyleMode] 图层样式模式（图层管理样式图标复用）：仅样式页无属性页，
  * 标注字段候选取 [labelFieldOptions]（整层字段清单），
- * [labelSectionVisible] 为 false时（kml 标注随源文件）隐藏标注设置区。
+ * [labelSectionVisible] 为 false 时（kml 标注随源文件）隐藏标注设置区。
  */
 class FeatureDetailDialog(
     resource: Int,
@@ -80,22 +78,9 @@ class FeatureDetailDialog(
         val dialog = super.onCreateDialog(savedInstanceState)
         val sheet = sheetView ?: return dialog
 
-        // 覆盖基类 onShowListener：圆角背景 + 初始展开态（控件全量显示）；
-        // peekHeight 取内容实测高度，折叠态不矮于内容——
-        // 列表内手势滚列表，列表外拖拽回缩/收起弹层（嵌套滚动边界自动分发）
-        dialog.setOnShowListener { d ->
-            val bottomSheet = (d as BottomSheetDialog)
-                .findViewById<FrameLayout>(MaterialR.id.design_bottom_sheet)
-            bottomSheet?.let { bs ->
-                bs.setBackgroundResource(R.drawable.bg_bottom_sheet_rounded)
-                sheet.post {
-                    BottomSheetBehavior.from(bs).apply {
-                        peekHeight = sheet.height
-                        state = BottomSheetBehavior.STATE_EXPANDED
-                    }
-                }
-            }
-        }
+        // 圆角背景与可手势调整的高度档位由基类统一配置（见 BaseBottomSheetDialog）：
+        // 展开态全量显示控件，下拉收到约四成屏高；列表内手势滚列表、列表外拖拽收放弹层
+        // （嵌套滚动边界由 BottomSheetBehavior 自动分发）
 
         // 标题与基本信息（图层样式模式无要素概念，隐藏量算/要素ID行；
         // 要素模式量算行显示面积+周长（面）/长度（线），点要素无几何量算时隐藏）
@@ -124,11 +109,13 @@ class FeatureDetailDialog(
         val pageStyle = sheet.findViewById<View>(R.id.feature_detail_page_style)
         val pageAttrs = sheet.findViewById<View>(R.id.feature_detail_page_attrs)
         val tabLayout = sheet.findViewById<TabLayout>(R.id.feature_detail_tab_layout)
-        tabLayout.addTab(tabLayout.newTab().setText("样式"))
-        tabLayout.addTab(tabLayout.newTab().setText("属性"))
+        tabLayout.addTab(tabLayout.newTab().setText(TAB_STYLE))
+        tabLayout.addTab(tabLayout.newTab().setText(TAB_ATTRS))
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
-                val isStyle = tab.text == "样式"
+                // 按标题而非 tab.position 判定：下面两个分支会 removeTabAt(0/1)，
+                // 剩下的页签 position 会前移，用位置判定会把属性页当成样式页
+                val isStyle = tab.text == TAB_STYLE
                 pageStyle.visibility = if (isStyle) View.VISIBLE else View.GONE
                 pageAttrs.visibility = if (isStyle) View.GONE else View.VISIBLE
             }
@@ -169,7 +156,9 @@ class FeatureDetailDialog(
         outlineColor = initialStyle?.outlineColor ?: fallbackOutline ?: DEFAULT_OUTLINE
         initialStyle?.outlineWidth?.let { outlineWidth = it.toInt().coerceIn(WIDTH_MIN, WIDTH_MAX) }
         initialStyle?.labelColor?.let { labelColor = it }
-        initialStyle?.labelSize?.let { labelSizePt = Math.round(it * LABEL_SIZE_BASE).coerceIn(SIZE_MIN, SIZE_MAX) }
+        initialStyle?.labelSize?.let {
+            labelSizePt = (it * LABEL_SIZE_BASE).roundToInt().coerceIn(SIZE_MIN, SIZE_MAX)
+        }
         labelOutlineEnabled = initialStyle?.labelOutline == true
         initialStyle?.labelOutlineColor?.let { labelOutlineColor = it }
 
@@ -253,10 +242,12 @@ class FeatureDetailDialog(
         }
 
         // 字体轮廓开关（字号步进控件已在样式页主体绑定）
-        sheet.findViewById<CheckBox>(R.id.feature_detail_cb_label_outline).setOnCheckedChangeListener { _, checked ->
+        // 先设状态再挂监听：回显已有值时不触发监听，与列表项开关的处理一致
+        val cbLabelOutline = sheet.findViewById<CheckBox>(R.id.feature_detail_cb_label_outline)
+        cbLabelOutline.isChecked = labelOutlineEnabled
+        cbLabelOutline.setOnCheckedChangeListener { _, checked ->
             labelOutlineEnabled = checked
         }
-        sheet.findViewById<CheckBox>(R.id.feature_detail_cb_label_outline).isChecked = labelOutlineEnabled
     }
 
     /** 标识图标区（点要素）：程序填充内置图标网格，单选高亮，选择写入 [selectedIconKey] */
@@ -343,31 +334,33 @@ class FeatureDetailDialog(
             return
         }
         val density = resources.displayMetrics.density
+        // 内边距与分隔线高度在循环外算一次，避免每个属性行重复换算
+        val rowPadH = (ATTR_ROW_PADDING_H_DP * density).toInt()
+        val rowPadV = (ATTR_ROW_PADDING_V_DP * density).toInt()
+        val dividerHeight = (ATTR_DIVIDER_HEIGHT_DP * density).toInt()
         for ((k, v) in attributes) {
             val row = LinearLayout(requireContext()).apply {
                 orientation = LinearLayout.HORIZONTAL
-                val pad = (10 * density).toInt()
-                setPadding(pad, (8 * density).toInt(), pad, (8 * density).toInt())
+                setPadding(rowPadH, rowPadV, rowPadH, rowPadV)
             }
             val tvKey = TextView(requireContext()).apply {
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, ATTR_KEY_WEIGHT)
                 text = k
-                setTextColor(Color.parseColor("#424242"))
-                textSize = 14f
+                setTextColor(ATTR_KEY_COLOR)
+                textSize = ATTR_TEXT_SIZE_SP
             }
             val tvVal = TextView(requireContext()).apply {
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, ATTR_VALUE_WEIGHT)
                 text = v.ifEmpty { "<空>" }
-                setTextColor(Color.parseColor("#616161"))
-                textSize = 14f
+                setTextColor(ATTR_VALUE_COLOR)
+                textSize = ATTR_TEXT_SIZE_SP
             }
             row.addView(tvKey)
             row.addView(tvVal)
             container.addView(row)
             container.addView(View(requireContext()).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, (1 * density).toInt())
-                setBackgroundColor(Color.parseColor("#E5E5E5"))
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dividerHeight)
+                setBackgroundColor(ATTR_DIVIDER_COLOR)
             })
         }
     }
@@ -409,7 +402,7 @@ class FeatureDetailDialog(
         return if (hasTag) trimmed else "<html><body>$trimmed</body></html>"
     }
 
-    /** 色块同步当前颜色 */
+    /** 色块同步当前颜色；颜色串非法（document.json 可能被手改坏）时保留色块原样，不中断弹层 */
     private fun updateSwatch(iv: ImageView, hex: String) {
         runCatching { iv.setBackgroundColor(Color.parseColor(hex)) }
     }
@@ -419,13 +412,17 @@ class FeatureDetailDialog(
         val init = runCatching { Color.parseColor(current) }.getOrDefault(Color.BLACK)
         ColorPickerDialog(requireContext(), init) { color ->
             // Int ARGB -> #AARRGGBB（透明度由选色器透明度滑条控制）
-            val hex = String.format("#%08X", color)
+            val hex = ColorHex.toArgbHex(color)
             apply(hex)
             updateSwatch(swatch, hex)
         }.create().show()
     }
 
     companion object {
+        /** 页签标题；也用于 onTabSelected 判定当前页（见该方法内注释） */
+        private const val TAB_STYLE = "样式"
+        private const val TAB_ATTRS = "属性"
+
         private const val LABEL_FIELD_NONE = "不标注"
         /** 字号显示基准：磅值 = labelSize 缩放系数 × 14 */
         private const val LABEL_SIZE_BASE = 14
@@ -438,5 +435,18 @@ class FeatureDetailDialog(
         private const val DEFAULT_OUTLINE = "#FF1A4FA0"
         private const val DEFAULT_LABEL = "#FF212121"
         private const val DEFAULT_LABEL_OUTLINE = "#FF000000"
+
+        /** 属性表配色与字号（对齐 2.5.3 属性页）；颜色解析一次复用，避免逐行 parseColor */
+        private val ATTR_KEY_COLOR = Color.parseColor("#424242")
+        private val ATTR_VALUE_COLOR = Color.parseColor("#616161")
+        private val ATTR_DIVIDER_COLOR = Color.parseColor("#E5E5E5")
+        private const val ATTR_TEXT_SIZE_SP = 14f
+        private const val ATTR_ROW_PADDING_H_DP = 10
+        private const val ATTR_ROW_PADDING_V_DP = 8
+        private const val ATTR_DIVIDER_HEIGHT_DP = 1
+
+        /** 属性名/属性值两列的宽度权重 */
+        private const val ATTR_KEY_WEIGHT = 1f
+        private const val ATTR_VALUE_WEIGHT = 2f
     }
 }

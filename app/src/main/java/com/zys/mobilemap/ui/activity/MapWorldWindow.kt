@@ -4,14 +4,13 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.util.AttributeSet
 import android.view.animation.AccelerateDecelerateInterpolator
+import android.view.animation.LinearInterpolator
+import com.zys.mobilemap.util.GeoCalc
 import earth.worldwind.WorldWindow
 import earth.worldwind.frame.Frame
 import earth.worldwind.geom.Angle
 import kotlin.math.PI
-import kotlin.math.atan2
-import kotlin.math.cos
 import kotlin.math.sin
-import kotlin.math.sqrt
 
 /**
  * 地图渲染窗口：在标准 [WorldWindow] 基础上捕获“首屏就绪”信号。
@@ -83,7 +82,7 @@ class MapWorldWindow @JvmOverloads constructor(
         val tilt = camera.tilt
         val roll = camera.roll
 
-        val distance = greatCircleDistance(startLat, startLon, targetLat, targetLon)
+        val distance = GeoCalc.distanceMeters(startLat, startLon, targetLat, targetLon)
         val far = distance > FLY_ARC_THRESHOLD_METERS
         val arcHeight = if (far) minOf(distance * FLY_ARC_FACTOR, FLY_ARC_MAX_METERS) else 0.0
         val duration = if (far) FLY_FAR_DURATION_MS else FLY_NEAR_DURATION_MS
@@ -119,6 +118,40 @@ class MapWorldWindow @JvmOverloads constructor(
         )
     }
 
+    /**
+     * 定位跟随平移：只插值经纬度，**高度/航向/俯仰/翻滚每帧取相机当前值**。
+     *
+     * 用于定位锁定后的跟随：只锁定经纬度，不锁定高度——跟随过程中用户的缩放（高度）
+     * 与旋转（航向）不被动画覆盖（[smoothMoveTo] 会把动画启动时捕获的高度插值回写，
+     * 与用户手势互相覆盖表现为“高度被锁定”）。位移小于 [FOLLOW_MIN_DISTANCE_METERS]
+     * 时不平移，避免 GPS 静止漂移引发画面抖动。
+     */
+    fun smoothFollowTo(targetLat: Double, targetLon: Double) {
+        val camera = engine.camera
+        val startLat = camera.position.latitude.inDegrees
+        val startLon = camera.position.longitude.inDegrees
+        if (GeoCalc.distanceMeters(startLat, startLon, targetLat, targetLon) < FOLLOW_MIN_DISTANCE_METERS) return
+
+        cancelCameraAnimation()
+        val animator = ValueAnimator.ofFloat(0f, 1f)
+        animator.duration = FOLLOW_DURATION_MS
+        // 持续跟随用线性插值：多次定位更新衔接时速度连续，无加减速顶帧感
+        animator.interpolator = LinearInterpolator()
+        animator.addUpdateListener { a ->
+            val f = (a.animatedValue as Float).toDouble()
+            val lat = startLat + (targetLat - startLat) * f
+            val lon = startLon + (targetLon - startLon) * f
+            camera.set(
+                Angle.fromDegrees(lat), Angle.fromDegrees(lon),
+                camera.position.altitude, camera.altitudeMode,
+                camera.heading, camera.tilt, camera.roll
+            )
+            requestRedraw()
+        }
+        animator.start()
+        cameraAnimator = animator
+    }
+
     override fun onDetachedFromWindow() {
         cancelCameraAnimation()
         super.onDetachedFromWindow()
@@ -148,17 +181,11 @@ class MapWorldWindow @JvmOverloads constructor(
         /** 飞越弧线抬升高度上限（米） */
         private const val FLY_ARC_MAX_METERS = 500000.0
 
-        /** 地球平均半径（米），用于地表距离估算 */
-        private const val EARTH_RADIUS_METERS = 6371000.0
+        /** 定位跟随时长（毫秒）：短于定位更新间隔，两次跟随之间不重叠 */
+        private const val FOLLOW_DURATION_MS = 600L
 
-        /** 两点地表距离（米，Haversine） */
-        private fun greatCircleDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-            val dLat = Math.toRadians(lat2 - lat1)
-            val dLon = Math.toRadians(lon2 - lon1)
-            val a = sin(dLat / 2) * sin(dLat / 2) +
-                cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLon / 2) * sin(dLon / 2)
-            return EARTH_RADIUS_METERS * 2 * atan2(sqrt(a), sqrt(1 - a))
-        }
+        /** 定位跟随最小位移（米）：小于此值视为 GPS 静止漂移，不平移避免画面抖动 */
+        private const val FOLLOW_MIN_DISTANCE_METERS = 0.5
 
         /** 航向最短夹角差（-180,180]，保证按最短方向旋转 */
         private fun shortestAngleDelta(from: Double, to: Double): Double {

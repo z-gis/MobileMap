@@ -1,7 +1,6 @@
 package com.zys.mobilemap.update
 
 import org.json.JSONObject
-import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -9,12 +8,23 @@ import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
 
+/**
+ * 升级元数据检查：后台单线程拉取 [URL] 指向的 JSON，解析为 [UpdateInfo] 后经 [Callback] 回调。
+ * 回调在拉取线程触发，由调用方自行切回主线程。
+ */
 object UpdateChecker {
 
     interface Callback {
         fun onSuccess(info: UpdateInfo)
         fun onError(e: Exception)
     }
+
+    /** 连接 / 读取超时（毫秒）：元数据为小 JSON，超时宜短，避免启动时长时间阻塞 */
+    private const val CONNECT_TIMEOUT_MS = 10_000
+    private const val READ_TIMEOUT_MS = 10_000
+
+    /** Content-Type 中的字符集声明前缀 */
+    private const val CHARSET_PREFIX = "charset="
 
     private val executor = Executors.newSingleThreadExecutor()
 
@@ -25,8 +35,8 @@ object UpdateChecker {
                 val url = URL(metadataUrl)
                 connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
-                connection.connectTimeout = 10000
-                connection.readTimeout = 10000
+                connection.connectTimeout = CONNECT_TIMEOUT_MS
+                connection.readTimeout = READ_TIMEOUT_MS
                 connection.useCaches = false
 
                 val code = connection.responseCode
@@ -58,6 +68,10 @@ object UpdateChecker {
         }
     }
 
+    /**
+     * 读取响应体并解码：优先用响应头声明的字符集，其次 UTF-8；
+     * UTF-8 解出替换符（U+FFFD）时回退 GB18030（部分服务端未声明字符集却用 GBK 系编码）。
+     */
     private fun readResponse(connection: HttpURLConnection): String {
         val payload = readFully(connection.inputStream)
 
@@ -65,41 +79,29 @@ object UpdateChecker {
         if (!charsetName.isNullOrEmpty()) {
             try {
                 return String(payload, Charset.forName(charsetName))
-            } catch (_: Exception) {
-                // Fall through to heuristic decoding
+            } catch (ignored: IllegalArgumentException) {
+                // 声明的字符集名不受支持：继续走下方启发式解码
             }
         }
 
         val utf8Text = String(payload, StandardCharsets.UTF_8)
-        if (!utf8Text.contains("\uFFFD")) {
+        if (!utf8Text.contains('\uFFFD')) {
             return utf8Text
         }
 
-        // Some endpoints still use GBK/GB18030 without declaring charset
         return String(payload, Charset.forName("GB18030"))
     }
 
+    /** 从 Content-Type 取出声明的字符集名（前缀大小写不敏感）；未声明时返回 null */
     private fun extractCharset(contentType: String?): String? {
-        if (contentType == null) return null
-        for (part in contentType.split(";")) {
-            val token = part.trim()
-            if (token.lowercase().startsWith("charset=")) {
-                return token.substring("charset=".length).trim()
-            }
-        }
-        return null
+        contentType ?: return null
+        return contentType.split(";")
+            .map { it.trim() }
+            .firstOrNull { it.startsWith(CHARSET_PREFIX, ignoreCase = true) }
+            // 按下标截取（非 substringAfter）：声明可能写成 CHARSET=gbk，分隔符大小写不定
+            ?.let { it.substring(CHARSET_PREFIX.length).trim() }
     }
 
-    private fun readFully(inputStream: InputStream): ByteArray {
-        return inputStream.use { input ->
-            ByteArrayOutputStream().use { out ->
-                val buffer = ByteArray(4096)
-                var read: Int
-                while (input.read(buffer).also { read = it } != -1) {
-                    out.write(buffer, 0, read)
-                }
-                out.toByteArray()
-            }
-        }
-    }
+    /** 读完整个响应流（元数据为小 JSON，一次性读入内存即可） */
+    private fun readFully(inputStream: InputStream): ByteArray = inputStream.use { it.readBytes() }
 }

@@ -27,7 +27,7 @@ class MapSourceEditDialog(
         fun onConfirm(name: String, url: String, imageFormat: String, token1: String, token2: String)
     }
 
-    private lateinit var dialog: Dialog
+    private val dialog: Dialog
 
     init {
         val builder = AlertDialog.Builder(context)

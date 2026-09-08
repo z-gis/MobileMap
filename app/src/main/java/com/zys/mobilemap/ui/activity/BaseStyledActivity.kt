@@ -17,6 +17,9 @@ abstract class BaseStyledActivity : AppCompatActivity() {
      * 建议在 setContentView(...) 后调用。
      */
     protected fun applyDefaultPageStyle() {
+        // statusBarColor 自 API 35 起弃用；低版本仍需它统一页面底色，
+        // 新 API（WindowInsets 控制）会改变状态栏表现，故保留原行为仅抑制告警
+        @Suppress("DEPRECATION")
         window.statusBarColor = ContextCompat.getColor(this, R.color.activity_background)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.insetsController?.setSystemBarsAppearance(

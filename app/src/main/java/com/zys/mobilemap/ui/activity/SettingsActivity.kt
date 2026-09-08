@@ -61,6 +61,13 @@ class SettingsActivity : BaseStyledActivity() {
             config.showMeasureLayer = isChecked
         }
 
+        // 坐标显示格式：开启为米（CGCS2000 3 度带），关闭为十进制度
+        val coordMeterSwitch: SwitchCompat = findViewById(R.id.set_switch_coord_meter)
+        coordMeterSwitch.isChecked = config.coordDisplayMeter
+        coordMeterSwitch.setOnCheckedChangeListener { _, isChecked ->
+            config.coordDisplayMeter = isChecked
+        }
+
         // ==================== 设置类分组 ====================
 
         // 照片坐标水印
@@ -77,9 +84,24 @@ class SettingsActivity : BaseStyledActivity() {
             config.backgroundLocation = isChecked
         }
 
+        // shp 读取引擎：开启走 GDAL/OGR（默认），关闭走 WorldWind 原生字节入口；
+        // 退出设置页落盘后经文档变更通知重载 shp 图层（引擎已纳入图层缓存键）
+        val shpGdalSwitch: SwitchCompat = findViewById(R.id.set_switch_shp_gdal)
+        shpGdalSwitch.isChecked = config.shpUseGdal
+        shpGdalSwitch.setOnCheckedChangeListener { _, isChecked ->
+            config.shpUseGdal = isChecked
+        }
+
         // 关于按键
         findViewById<android.view.View>(R.id.set_row_about).setOnClickListener {
             startActivity(Intent(this, AboutActivity::class.java))
         }
+    }
+
+    override fun onDestroy() {
+        // 设置项直接改的是内存中的文档对象，退出设置页时落盘，
+        // 避免主界面异常退出（进程被回收）时丢失本次修改
+        DocumentManager.getInstance().save(this)
+        super.onDestroy()
     }
 }

@@ -3,6 +3,7 @@ package com.zys.mobilemap.update
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.zys.mobilemap.BuildConfig
@@ -10,6 +11,11 @@ import com.zys.mobilemap.R
 import java.io.File
 import java.util.Locale
 
+/**
+ * 应用内升级编排：检查元数据 -> 提示升级 -> 下载 APK -> 拉起安装。
+ * 各子步骤拆到 [UpdateChecker] / [ApkDownloadService] / [APKInstaller] /
+ * [DownloadProgressPresenter] / [UpdateUiNotifier]，本类只管流程与宿主生命周期联动。
+ */
 class AppUpdateManager(private val activity: AppCompatActivity) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -57,10 +63,16 @@ class AppUpdateManager(private val activity: AppCompatActivity) {
         cleanDownloadCache()
     }
 
+    /** 宿主回到前台：下载仍在进行时重建进度框并回显最后一次进度 */
     fun onHostResume() {
         if (!apkDownloadService.isRunning()) return
         ensureProgressDialogVisible()
-        latestProgress?.let { progressPresenter.update(it) } ?: progressPresenter.setUnknown()
+        val progress = latestProgress
+        if (progress != null) {
+            progressPresenter.update(progress)
+        } else {
+            progressPresenter.setUnknown()
+        }
     }
 
     fun onHostPause() {
@@ -83,7 +95,7 @@ class AppUpdateManager(private val activity: AppCompatActivity) {
     }
 
     private fun showUpdateDialog(info: UpdateInfo) {
-        val changelog = if (info.changelog.isNullOrEmpty()) {
+        val changelog = if (info.changelog.isEmpty()) {
             activity.getString(R.string.update_no_changelog)
         } else {
             info.changelog
@@ -119,17 +131,18 @@ class AppUpdateManager(private val activity: AppCompatActivity) {
         if (apkDownloadService.isRunning()) return
 
         val suffix = if (!BuildConfig.DEBUG) "" else "-debug"
-        pendingFileName = String.format(
-            Locale.US, "mobilemap-v%s%s.apk",
-            sanitizeVersion(info.versionName), suffix
+        // 先存局部变量再赋字段：pendingFileName 为 String? 无法智能转换，直接引用会被迫写 !!
+        val fileName = "mobilemap-v%s%s.apk".format(
+            Locale.US, sanitizeVersion(info.versionName), suffix
         )
+        pendingFileName = fileName
         cancelRequested = false
         latestProgress = null
 
         ensureProgressDialogVisible()
         uiNotifier.showDownloadStarted()
 
-        val request = DownloadRequest(info.apkUrl, pendingFileName!!, info.apkSizeBytes)
+        val request = DownloadRequest(info.apkUrl, fileName, info.apkSizeBytes)
         val started = apkDownloadService.start(request, object : ApkDownloadService.Callback {
             override fun onProgress(progress: DownloadProgress) {
                 latestProgress = progress
@@ -138,8 +151,9 @@ class AppUpdateManager(private val activity: AppCompatActivity) {
             }
 
             override fun onCompleted(apkFile: File) {
-                latestProgress = DownloadProgress.completed(apkFile.length())
-                progressPresenter.update(DownloadProgress.completed(apkFile.length()))
+                val done = DownloadProgress.completed(apkFile.length())
+                latestProgress = done
+                progressPresenter.update(done)
                 installDownloadedApk(apkFile)
             }
 
@@ -151,6 +165,8 @@ class AppUpdateManager(private val activity: AppCompatActivity) {
             }
 
             override fun onFailed(e: Exception) {
+                // 下载失败只弹一个笼统提示，异常详情必须落日志，否则无从查因
+                Log.e(TAG, "APK 下载失败: url=${info.apkUrl}", e)
                 resetDownloadTracking()
                 uiNotifier.showDownloadFailedNetwork()
             }
@@ -176,7 +192,7 @@ class AppUpdateManager(private val activity: AppCompatActivity) {
 
     private fun ensureProgressDialogVisible() {
         if (!progressPresenter.isShowing()) {
-            progressPresenter.show(Runnable { cancelDownload() })
+            progressPresenter.show { cancelDownload() }
         }
     }
 
@@ -199,10 +215,15 @@ class AppUpdateManager(private val activity: AppCompatActivity) {
         }
     }
 
-    private fun sanitizeVersion(versionName: String?): String {
-        if (versionName.isNullOrEmpty()) {
+    /** 版本号净化为可入文件名的形式；为空时退而用 versionCode */
+    private fun sanitizeVersion(versionName: String): String {
+        if (versionName.isEmpty()) {
             return APKVersionUtil.getVersionCode(activity).toString()
         }
         return versionName.replace(Regex("[^0-9A-Za-z._-]"), "_")
+    }
+
+    companion object {
+        private const val TAG = "AppUpdateManager"
     }
 }

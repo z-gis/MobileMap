@@ -31,8 +31,8 @@ object VectorFileImporter {
         // 转换为File，并判断文件是否存在
         val file = File(path)
         if (!file.exists()) return null
-        // 获取文件名（不带扩展名）
-        val name = AppDirectories.deriveBaseName(path) ?: file.nameWithoutExtension
+        // 获取文件名（不带扩展名，已过滤非法文件名字符）
+        val name = AppDirectories.deriveBaseName(path)
         // 根据文件扩展名分发处理
         return when (file.extension.lowercase(Locale.getDefault())) {
             "shp", "kml", "dwg", "dxf" -> ImportResult(path, name)
@@ -48,7 +48,7 @@ object VectorFileImporter {
      * displayName 为图层显示名（压缩包文件名）。
      */
     private fun extractAndFind(context: Context, archive: File, exts: List<String>, displayName: String): ImportResult? {
-        val layerDir = AppDirectories.getLayerDir(context) ?: return null
+        val layerDir = AppDirectories.getLayerDir(context)
         val destDir = File(layerDir, archive.nameWithoutExtension)
         try {
             if (!destDir.exists()) {

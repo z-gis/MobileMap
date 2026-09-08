@@ -13,7 +13,7 @@ import androidx.viewpager2.widget.ViewPager2
 import com.zys.mobilemap.R
 import com.zys.mobilemap.media.MediaAttachment
 import com.zys.mobilemap.media.MediaStore
-import com.zys.mobilemap.util.util
+import com.zys.mobilemap.util.UiUtil
 
 /**
  * 全屏照片浏览器：只显示指定拍照点位（Placemark）的照片附件，
@@ -25,7 +25,7 @@ class PhotoViewerActivity : AppCompatActivity() {
     private lateinit var indexView: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        util.enableFullscreen(this)
+        UiUtil.enableFullscreen(this)
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_photo_viewer)
 

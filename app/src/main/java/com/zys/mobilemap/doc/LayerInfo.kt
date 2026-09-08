@@ -1,13 +1,13 @@
 package com.zys.mobilemap.doc
 
-import org.json.JSONException
 import org.json.JSONObject
 
 class LayerInfo {
     var name: String? = null
     var path: String? = null
     var visible: Boolean = true
-    var type: String? = null // "vector" or "raster" or other
+    /** 图层类型：[TYPE_VECTOR] / [TYPE_RASTER] / 其他 */
+    var type: String? = null
 
     /** 矢量样式覆盖（仅矢量图层使用，原数据不变，加载时渲染层应用） */
     var vectorStyle: VectorStyle? = null
@@ -37,6 +37,12 @@ class LayerInfo {
     }
 
     companion object {
+        /** 图层类型取值（document.json 的 type 字段）：矢量图层 */
+        const val TYPE_VECTOR = "vector"
+
+        /** 图层类型取值（document.json 的 type 字段）：栅格图层 */
+        const val TYPE_RASTER = "raster"
+
         fun fromJson(o: JSONObject): LayerInfo {
             val l = LayerInfo()
             if (o.has("name") && !o.isNull("name")) l.name = o.getString("name")

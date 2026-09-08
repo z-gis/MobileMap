@@ -11,17 +11,27 @@ import android.view.View
 
 /**
  * 颜色滑条基类（移植自 ColorPicker-master 的 ColorSliderView）：
- * 横向渐变轨道 + 顶部三角滑块。子类实现渐变配置（[configurePaint]）、
- * 数值解析（[resolveValue]）与颜色组装（[assembleColor]）。
+ * 横向渐变轨道 + 顶部三角滑块。子类实现渐变配置（[configurePaint]）
+ * 与颜色组装（[assembleColor]）。
  * 仅用户拖动触发 [onColorChanged] 回调，程序化设置不回调（避免联动死循环）。
  */
-abstract class ColorSliderView : View {
+abstract class ColorSliderView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0
+) : View(context, attrs, defStyleAttr) {
 
     /** 用户拖动产生的颜色回调 */
     var onColorChanged: ((Int) -> Unit)? = null
 
     protected var baseColor: Int = Color.WHITE
-    protected var currentValue: Float = 1f
+
+    /** 滑块位置 0~1：赋值自动限幅并重绘，但不触发 [onColorChanged] */
+    var value: Float = 1f
+        set(v) {
+            field = v.coerceIn(0f, 1f)
+            invalidate()
+        }
 
     private val colorPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -36,13 +46,6 @@ abstract class ColorSliderView : View {
     private val currentSelectorPath = Path()
     private var selectorSize = 0f
 
-    constructor(context: Context) : super(context)
-
-    constructor(context: Context, attrs: AttributeSet?) : super(context, attrs)
-
-    constructor(context: Context, attrs: AttributeSet?, defStyleAttr: Int) :
-            super(context, attrs, defStyleAttr)
-
     /** 当前组装出的颜色 */
     val color: Int get() = assembleColor()
 
@@ -50,18 +53,6 @@ abstract class ColorSliderView : View {
     fun updateBaseColor(color: Int) {
         baseColor = color
         if (width > 0) configurePaint(colorPaint)
-        invalidate()
-    }
-
-    /** 直接设置滑块位置 0~1（不回调） */
-    fun setValue(value: Float) {
-        currentValue = value.coerceIn(0f, 1f)
-        invalidate()
-    }
-
-    /** 从颜色解析滑块位置（不回调） */
-    fun setValueFromColor(color: Int) {
-        currentValue = resolveValue(color).coerceIn(0f, 1f)
         invalidate()
     }
 
@@ -84,7 +75,7 @@ abstract class ColorSliderView : View {
         drawTrackUnderlay(canvas, left, top, right, bottom)
         canvas.drawRect(left, top, right, bottom, colorPaint)
         canvas.drawRect(left, top, right, bottom, borderPaint)
-        selectorPath.offset(currentValue * (width - 2 * selectorSize), 0f, currentSelectorPath)
+        selectorPath.offset(value * (width - 2 * selectorSize), 0f, currentSelectorPath)
         canvas.drawPath(currentSelectorPath, selectorPaint)
     }
 
@@ -112,13 +103,10 @@ abstract class ColorSliderView : View {
         val right = width - selectorSize
         if (right <= left) return
         val x = event.x.coerceIn(left, right)
-        currentValue = (x - left) / (right - left)
-        invalidate()
+        // value 的 setter 已含限幅与 invalidate
+        value = (x - left) / (right - left)
         onColorChanged?.invoke(assembleColor())
     }
-
-    /** 从颜色解析滑块数值 0~1 */
-    protected abstract fun resolveValue(color: Int): Float
 
     /** 根据基色构建轨道渐变 */
     protected abstract fun configurePaint(colorPaint: Paint)
