@@ -1,8 +1,8 @@
 {
   "versionCode": 26090802,
-  "versionName": "0.2.7.10",
-  "apkUrl": "https://gitee.com/z-gis/MobileMap/releases/download/0.2.7.10/mobilemap-v0.2.7.10.apk",
+  "versionName": "0.2.7.11",
+  "apkUrl": "https://gitee.com/z-gis/MobileMap/releases/download/0.2.7.11/mobilemap-v0.2.7.11.apk",
   "apkSizeBytes": 74476650 ,
-  "changelog": "修改了了dxf文件坐标系确定逻辑及无法读取坐标系处理方式。",
+  "changelog": "添加采集照片分享功能",
   "force": false
 }
