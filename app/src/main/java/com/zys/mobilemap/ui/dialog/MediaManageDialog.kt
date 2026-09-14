@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.zys.mobilemap.R
 import com.zys.mobilemap.control.MaxHeightRecyclerView
 import com.zys.mobilemap.media.MediaGroup
+import com.zys.mobilemap.media.MediaPackage
 import com.zys.mobilemap.media.MediaPlacemark
 import com.zys.mobilemap.media.MediaStore
 import com.zys.mobilemap.util.AppDirectories
@@ -157,6 +158,14 @@ class MediaManageDialog(
             .show()
     }
 
+    /** 分享分组：打包组内全部点位（坐标/照片）为 .mphoto 数据包，经系统分享面板发出。 */
+    private fun onGroupShare(groupId: Long, groupName: String) {
+        val members = placemarks.filter { it.groupId == groupId }
+        // 未分组为虚拟组：分享包不带分组名，导入后点位仍归未分组（不新建“未分组”分组）
+        val pkgGroup = if (groupId == MediaStore.UNGROUPED_ID) null else groupName
+        MediaPackage.shareGroup(requireContext(), pkgGroup, members)
+    }
+
     /** 折叠/展开分组。 */
     private fun onToggleCollapse(groupId: Long) {
         if (!collapsed.remove(groupId)) collapsed.add(groupId)
@@ -262,6 +271,9 @@ class MediaManageDialog(
             holder.arrow.setOnClickListener { onToggleCollapse(row.groupId) }
             holder.name.setOnClickListener { onToggleCollapse(row.groupId) }
 
+            // 分享：组内全部点位打包为数据包分享（未分组也可分享，导入后仍归未分组）
+            holder.share.setOnClickListener { onGroupShare(row.groupId, row.name) }
+
             // 未分组为虚拟组：不可重命名/删除
             holder.rename.visibility = if (row.ungrouped) View.GONE else View.VISIBLE
             holder.delete.visibility = if (row.ungrouped) View.GONE else View.VISIBLE
@@ -305,6 +317,7 @@ class MediaManageDialog(
         val name: TextView = view.findViewById(R.id.item_group_name)
         val count: TextView = view.findViewById(R.id.item_group_count)
         val visibleSwitch: SwitchCompat = view.findViewById(R.id.item_group_visible)
+        val share: ImageView = view.findViewById(R.id.item_group_share)
         val rename: TextView = view.findViewById(R.id.item_group_rename)
         val delete: ImageView = view.findViewById(R.id.item_group_delete)
     }

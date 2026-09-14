@@ -45,6 +45,7 @@ object AppDirectories {
     fun getMapDir(context: Context): File = ensureDir(File(getRootDir(context), MAP_DIR_NAME))
 
     fun getMediaDir(context: Context): File = ensureDir(File(getRootDir(context), MEDIA_DIR_NAME))
+        .also { ensureNoMedia(it) }
 
     fun getSampleDir(context: Context): File = ensureDir(File(getRootDir(context), SAMPLE_DIR_NAME))
 
@@ -94,6 +95,17 @@ object AppDirectories {
             dir.mkdirs()
         }
         return dir
+    }
+
+    /**
+     * 在目录下放置空的 `.nomedia` 标记文件，让 Android 媒体扫描器跳过该目录（含子目录）。
+     * 采集照片（/调查宝/Media/<placemark_id> 目录下的 .jpg）不应被系统相册收录：
+     * 它们通过应用内拍照标识管理访问，混入相册会打扰用户且泄露外业坐标。
+     */
+    private fun ensureNoMedia(dir: File) {
+        val marker = File(dir, ".nomedia")
+        if (marker.exists()) return
+        runCatching { marker.createNewFile() }
     }
 
     /** 过滤 Windows/Android 不允许的文件名字符，空值回退 "sample" */

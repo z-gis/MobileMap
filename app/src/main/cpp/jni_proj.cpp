@@ -61,9 +61,9 @@ Java_com_zys_mobilemap_ui_activity_AboutActivity_getProjVersion(JNIEnv *env,
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_com_zys_mobilemap_ui_activity_SplashActivity_initProjDataPath(JNIEnv *env,
-                                                                   jobject thiz,
-                                                                   jstring proj_data_path) {
+Java_com_zys_mobilemap_ui_activity_MainActivity_initProjDataPath(JNIEnv *env,
+                                                                 jobject thiz,
+                                                                 jstring proj_data_path) {
     const char *path = env->GetStringUTFChars(proj_data_path, nullptr);
     PJ_CONTEXT *ctx = getProjContext();
     proj_context_set_search_paths(ctx, 1, &path);

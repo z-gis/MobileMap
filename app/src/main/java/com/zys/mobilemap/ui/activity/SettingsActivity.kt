@@ -92,6 +92,11 @@ class SettingsActivity : BaseStyledActivity() {
             config.shpUseGdal = isChecked
         }
 
+        // 帮助按键：进入使用说明页（三段可折叠说明）
+        findViewById<android.view.View>(R.id.set_row_help).setOnClickListener {
+            startActivity(Intent(this, HelpActivity::class.java))
+        }
+
         // 关于按键
         findViewById<android.view.View>(R.id.set_row_about).setOnClickListener {
             startActivity(Intent(this, AboutActivity::class.java))

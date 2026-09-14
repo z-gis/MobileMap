@@ -1,8 +1,8 @@
 {
-  "versionCode": 26091001,
-  "versionName": "0.2.7.11",
-  "apkUrl": "https://gitee.com/z-gis/MobileMap/releases/download/0.2.7.11/mobilemap-v0.2.7.11.apk",
-  "apkSizeBytes": 74476650 ,
-  "changelog": "添加采集照片分享功能",
+  "versionCode": 26091401,
+  "versionName": "0.2.7.12",
+  "apkUrl": "https://gitee.com/z-gis/MobileMap/releases/download/0.2.7.12/mobilemap-v0.2.7.12.apk",
+  "apkSizeBytes": 74500998 ,
+  "changelog": "新增帮助菜单；启动页与主界面合并；修复放大到20级后瓦片撕裂/黑屏与中心漂移；采集照片不再被系统相册收录",
   "force": false
 }

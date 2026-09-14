@@ -12,10 +12,13 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.os.Bundle
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.NumberPicker
 import android.widget.RadioButton
 import android.widget.TextView
 import android.widget.Toast
@@ -379,6 +382,64 @@ class LayerManageDialog(
     }
 
     /**
+     * 点击矢量图层「级别」按键：弹出级别可见性设置。
+     * 显示自动计算值与当前生效值，用户可用 NumberPicker 指定 userMinDisplayLevel（低于该级别隐藏图层），
+     * 或「恢复自动」将 userMinDisplayLevel 置 -1（生效回退自动值）。保存后经文档变更即时应用。
+     */
+    private fun onLevelClick(position: Int) {
+        val item = layerItems.getOrNull(position) ?: return
+        val doc = DocumentManager.getInstance().getDocument() ?: return
+        val layerInfo = doc.vectorLayers.firstOrNull { it.path == item.path } ?: return
+
+        val auto = layerInfo.autoMinDisplayLevel
+        val autoText = if (auto >= 0) auto.toString() else getString(R.string.layer_info_size_unknown)
+        val eff = layerInfo.effectiveMinDisplayLevel
+        val effText = if (eff >= 0) eff.toString() else "不限制"
+
+        val density = resources.displayMetrics.density
+        val picker = NumberPicker(requireContext()).apply {
+            minValue = 0
+            maxValue = 20
+            wrapSelectorWheel = false
+            val init = if (layerInfo.userMinDisplayLevel >= 0) layerInfo.userMinDisplayLevel
+            else if (auto >= 0) auto else 0
+            value = init.coerceIn(0, 20)
+        }
+        val container = FrameLayout(requireContext()).apply {
+            val pad = (16 * density).toInt()
+            setPadding(pad, pad / 2, pad, pad)
+            addView(
+                picker,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.CENTER
+                )
+            )
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.layer_level_visibility)
+            .setMessage(
+                """低于设定级别时隐藏该图层（整层入屏、要素密集成片无辨识意义）。
+自动计算级别：$autoText
+当前生效级别：$effText"""
+            )
+            .setView(container)
+            .setNeutralButton("恢复自动") { _, _ ->
+                layerInfo.userMinDisplayLevel = -1
+                DocumentManager.getInstance().save(requireContext())
+                syncFromDocument()
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .setPositiveButton(R.string.dialog_ok) { _, _ ->
+                layerInfo.userMinDisplayLevel = picker.value
+                DocumentManager.getInstance().save(requireContext())
+                syncFromDocument()
+            }
+            .show()
+    }
+
+    /**
      * 矢量图层单选：点击项名称高亮（粗体），原选中项恢复常规字重；
      * 重复点击同一项保持高亮不变。
      */
@@ -663,6 +724,7 @@ class LayerManageDialog(
         private val ivIcon: ImageView = itemView.findViewById(R.id.item_layer_iv_icon)
         private val tvName: TextView = itemView.findViewById(R.id.item_layer_tv_name)
         private val ivSql: ImageView = itemView.findViewById(R.id.item_layer_iv_sql)
+        private val ivLevel: ImageView = itemView.findViewById(R.id.item_layer_iv_level)
         private val ivZoomTo: ImageView = itemView.findViewById(R.id.item_layer_iv_zoom_to)
         private val ivVisibility: ImageView = itemView.findViewById(R.id.item_layer_iv_visibility)
         private val ivInfo: ImageView = itemView.findViewById(R.id.item_layer_iv_info)
@@ -708,6 +770,10 @@ class LayerManageDialog(
                     item.path?.substringAfterLast('.', "")?.lowercase(Locale.getDefault()) == "shp"
             ivSql.visibility = if (isShp) View.VISIBLE else View.GONE
             ivSql.setOnClickListener { onSqlQueryClick(adapterPosition) }
+
+            // 级别可见性对所有矢量图层开放（shp/kml/kmz/dwg/dxf）；回收复用时需显式隐藏
+            ivLevel.visibility = if (isVector) View.VISIBLE else View.GONE
+            ivLevel.setOnClickListener { onLevelClick(adapterPosition) }
 
             ivZoomTo.setOnClickListener { onZoomToLayer(adapterPosition) }
 

@@ -51,6 +51,16 @@
         android:layout_height="wrap_content"
         android:layout_marginStart="4dp"/>
 
+    <ImageView
+        android:id="@+id/item_group_share"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_marginStart="2dp"
+        android:background="?android:attr/selectableItemBackground"
+        android:contentDescription="分享分组"
+        android:padding="6dp"
+        android:src="@drawable/ic_share"/>
+
     <TextView
         android:id="@+id/item_group_rename"
         android:layout_width="wrap_content"

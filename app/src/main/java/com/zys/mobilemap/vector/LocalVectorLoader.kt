@@ -52,15 +52,18 @@ object LocalVectorLoader {
      * 内存峰值约为文件十余倍，15MB 级 KML 极易 OOM，且失败后再回退相当于双倍消耗） */
     private const val NATIVE_KML_MAX_BYTES = 5L * 1024 * 1024
 
-    /** 空间过滤生效的文件大小下限：小文件全量读取（平移/缩小后视野外要素仍在），
-     * 大文件按屏幕四至限制读取量防 OOM（GDAL 路径平移不重载，过滤会造成要素缺失） */
-    private const val SPATIAL_FILTER_MIN_BYTES = 6L * 1024 * 1024
+    /** 空间过滤仅对 shp（走 GDAL 时）生效：shp 一律按屏幕四至过滤（不论文件大小），
+     * 配合相机变化动态重载保证平移后要素不缺失；kml/kmz/dwg/dxf 全量读取常驻不过滤
+     * （它们无动态重载，过滤会造成视野外要素永久缺失）。 */
 
     /** 矢量图层标记：拾取时据此过滤出矢量要素（底图/注记不参与点选） */
     const val VECTOR_LAYER_KEY = "isVectorLayer"
 
     /** 渲染对象 userProperty 键：源数据要素标识（shp 记录号 / GDAL FID），供属性读取与回写定位 */
     const val FEATURE_ID_KEY = "vectorFeatureId"
+
+    /** 图层 userProperty 键：GDAL 路径本次读取的要素数，供级别可见性用户值回退校验（>5000 复位） */
+    const val FEATURE_COUNT_KEY = "vectorFeatureCount"
 
     /** 图层 userProperty 键：文档图层路径，点击后据此定位 LayerInfo 写回样式 */
     const val LAYER_PATH_KEY = "vectorLayerPath"
@@ -112,8 +115,8 @@ object LocalVectorLoader {
 
     /**
      * 按文档图层信息加载矢量图层，加载失败抛异常由调用方提示。
-     * extent 为当前屏幕四至（WGS84 [minLon,minLat,maxLon,maxLat]），
-     * 仅对大文件生效：从源头控制读取量防 OOM；小文件全量读取，保证平移后要素不缺失。
+     * extent 为当前屏幕四至（WGS84 [minLon,minLat,maxLon,maxLat]），仅对 shp（走 GDAL 时）生效：
+     * 从源头按屏幕范围过滤读取；kml/kmz/dwg/dxf 一律全量读取，不过滤。
      */
     suspend fun loadLayers(context: Context, layerInfo: LayerInfo, extent: DoubleArray? = null): List<Layer> {
         val path = layerInfo.path ?: throw IllegalArgumentException("图层路径为空")
@@ -121,8 +124,10 @@ object LocalVectorLoader {
         if (!file.exists()) throw IllegalArgumentException("文件不存在: $path")
 
         val style = layerInfo.vectorStyle?.takeIf { !it.isEmpty() }
-        val filterExtent = extent?.takeIf { file.length() > SPATIAL_FILTER_MIN_BYTES }
-        val layers = when (file.extension.lowercase(Locale.getDefault())) {
+        val ext = file.extension.lowercase(Locale.getDefault())
+        // 仅 shp 且走 GDAL 时空间过滤（不论文件大小）；kml/kmz/dwg/dxf 与 shp 原生路径均全量读取
+        val filterExtent = extent?.takeIf { ext == "shp" && shpUseGdal() }
+        val layers = when (ext) {
             "kml" -> loadKml(context, file, layerInfo.name, filterExtent, style)
             "kmz" -> {
                 // 正常导入流程文档记录的是解压后的 kml 路径，此处兜底解压
@@ -291,6 +296,8 @@ object LocalVectorLoader {
         val layer = RenderableLayer(name).apply {
             isPickEnabled = true
             putUserProperty(VECTOR_LAYER_KEY, true)
+            // 回传本次读取要素数，供级别可见性用户值回退校验（生效值来自用户且 >5000 时复位）
+            putUserProperty(FEATURE_COUNT_KEY, features.size)
         }
         buildRenderables(layer, features, style)
         listOf(layer)

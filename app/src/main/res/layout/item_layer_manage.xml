@@ -55,6 +55,16 @@
                 android:contentDescription="@string/layer_sql_query" />
 
             <ImageView
+                android:id="@+id/item_layer_iv_level"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_marginEnd="16dp"
+                android:src="@drawable/ic_display_level"
+                android:visibility="gone"
+                app:tint="#757575"
+                android:contentDescription="@string/layer_level_visibility" />
+
+            <ImageView
                 android:id="@+id/item_layer_iv_zoom_to"
                 android:layout_width="22dp"
                 android:layout_height="22dp"

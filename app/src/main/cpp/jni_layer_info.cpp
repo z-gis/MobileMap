@@ -161,6 +161,27 @@ Java_com_zys_mobilemap_ui_activity_MainActivity_nativeGetLayerExtent(
     return result;
 }
 
+// BaseMapActivity 首次加载矢量图层时按四至宽高自动计算级别可见性，与上方共用 computeLayerExtent
+extern "C"
+JNIEXPORT jdoubleArray JNICALL
+Java_com_zys_mobilemap_ui_activity_BaseMapActivity_nativeGetLayerExtent(
+        JNIEnv *env, jobject thiz, jstring path) {
+
+    GDALAllRegister();
+
+    const char *p = env->GetStringUTFChars(path, nullptr);
+    double extent[4] = {0, 0, 0, 0};
+    bool ok = computeLayerExtent(p, extent);
+    env->ReleaseStringUTFChars(path, p);
+
+    if (!ok) {
+        return nullptr;
+    }
+    jdoubleArray result = env->NewDoubleArray(4);
+    env->SetDoubleArrayRegion(result, 0, 4, extent);
+    return result;
+}
+
 extern "C"
 JNIEXPORT jobjectArray JNICALL
 Java_com_zys_mobilemap_ui_dialog_LayerManageDialog_nativeGetVectorFieldNames(

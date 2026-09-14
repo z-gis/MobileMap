@@ -10,6 +10,7 @@ import com.zys.mobilemap.doc.DocumentManager
 import com.zys.mobilemap.doc.LayerInfo
 import com.zys.mobilemap.doc.MapDocument
 import com.zys.mobilemap.doc.MapSource
+import com.zys.mobilemap.location.NavigatorModel
 import com.zys.mobilemap.raster.GdalRasterLayer
 import com.zys.mobilemap.util.UiUtil
 import com.zys.mobilemap.vector.LocalVectorLoader
@@ -18,7 +19,10 @@ import earth.worldwind.geom.AltitudeMode
 import earth.worldwind.geom.Angle
 import earth.worldwind.layer.BackgroundLayer
 import earth.worldwind.layer.Layer
+import earth.worldwind.navigator.NavigatorEvent
+import earth.worldwind.navigator.NavigatorListener
 import kotlinx.coroutines.launch
+import java.util.Locale
 import kotlin.math.cos
 
 open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener {
@@ -47,6 +51,28 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
     /** 正在异步加载中的矢量图层路径，防重复加载 */
     private val vectorLoadingKeys = mutableSetOf<String>()
 
+    /** 相机变化监听：按当前级别翻转已加载矢量图层 isEnabled（不做动态重载），
+     *  并限幅相机高度下限防止超级别放大致瓦片撕裂/黑屏与中心漂移 */
+    private val levelVisibilityListener = object : NavigatorListener {
+        override fun onNavigatorEvent(wwd: WorldWindow, event: NavigatorEvent) {
+            clampCameraAltitude()
+            applyLevelVisibility()
+        }
+    }
+
+    /**
+     * 限幅相机高度下限：手势/按键放大到 [NavigatorModel.MIN_CAMERA_ALTITUDE]（对应 20 级）后不再拉近。
+     * 底图图源数据最大级别多为 18，超出后末级瓦片纹理拉伸，相机高度趋近 0 时拉伸过度致撕裂乃至无瓦片可绘（黑屏），
+     * 且从黑屏状态缩小恢复时相机中心会漂移。高度已被限幅时不重复设置，避免导航事件递归。
+     */
+    private fun clampCameraAltitude() {
+        val camera = wwd.engine.camera
+        if (camera.position.altitude < NavigatorModel.MIN_CAMERA_ALTITUDE) {
+            camera.position.altitude = NavigatorModel.MIN_CAMERA_ALTITUDE
+            wwd.requestRedraw()
+        }
+    }
+
     fun getWorldWindow() = wwd
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,6 +95,8 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
         syncUserLayers(doc)
         // 注记图层始终最后同步，保证渲染位于所有图层最上层（置顶）
         syncAnnotationLayer(doc)
+        // 文档变更（含图层管理中修改级别可见性）后，按当前级别重新应用矢量图层可见性
+        applyLevelVisibility()
         wwd.requestRedraw()
     }
 
@@ -334,6 +362,11 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
                         ?.vectorLayers?.any { layerKey(it) == key && it.visible } == true
                     if (stillTarget) {
                         insertVectorLayers(key, layers)
+                        // 首次加载按四至自动计算级别可见性；用户值致要素过多则回退自动值
+                        var docChanged = ensureAutoMinDisplayLevel(info)
+                        if (applyFeatureCountFallback(info, layers)) docChanged = true
+                        if (docChanged) DocumentManager.getInstance().save(this@BaseMapActivity)
+                        applyLevelVisibility()
                         moveAnnotationLayerToTop()
                         wwd.requestRedraw()
                     }
@@ -419,11 +452,78 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
     }
 
     /**
+     * 首次加载矢量图层时按图层全四至宽高（公里）自动计算最小显示级别，写入 [LayerInfo.autoMinDisplayLevel]。
+     * 「四至刚好填满屏幕」的相机高度 altitude0 = dKm × 1000 / [AUTO_LEVEL_SCREEN_FACTOR]，
+     * 再经 [NavigatorModel.altitudeToLevel] 换算为级别。返回是否发生变更（需落盘）。
+     */
+    private fun ensureAutoMinDisplayLevel(info: LayerInfo): Boolean {
+        if (info.autoMinDisplayLevel >= 0) return false
+        val path = info.path ?: return false
+        val openPath = if (path.lowercase(Locale.getDefault()).endsWith(".kmz")) "/vsizip/$path" else path
+        val ext = nativeGetLayerExtent(openPath)?.takeIf { it.size == 4 } ?: return false
+        val (minLon, minLat, maxLon, maxLat) = ext
+        val centerLat = (minLat + maxLat) / 2.0
+        val wKm = (maxLon - minLon) * KM_PER_DEGREE * cos(Math.toRadians(centerLat))
+        val hKm = (maxLat - minLat) * KM_PER_DEGREE
+        val dKm = maxOf(wKm, hKm)
+        if (dKm <= 0.0) return false
+        val altitude0 = dKm * 1000.0 / AUTO_LEVEL_SCREEN_FACTOR
+        info.autoMinDisplayLevel = NavigatorModel.altitudeToLevel(altitude0)
+        return true
+    }
+
+    /**
+     * 级别可见性用户值回退校验：生效值来自用户（[LayerInfo.userMinDisplayLevel] ≥ 0）
+     * 且本次读取要素数 > [FEATURE_FALLBACK_LIMIT] 时，判定用户级别设得过低（整层入屏要素过多），
+     * 复位 userMinDisplayLevel = -1 回退自动值。返回是否变更（需落盘）。
+     */
+    private fun applyFeatureCountFallback(info: LayerInfo, layers: List<Layer>): Boolean {
+        if (info.userMinDisplayLevel < 0) return false
+        val count = layers.sumOf { (it.getUserProperty(LocalVectorLoader.FEATURE_COUNT_KEY) as? Int) ?: 0 }
+        if (count > FEATURE_FALLBACK_LIMIT) {
+            Log.i(TAG, "级别可见性用户值致要素过多($count)，回退自动值: ${info.name}")
+            info.userMinDisplayLevel = -1
+            return true
+        }
+        return false
+    }
+
+    /**
+     * 按当前相机级别更新各已加载矢量图层 [Layer.isEnabled]：
+     * 当前级别 < 生效最小显示级别（[LayerInfo.effectiveMinDisplayLevel]）时隐藏，否则显示。
+     * 只翻转 isEnabled，不重载、不重建渲染对象，开销极小；由相机导航事件驱动。
+     */
+    private fun applyLevelVisibility() {
+        val doc = DocumentManager.getInstance().getDocument() ?: return
+        if (vectorLayerMap.isEmpty()) return
+        val level = NavigatorModel.altitudeToLevel(wwd.engine.camera.position.altitude)
+        var changed = false
+        for (info in doc.vectorLayers) {
+            val layers = vectorLayerMap[layerKey(info)] ?: continue
+            val minLevel = info.effectiveMinDisplayLevel
+            val enabled = minLevel < 0 || level >= minLevel
+            for (l in layers) {
+                if (l.isEnabled != enabled) {
+                    l.isEnabled = enabled
+                    changed = true
+                }
+            }
+        }
+        if (changed) wwd.requestRedraw()
+    }
+
+    // JNI 符号为 Java_com_zys_mobilemap_ui_activity_BaseMapActivity_nativeGetLayerExtent，
+    // 与 MainActivity/LayerManageDialog 共用 C++ computeLayerExtent（不能放入 companion object）
+    protected external fun nativeGetLayerExtent(path: String): DoubleArray?
+
+    /**
      * 创建 WorldWindow 并加入背景层。
      */
     protected fun createWorldWindow(): WorldWindow {
         wwd = MapWorldWindow(this)
         wwd.engine.layers.addLayer(BackgroundLayer())
+        // 注册相机监听：本次仅用于按级别翻转矢量图层可见性（不做要素动态重载）
+        wwd.navigatorEvents.addNavigatorListener(levelVisibilityListener)
 
         // 恢复文档中保存的地图位置（文档在 Splash 阶段已加载）
         restoreCameraState()
@@ -501,5 +601,14 @@ open class BaseMapActivity : AppCompatActivity(), DocumentManager.DocumentChange
 
         /** 瓦片图片格式缺省值：地图源未声明格式时按 PNG 解码 */
         private const val DEFAULT_IMAGE_FORMAT = "image/png"
+
+        /** 一度经纬约对应的公里数（级别可见性自动计算用） */
+        private const val KM_PER_DEGREE = 111.32
+
+        /** 级别可见性自动计算系数：altitude0 = dKm × 1000 / 本系数（待真机视野校准） */
+        private const val AUTO_LEVEL_SCREEN_FACTOR = 6.0
+
+        /** 用户指定级别生效时，过滤要素数超过此值判定不合理，回退自动值 */
+        private const val FEATURE_FALLBACK_LIMIT = 5000
     }
 }

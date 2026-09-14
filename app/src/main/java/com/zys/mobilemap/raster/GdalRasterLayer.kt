@@ -149,7 +149,10 @@ class GdalRasterLayer(
         }
     }
 
-    private fun tileFile(key: String) = File(tileCacheDir, key.replace('.', '_') + ".png")
+    // 扩展名用 .tile 而非 .png：与底图 FileTileStore 一致，避免公共目录下瓦片被 MediaScanner
+    // 识别为图片入库（导致设备相册/文件浏览图片增多）；C++ 输出仍为 PNG 编码字节，
+    // ImageSource.fromFile 经 BitmapFactory 按文件内容（magic bytes）解码，不依赖扩展名。
+    private fun tileFile(key: String) = File(tileCacheDir, key.replace('.', '_') + ".tile")
 
     private fun trimCachesIfNeeded() {
         if (liveTiles.size > MAX_LIVE_TILE_REFS) {

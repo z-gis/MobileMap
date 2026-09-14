@@ -16,6 +16,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.zys.mobilemap.R
 import com.zys.mobilemap.control.MaxHeightRecyclerView
 import com.zys.mobilemap.media.MediaAttachment
+import com.zys.mobilemap.media.MediaPackage
 import com.zys.mobilemap.media.MediaStore
 import com.zys.mobilemap.ui.activity.PhotoViewerActivity
 
@@ -41,14 +42,21 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
         sheet.findViewById<TextView>(R.id.photo_sheet_title).text = placemarkName
 
         // 按主键查库只取本点位，不拉全部点位再过滤；非照片附件不列入网格
-        val attachments = if (placemarkId < 0) {
-            emptyList()
+        val placemark = if (placemarkId < 0) {
+            null
         } else {
-            MediaStore.getInstance(requireContext())
-                .findPlacemark(placemarkId)
-                ?.attachments
-                ?.filter { it.type == MediaAttachment.TYPE_PHOTO }
-                ?: emptyList()
+            MediaStore.getInstance(requireContext()).findPlacemark(placemarkId)
+        }
+        val attachments = placemark?.attachments
+            ?.filter { it.type == MediaAttachment.TYPE_PHOTO }
+            ?: emptyList()
+
+        // 分享按钮：把本点位（坐标/名称/照片）打包经系统分享面板发出；无照片时隐藏
+        val shareButton = sheet.findViewById<ImageView>(R.id.photo_sheet_share)
+        if (placemark == null || attachments.isEmpty()) {
+            shareButton.visibility = View.GONE
+        } else {
+            shareButton.setOnClickListener { MediaPackage.sharePlacemark(requireContext(), placemark) }
         }
 
         // 无照片时显示空提示，避免仅剩标题无内容

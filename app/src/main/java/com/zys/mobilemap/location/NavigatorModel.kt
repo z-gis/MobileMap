@@ -71,22 +71,12 @@ class NavigatorModel(
         northButton.rotation = -camera.heading.inDegrees.toFloat()
     }
 
-    /** 按系数缩放相机高度实现缩放（<1 拉近，>1 拉远） */
+    /** 按系数缩放相机高度实现缩放（<1 拉近，>1 拉远）；拉近时限幅到 [MIN_CAMERA_ALTITUDE] 防止超级别黑屏 */
     private fun scaleAltitude(factor: Double) {
         val camera = worldWindow.engine.camera
-        camera.position.altitude = camera.position.altitude * factor
+        camera.position.altitude = (camera.position.altitude * factor)
+            .coerceAtLeast(MIN_CAMERA_ALTITUDE)
         worldWindow.requestRedraw()
-    }
-
-    /**
-     * 相机高度 -> Web Mercator 瓦片层级：层级每加 1 地面分辨率减半，
-     * 故 level = log2(赤道周长 / 高度)，并限幅到 0..[MAX_LEVEL]。
-     */
-    private fun altitudeToLevel(altitude: Double): Int {
-        if (altitude <= 0) return 0
-        val circumference = 2.0 * PI * WGS84_EQUATORIAL_RADIUS
-        val level = (ln(circumference / altitude) / ln(2.0)).toInt()
-        return level.coerceIn(0, MAX_LEVEL)
     }
 
     companion object {
@@ -102,5 +92,26 @@ class NavigatorModel(
 
         /** 层级显示上限（超出后底图走祖先瓦片拉伸，层级号不再增长） */
         private const val MAX_LEVEL = 20
+
+        /**
+         * 相机高度下限（米）：对应 [MAX_LEVEL] 级的地面高度，手势/按键放大到此高度后不再拉近。
+         * 防止相机高度趋近 0 时底图末级瓦片过度拉伸（撕裂）乃至无瓦片可绘（黑屏），
+         * 并避免从黑屏状态缩小恢复时相机中心漂移。
+         * 计算：赤道周长 / 2^MAX_LEVEL = 2π×6378137 / 2^20 ≈ 38.2m。
+         */
+        val MIN_CAMERA_ALTITUDE: Double =
+            2.0 * PI * WGS84_EQUATORIAL_RADIUS / Math.pow(2.0, MAX_LEVEL.toDouble())
+
+        /**
+         * 相机高度 -> Web Mercator 瓦片层级：层级每加 1 地面分辨率减半，
+         * 故 level = log2(赤道周长 / 高度)，并限幅到 0..[MAX_LEVEL]。
+         * 提为 companion 公用：级别可见性判定（BaseMapActivity）与本处层级显示文本同源。
+         */
+        fun altitudeToLevel(altitude: Double): Int {
+            if (altitude <= 0) return 0
+            val circumference = 2.0 * PI * WGS84_EQUATORIAL_RADIUS
+            val level = (ln(circumference / altitude) / ln(2.0)).toInt()
+            return level.coerceIn(0, MAX_LEVEL)
+        }
     }
 }

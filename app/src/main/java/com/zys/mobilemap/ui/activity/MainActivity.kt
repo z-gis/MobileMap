@@ -2,6 +2,7 @@ package com.zys.mobilemap.ui.activity
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.util.Log
@@ -20,6 +21,7 @@ import com.zys.mobilemap.location.NavigatorModel
 import com.zys.mobilemap.measure.MeasureModel
 import com.zys.mobilemap.media.MediaCaptureHelper
 import com.zys.mobilemap.media.MediaOverlayModel
+import com.zys.mobilemap.media.MediaPackage
 import com.zys.mobilemap.media.MediaPlacemark
 import com.zys.mobilemap.track.TrackModel
 import com.zys.mobilemap.ui.dialog.FeatureDetailDialog
@@ -31,6 +33,7 @@ import com.zys.mobilemap.util.AppDirectories
 import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.util.ColorHex
 import com.zys.mobilemap.util.GeoCalc
+import com.zys.mobilemap.util.PermissionUtil
 import com.zys.mobilemap.vector.LocalVectorLoader
 import com.zys.mobilemap.vector.PickedFeatureInfo
 import com.zys.mobilemap.vector.VectorFileImporter
@@ -48,6 +51,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -71,6 +75,12 @@ class MainActivity : BaseMapActivity() {
     /** 加载遮罩安全超时兜底：瓦片长时间未就绪也强制淡出，避免卡在启动画面 */
     private val loadingOverlayTimeout = Runnable { hideLoadingOverlay() }
 
+    /** 启动初始化是否完成：native/proj/文档加载与地图 UI 装配均完成后为 true */
+    private var initialized = false
+
+    /** 等待系统“所有文件访问”授权返回：跳系统页时置 true，onResume 复检并续跑初始化 */
+    private var waitingForAllFilesPermission = false
+
     companion object {
         private const val TAG = "MainActivity"
 
@@ -88,14 +98,58 @@ class MainActivity : BaseMapActivity() {
         setContentView(binding.root)
         AppLog.i(TAG, "MainActivity onCreate")
 
+        // 启动加载遮罩：盖住底图瓦片异步加载的白屏，首屏就绪（或安全超时）后淡出；
+        // 合并启动页后，遮罩同时覆盖初始化阶段（native/proj/文档加载），初始化未完成前不淡出
+        binding.root.postDelayed(loadingOverlayTimeout, LOADING_OVERLAY_TIMEOUT_MS)
+
+        // 权限门：Android 11+ 需“管理所有文件”权限，未授予则跳系统授权页，onResume 复检后续跑
+        if (!hasAllFilesPermission()) {
+            waitingForAllFilesPermission = true
+            Toast.makeText(this, R.string.open_file_permission_required, Toast.LENGTH_SHORT).show()
+            PermissionUtil.goManagerFileAccess(this)
+            return
+        }
+
+        initializeAndSetup()
+    }
+
+    /**
+     * 启动初始化 + 地图 UI 装配（合并自原 SplashActivity）：
+     * native 库、外部目录、日志目录切换、proj 数据解压、文档加载，随后装配地图与各模块，最后处理外部 VIEW intent。
+     * 幂等：已初始化直接返回，避免权限页返回后重复装配。
+     */
+    private fun initializeAndSetup() {
+        if (initialized) return
+        initialized = true
+
+        loadNativeLibrary()
+        AppDirectories.ensureAll(this)
+        // 全文件访问权限已就绪，将日志目录切到外部 调查宝/log，便于用户取出反馈
+        AppLog.refreshLogDir(this)
+        // 解压 proj 数据（PROJ 坐标转换依赖 proj.db 与格网改正数文件）
+        extractProjData()
+        // 加载或创建文档
+        DocumentManager.getInstance().loadOrCreate(this)
+        AppLog.i(TAG, "初始化完成，文档已加载")
+
+        setupMapUi()
+
+        // 系统外部打开数据（文件管理器/微信分享）：初始化完成后立即处理
+        handleViewIntent(intent)
+    }
+
+    /**
+     * 地图 UI 与各功能模块装配（原 onCreate 主体，抽为独立方法以便权限授予后续跑）。
+     */
+    private fun setupMapUi() {
         // 拍照会话：尽早注册 Activity 结果回调（拍照完成后刷新标注图层）
         mediaCaptureHelper = MediaCaptureHelper(this) { mediaOverlayModel?.reload() }
         mediaCaptureHelper?.register()
 
         binding.globe.addView(createWorldWindow())
 
-        // 启动加载遮罩：盖住底图瓦片异步加载的白屏，首屏就绪（或安全超时）后淡出
-        setupLoadingOverlay()
+        // 首屏就绪回调：淡出加载遮罩
+        (getWorldWindow() as? MapWorldWindow)?.onFirstFrameSettled = { hideLoadingOverlay() }
 
         // 设置导航器
         navigatorModel = NavigatorModel(this, getWorldWindow())
@@ -185,18 +239,78 @@ class MainActivity : BaseMapActivity() {
 
         // 拍照入口：列表对话框（拍照/管理），菜单用词与轨迹菜单一致
         binding.mainIvPoto.setOnClickListener { showPhotoMenu() }
+    }
 
-        // 系统外部打开矢量数据（文件管理器分享/打开）
-        handleViewIntent(intent)
+    private fun loadNativeLibrary() {
+        try {
+            System.loadLibrary("mobilemap")
+            AppLog.i(TAG, "原生库 mobilemap 加载成功")
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "Failed to load native library 'mobilemap'", e)
+            AppLog.e(TAG, "原生库 mobilemap 加载失败", e)
+        }
+    }
+
+    private fun hasAllFilesPermission(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.R
+                || PermissionUtil.isExternalStorageManager()
+    }
+
+    private fun extractProjData() {
+        try {
+            val projDir = File(filesDir, "proj")
+            if (!projDir.exists()) {
+                projDir.mkdirs()
+            }
+            copyAssetFolder("proj", projDir)
+            initProjDataPath(projDir.absolutePath)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to extract proj data", e)
+            AppLog.e(TAG, "解压 proj 数据失败", e)
+        }
     }
 
     /**
-     * 启动加载遮罩：注册首屏就绪回调（就绪即淡出），并挂安全超时兜底。
+     * 递归复制 assets 目录到 [destDir]：子目录建同名目录后递归（保持层级），
+     * 文件已存在时跳过，避免每次启动重复解压。
      */
-    private fun setupLoadingOverlay() {
-        (getWorldWindow() as? MapWorldWindow)?.onFirstFrameSettled = { hideLoadingOverlay() }
-        binding.root.postDelayed(loadingOverlayTimeout, LOADING_OVERLAY_TIMEOUT_MS)
+    private fun copyAssetFolder(assetPath: String, destDir: File) {
+        try {
+            val children = assets.list(assetPath)
+            // 空清单即叶子节点（assets 对文件返回空数组），按文件复制
+            if (children.isNullOrEmpty()) {
+                val leaf = File(destDir, assetPath.substringAfterLast('/'))
+                if (!leaf.exists()) copyAssetFile(assetPath, leaf)
+                return
+            }
+            if (!destDir.exists()) destDir.mkdirs()
+            for (child in children) {
+                val subPath = "$assetPath/$child"
+                val subChildren = assets.list(subPath)
+                if (subChildren.isNullOrEmpty()) {
+                    val destFile = File(destDir, child)
+                    if (!destFile.exists()) copyAssetFile(subPath, destFile)
+                } else {
+                    copyAssetFolder(subPath, File(destDir, child))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to copy asset: $assetPath", e)
+        }
     }
+
+    private fun copyAssetFile(assetPath: String, destFile: File) {
+        try {
+            assets.open(assetPath).use { input ->
+                FileOutputStream(destFile).use { out -> input.copyTo(out) }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to copy: $assetPath", e)
+        }
+    }
+
+    // JNI 符号为 Java_com_zys_mobilemap_ui_activity_MainActivity_initProjDataPath（合并自 SplashActivity）
+    private external fun initProjDataPath(projDataPath: String?)
 
     /**
      * 淡出并隐藏加载遮罩（首屏就绪或安全超时触发，幂等）。
@@ -213,10 +327,13 @@ class MainActivity : BaseMapActivity() {
     override fun onDestroy() {
         AppLog.i(TAG, "MainActivity onDestroy")
         binding.root.removeCallbacks(loadingOverlayTimeout)
-        (getWorldWindow() as? MapWorldWindow)?.onFirstFrameSettled = null
-        vectorQueryModel?.clear()
-        // 关闭轨迹落库线程（采集点已实时写库，下次启动可恢复未完成的记录）
-        trackModel?.shutdown()
+        // 未完成初始化时 WorldWindow 尚未创建，跳过相关清理（lateinit 未赋值会抛异常）
+        if (initialized) {
+            (getWorldWindow() as? MapWorldWindow)?.onFirstFrameSettled = null
+            vectorQueryModel?.clear()
+            // 关闭轨迹落库线程（采集点已实时写库，下次启动可恢复未完成的记录）
+            trackModel?.shutdown()
+        }
         super.onDestroy()
     }
 
@@ -411,17 +528,25 @@ class MainActivity : BaseMapActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // 未初始化完成前（如权限页返回前）外部 VIEW intent 先暂存，初始化完成后统一处理
+        if (!initialized) return
         handleViewIntent(intent)
     }
 
     /**
-     * 处理系统外部打开（ACTION_VIEW）：content:// 先复制到本地，
-     * 经矢量导入器导入（zip/kmz 解压），写入文档同步地图后缩放到图层范围。
+     * 处理系统外部打开（ACTION_VIEW）：先按显示名分流——拍照数据包（.mphoto）导入新建点位，
+     * 其余按矢量数据 content:// 复制到本地经矢量导入器导入（zip/kmz 解压），写入文档同步地图后缩放到图层范围。
      */
     private fun handleViewIntent(intent: Intent?) {
         if (intent == null || intent.action != Intent.ACTION_VIEW) return
         val uri = intent.data ?: return
         lifecycleScope.launch {
+            // 拍照数据包与矢量数据共用同一外部打开入口，先按文件名后缀分流，避免误当矢量导入
+            val displayName = withContext(Dispatchers.IO) { resolveDisplayName(uri) }
+            if (MediaPackage.isPackageFile(displayName)) {
+                importMediaPackage(uri)
+                return@launch
+            }
             val localPath = withContext(Dispatchers.IO) { resolveToLocalPath(uri) }
             if (localPath == null) {
                 Toast.makeText(this@MainActivity, R.string.vector_open_failed, Toast.LENGTH_SHORT).show()
@@ -438,6 +563,79 @@ class MainActivity : BaseMapActivity() {
                 DocumentManager.getInstance().save(this@MainActivity)
             }
             zoomToLayerExtent(imported.path)
+        }
+    }
+
+    /**
+     * 导入拍照数据包：复制到应用私有临时目录 → 解包新建点位 → 刷新标注图层并缩放到首个新点位。
+     * 与矢量导入一致，IO 均在工作线程；临时副本导入后清理。
+     */
+    private suspend fun importMediaPackage(uri: Uri) {
+        val staged = withContext(Dispatchers.IO) { stagePackageFile(uri) }
+        if (staged == null) {
+            Toast.makeText(this@MainActivity, "拍照数据包读取失败", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val file = staged.first
+        val imported = try {
+            withContext(Dispatchers.IO) { MediaPackage.importPackage(this@MainActivity, file) }
+        } finally {
+            // 仅清理为导入复制出的临时副本（file:// 原件不动）
+            if (staged.second) runCatching { file.delete() }
+        }
+        if (imported.isEmpty()) {
+            Toast.makeText(this@MainActivity, "拍照数据包导入失败", Toast.LENGTH_SHORT).show()
+            return
+        }
+        mediaOverlayModel?.reload()
+        Toast.makeText(this@MainActivity, "已导入 ${imported.size} 个拍照点位", Toast.LENGTH_SHORT).show()
+        zoomToMediaPlacemark(imported.first())
+    }
+
+    /** 取外部 Uri 的显示文件名（content:// 查 DISPLAY_NAME，file:// 取路径末段）。 */
+    private fun resolveDisplayName(uri: Uri): String? = try {
+        when (uri.scheme) {
+            "file" -> uri.path?.substringAfterLast('/')
+            "content" -> queryDisplayName(uri) ?: uri.lastPathSegment?.substringAfterLast('/')
+            else -> null
+        }
+    } catch (e: Exception) {
+        Log.e(TAG, "解析外部文件名失败: $uri", e)
+        null
+    }
+
+    private fun queryDisplayName(uri: Uri): String? {
+        var name: String? = null
+        contentResolver.query(uri, null, null, null, null)?.use { c ->
+            val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (idx >= 0 && c.moveToFirst()) name = c.getString(idx)
+        }
+        return name
+    }
+
+    /**
+     * 拍照数据包落地为本地文件：file:// 直接用（非临时，勿删）；content:// 复制到应用私有
+     * getExternalFilesDir/media_import（临时副本，导入后删）。返回 (文件, 是否临时副本)。
+     */
+    private fun stagePackageFile(uri: Uri): Pair<File, Boolean>? {
+        return try {
+            when (uri.scheme) {
+                "file" -> uri.path?.let { File(it) }?.takeIf { it.exists() }?.let { it to false }
+                "content" -> {
+                    val name = queryDisplayName(uri) ?: "package.${MediaPackage.EXT}"
+                    val dir = File(getExternalFilesDir(null) ?: cacheDir, "media_import")
+                    dir.mkdirs()
+                    val target = File(dir, name)
+                    contentResolver.openInputStream(uri)?.use { input ->
+                        target.outputStream().use { output -> input.copyTo(output) }
+                    } ?: return null
+                    target to true
+                }
+                else -> null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "拍照数据包复制到本地失败: $uri", e)
+            null
         }
     }
 
@@ -500,9 +698,7 @@ class MainActivity : BaseMapActivity() {
         )
     }
 
-    // JNI 符号为 Java_com_zys_mobilemap_ui_activity_MainActivity_nativeGetLayerExtent，
-    // 与 LayerManageDialog 共用 C++ 层四至计算实现（不能放入 companion object）
-    private external fun nativeGetLayerExtent(path: String): DoubleArray?
+    // 四至读取 nativeGetLayerExtent 已上提到基类 BaseMapActivity（protected external），此处继承使用
 
     /**
      * 按系统配置显示/隐藏中心十字
@@ -569,6 +765,13 @@ class MainActivity : BaseMapActivity() {
 
     override fun onResume() {
         super.onResume()
+        // 权限页返回复检：“所有文件访问”已授予则续跑启动初始化（幂等）
+        if (waitingForAllFilesPermission && hasAllFilesPermission()) {
+            waitingForAllFilesPermission = false
+            initializeAndSetup()
+        }
+        // 未完成初始化时地图尚未创建，跳过依赖 WorldWindow 的刷新逻辑
+        if (!initialized) return
         getWorldWindow().onResume()
         updateCenterCrossVisibility()
         applyModuleVisibility()

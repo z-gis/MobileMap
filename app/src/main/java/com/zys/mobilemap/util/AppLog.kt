@@ -63,7 +63,7 @@ object AppLog {
 
     /**
      * 重新解析日志目录：优先外部 调查宝/log（可写时），否则回退内部 filesDir/log。
-     * 全文件访问权限授予后（如 SplashActivity 初始化阶段）可再次调用，
+     * 全文件访问权限授予后（如 MainActivity 初始化阶段）可再次调用，
      * 将后续日志切到外部目录，便于用户取出反馈。
      */
     fun refreshLogDir(context: Context) {
