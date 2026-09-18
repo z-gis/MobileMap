@@ -2,209 +2,228 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="#F5F5F5">
+    android:background="@color/activity_background"
+    android:orientation="vertical">
 
-    <!-- 顶部标题栏 -->
-    <LinearLayout
+    <!-- 顶部标题栏：与设置/关于页一致（浅底、居中黑色标题、左侧返回箭头） -->
+    <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="48dp"
-        android:background="#FF4A90D9"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
+        android:background="@color/activity_background"
         android:paddingStart="8dp"
-        android:paddingEnd="12dp">
+        android:paddingEnd="8dp">
 
         <ImageView
             android:id="@+id/iv_back"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:padding="6dp"
+            android:layout_width="@dimen/activity_back_image_size"
+            android:layout_height="@dimen/activity_back_image_size"
+            android:layout_centerVertical="true"
+            android:padding="2dp"
             android:contentDescription="返回"
             android:src="@drawable/ic_left_arrow_black"
             android:background="?attr/selectableItemBackgroundBorderless" />
 
         <TextView
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
+            android:layout_centerInParent="true"
             android:text="抚育设计样地调查"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-    </LinearLayout>
+            android:textColor="@color/black"
+            android:textSize="@dimen/activity_title_text_size" />
+    </RelativeLayout>
 
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:fillViewport="true">
+        android:fillViewport="true"
+        android:scrollbars="none">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="12dp">
+            android:padding="@dimen/activity_padding_size">
+
+            <!-- 基本信息分组标签 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:paddingStart="4dp"
+                android:text="基本信息"
+                android:textColor="#888888"
+                android:textSize="13sp" />
 
             <!-- 基本信息卡片 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@drawable/bg_feature_group"
-                android:orientation="vertical"
-                android:padding="12dp">
+                android:layout_marginTop="6dp"
+                android:background="@drawable/bg_settings_group"
+                android:orientation="vertical">
 
+                <!-- 小班编号 | 样地号（同一行） -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal">
+                    android:layout_height="48dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="12dp">
+
                     <TextView
-                        android:layout_width="80dp"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="小班编号："
-                        android:textSize="14sp"
-                        android:textColor="#424242" />
+                        android:text="小班编号"
+                        android:textColor="#888888"
+                        android:textSize="@dimen/activity_item_text_size" />
+
                     <TextView
                         android:id="@+id/tv_compartment_no"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:textSize="14sp"
-                        android:textColor="#212121" />
-                </LinearLayout>
+                        android:layout_marginStart="8dp"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:textColor="@color/black"
+                        android:textSize="@dimen/activity_item_text_size" />
 
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:orientation="horizontal">
                     <TextView
-                        android:layout_width="80dp"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="样地编号："
-                        android:textSize="14sp"
-                        android:textColor="#424242" />
+                        android:layout_marginStart="12dp"
+                        android:text="样地号"
+                        android:textColor="#888888"
+                        android:textSize="@dimen/activity_item_text_size" />
+
                     <TextView
                         android:id="@+id/tv_plot_no"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:textSize="14sp"
-                        android:textColor="#212121" />
+                        android:layout_marginStart="8dp"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:textColor="@color/black"
+                        android:textSize="@dimen/activity_item_text_size" />
                 </LinearLayout>
 
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#F1F1F1" />
+
+                <!-- GPS 位置 -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:orientation="horizontal">
+                    android:layout_height="48dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="12dp">
+
                     <TextView
-                        android:layout_width="80dp"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="GPS位置："
-                        android:textSize="14sp"
-                        android:textColor="#424242" />
+                        android:text="GPS位置"
+                        android:textColor="#888888"
+                        android:textSize="@dimen/activity_item_text_size" />
+
                     <TextView
                         android:id="@+id/tv_gps"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:textSize="14sp"
-                        android:textColor="#212121"
-                        android:text="未定位" />
+                        android:layout_marginStart="8dp"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:text="未定位"
+                        android:textColor="@color/black"
+                        android:textSize="@dimen/activity_item_text_size" />
                 </LinearLayout>
 
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#F1F1F1" />
+
+                <!-- 平均树高 | 郁闭度（同一行） -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:orientation="horizontal">
+                    android:layout_height="48dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="12dp">
+
                     <TextView
-                        android:layout_width="80dp"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="平均树高："
-                        android:textSize="14sp"
-                        android:textColor="#424242" />
+                        android:text="树高"
+                        android:textColor="#888888"
+                        android:textSize="@dimen/activity_item_text_size" />
+
                     <EditText
                         android:id="@+id/et_tree_height"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
+                        android:layout_marginStart="8dp"
                         android:hint="米"
                         android:inputType="numberDecimal"
-                        android:textSize="14sp"
+                        android:textColor="@color/black"
+                        android:textSize="@dimen/activity_item_text_size"
                         android:background="@android:drawable/edit_text" />
-                </LinearLayout>
 
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:orientation="horizontal">
                     <TextView
-                        android:layout_width="80dp"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="郁闭度："
-                        android:textSize="14sp"
-                        android:textColor="#424242" />
+                        android:layout_marginStart="12dp"
+                        android:text="郁闭度"
+                        android:textColor="#888888"
+                        android:textSize="@dimen/activity_item_text_size" />
+
                     <EditText
                         android:id="@+id/et_canopy_density"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
+                        android:layout_marginStart="8dp"
                         android:hint="0.0~1.0"
                         android:inputType="numberDecimal"
-                        android:textSize="14sp"
+                        android:textColor="@color/black"
+                        android:textSize="@dimen/activity_item_text_size"
                         android:background="@android:drawable/edit_text" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:orientation="horizontal">
-                    <TextView
-                        android:layout_width="80dp"
-                        android:layout_height="wrap_content"
-                        android:text="四角坐标："
-                        android:textSize="14sp"
-                        android:textColor="#424242" />
-                    <TextView
-                        android:id="@+id/tv_corners"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:textSize="12sp"
-                        android:textColor="#616161"
-                        android:text="未采集" />
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- 调查数据表标题 -->
+            <!-- 调查数据分组标签 -->
             <TextView
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="16dp"
+                android:paddingStart="4dp"
                 android:text="调查数据"
-                android:textSize="15sp"
-                android:textStyle="bold"
-                android:textColor="#212121" />
+                android:textColor="#888888"
+                android:textSize="13sp" />
 
-            <!-- 调查数据列表 -->
-            <com.zys.mobilemap.survey.NonScrollListView
-                android:id="@+id/lv_survey_rows"
+            <!-- 调查数据列表卡片 -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:divider="#E0E0E0"
-                android:dividerHeight="1dp" />
+                android:background="@drawable/bg_settings_group"
+                android:orientation="vertical">
+
+                <com.zys.mobilemap.survey.NonScrollListView
+                    android:id="@+id/lv_survey_rows"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:divider="#F1F1F1"
+                    android:dividerHeight="1dp" />
+            </LinearLayout>
 
             <!-- 操作按键 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="16dp"
                 android:layout_marginBottom="16dp"
                 android:orientation="horizontal">
 
@@ -215,7 +234,7 @@
                     android:layout_weight="1"
                     android:layout_marginEnd="6dp"
                     android:text="+ 添加行"
-                    android:textSize="14sp" />
+                    android:textSize="@dimen/activity_item_text_size" />
 
                 <Button
                     android:id="@+id/btn_save"
@@ -224,7 +243,7 @@
                     android:layout_weight="1"
                     android:layout_marginStart="6dp"
                     android:text="保存"
-                    android:textSize="14sp"
+                    android:textSize="@dimen/activity_item_text_size"
                     android:backgroundTint="#FF4A90D9"
                     android:textColor="#FFFFFF" />
             </LinearLayout>

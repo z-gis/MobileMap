@@ -7,8 +7,8 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
-import androidx.appcompat.app.AppCompatActivity
 import com.zys.mobilemap.R
+import com.zys.mobilemap.ui.activity.BaseStyledActivity
 import com.zys.mobilemap.location.LocationManager
 import com.zys.mobilemap.util.AppLog
 
@@ -18,7 +18,7 @@ import com.zys.mobilemap.util.AppLog
  * 从要素详情"样地调查"入口启动，支持新建与编辑样地记录。
  * 数据来源：intent extras（sourcePath / sourceFid / compartmentNo / plotId / centerLat / centerLon）。
  */
-class SampleSurveyActivity : AppCompatActivity() {
+class SampleSurveyActivity : BaseStyledActivity() {
 
     companion object {
         private const val TAG = "SampleSurveyActivity"
@@ -65,7 +65,6 @@ class SampleSurveyActivity : AppCompatActivity() {
     private lateinit var tvCompartment: TextView
     private lateinit var tvPlotNo: TextView
     private lateinit var tvGps: TextView
-    private lateinit var tvCorners: TextView
     private lateinit var etTreeHeight: EditText
     private lateinit var etCanopyDensity: EditText
     private lateinit var lvRows: NonScrollListView
@@ -73,6 +72,7 @@ class SampleSurveyActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_sample_survey)
+        applyDefaultPageStyle()
 
         readArguments()
         initViews()
@@ -94,7 +94,6 @@ class SampleSurveyActivity : AppCompatActivity() {
         tvCompartment = findViewById(R.id.tv_compartment_no)
         tvPlotNo = findViewById(R.id.tv_plot_no)
         tvGps = findViewById(R.id.tv_gps)
-        tvCorners = findViewById(R.id.tv_corners)
         etTreeHeight = findViewById(R.id.et_tree_height)
         etCanopyDensity = findViewById(R.id.et_canopy_density)
         lvRows = findViewById(R.id.lv_survey_rows)
@@ -122,7 +121,6 @@ class SampleSurveyActivity : AppCompatActivity() {
             tvPlotNo.text = "第 ${p.plotNo} 号样地"
             etTreeHeight.setText(p.averageTreeHeight ?: "")
             if (!p.canopyDensity.isNaN()) etCanopyDensity.setText(p.canopyDensity.toString())
-            tvCorners.text = p.cornerCoordinates?.takeIf { it.isNotBlank() } ?: "未采集"
             rows.clear()
             rows.addAll(p.rows)
             adapter.notifyDataSetChanged()

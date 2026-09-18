@@ -63,7 +63,7 @@
                 <!-- 是否显示中心十字 -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="60dp"
+                    android:layout_height="48dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingStart="16dp"
@@ -77,7 +77,7 @@
                         android:ellipsize="end"
                         android:text="@string/settings_center_cross"
                         android:textColor="#131313"
-                        android:textSize="16sp"/>
+                        android:textSize="@dimen/activity_item_text_size"/>
 
                     <androidx.appcompat.widget.SwitchCompat
                         android:id="@+id/set_switch_cross"
@@ -90,7 +90,7 @@
                 <!-- 是否显示拍照标注图层 -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="60dp"
+                    android:layout_height="48dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingStart="16dp"
@@ -104,7 +104,7 @@
                         android:ellipsize="end"
                         android:text="@string/settings_show_media_layer"
                         android:textColor="#131313"
-                        android:textSize="16sp"/>
+                        android:textSize="@dimen/activity_item_text_size"/>
 
                     <androidx.appcompat.widget.SwitchCompat
                         android:id="@+id/set_switch_media_layer"
@@ -117,7 +117,7 @@
                 <!-- 是否显示照片名称标注 -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="60dp"
+                    android:layout_height="48dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingStart="16dp"
@@ -131,7 +131,7 @@
                         android:ellipsize="end"
                         android:text="@string/settings_show_photo_name"
                         android:textColor="#131313"
-                        android:textSize="16sp"/>
+                        android:textSize="@dimen/activity_item_text_size"/>
 
                     <androidx.appcompat.widget.SwitchCompat
                         android:id="@+id/set_switch_photo_name"
@@ -144,7 +144,7 @@
                 <!-- 是否显示轨迹记录图层 -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="60dp"
+                    android:layout_height="48dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingStart="16dp"
@@ -158,7 +158,7 @@
                         android:ellipsize="end"
                         android:text="@string/settings_show_track_layer"
                         android:textColor="#131313"
-                        android:textSize="16sp"/>
+                        android:textSize="@dimen/activity_item_text_size"/>
 
                     <androidx.appcompat.widget.SwitchCompat
                         android:id="@+id/set_switch_track_layer"
@@ -171,7 +171,7 @@
                 <!-- 是否显示测量结果图层 -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="60dp"
+                    android:layout_height="48dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingStart="16dp"
@@ -185,7 +185,7 @@
                         android:ellipsize="end"
                         android:text="@string/settings_show_measure_layer"
                         android:textColor="#131313"
-                        android:textSize="16sp"/>
+                        android:textSize="@dimen/activity_item_text_size"/>
 
                     <androidx.appcompat.widget.SwitchCompat
                         android:id="@+id/set_switch_measure_layer"
@@ -198,7 +198,7 @@
                 <!-- 定位与中心坐标是否以米（CGCS2000 3度带）显示，关闭则为十进制度 -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="60dp"
+                    android:layout_height="48dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingStart="16dp"
@@ -212,7 +212,7 @@
                         android:ellipsize="end"
                         android:text="@string/settings_coord_display_meter"
                         android:textColor="#131313"
-                        android:textSize="16sp"/>
+                        android:textSize="@dimen/activity_item_text_size"/>
 
                     <androidx.appcompat.widget.SwitchCompat
                         android:id="@+id/set_switch_coord_meter"
@@ -225,7 +225,7 @@
                 <!-- 是否显示 KML/KMZ 名称标注（点 Placemark 名称 + 面/线名称），默认关 -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="60dp"
+                    android:layout_height="48dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingStart="16dp"
@@ -239,7 +239,7 @@
                         android:ellipsize="end"
                         android:text="@string/settings_kml_label"
                         android:textColor="#131313"
-                        android:textSize="16sp"/>
+                        android:textSize="@dimen/activity_item_text_size"/>
 
                     <androidx.appcompat.widget.SwitchCompat
                         android:id="@+id/set_switch_kml_label"
@@ -269,7 +269,7 @@
                 <!-- 是否给照片添加坐标水印 -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="60dp"
+                    android:layout_height="48dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingStart="16dp"
@@ -283,7 +283,7 @@
                         android:ellipsize="end"
                         android:text="@string/settings_photo_coordinate_watermark"
                         android:textColor="#131313"
-                        android:textSize="16sp"/>
+                        android:textSize="@dimen/activity_item_text_size"/>
 
                     <androidx.appcompat.widget.SwitchCompat
                         android:id="@+id/set_switch_photo_watermark"
@@ -296,7 +296,7 @@
                 <!-- 是否后台定位 -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="60dp"
+                    android:layout_height="48dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingStart="16dp"
@@ -310,7 +310,7 @@
                         android:ellipsize="end"
                         android:text="@string/settings_background_location"
                         android:textColor="#131313"
-                        android:textSize="16sp"/>
+                        android:textSize="@dimen/activity_item_text_size"/>
 
                     <androidx.appcompat.widget.SwitchCompat
                         android:id="@+id/set_switch_background_location"
@@ -323,7 +323,7 @@
                 <!-- shp 读取引擎：开启走 GDAL/OGR（任意坐标系重投影），关闭走 WorldWind 原生字节入口 -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="60dp"
+                    android:layout_height="48dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingStart="16dp"
@@ -338,7 +338,7 @@
                         android:ellipsize="end"
                         android:text="@string/settings_shp_use_gdal"
                         android:textColor="#131313"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/activity_item_text_size"
                         />
 
                     <androidx.appcompat.widget.SwitchCompat
@@ -376,7 +376,7 @@
                         android:layout_centerInParent="true"
                         android:text="@string/settings_help"
                         android:textColor="#131313"
-                        android:textSize="16sp"/>
+                        android:textSize="@dimen/activity_item_text_size"/>
 
                 </RelativeLayout>
 
@@ -394,7 +394,7 @@
                         android:layout_centerInParent="true"
                         android:text="@string/settings_personal_info_list"
                         android:textColor="#131313"
-                        android:textSize="16sp"/>
+                        android:textSize="@dimen/activity_item_text_size"/>
 
                 </RelativeLayout>
             </LinearLayout>
