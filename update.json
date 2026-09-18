@@ -1,8 +1,8 @@
 {
-  "versionCode": 26091401,
-  "versionName": "0.2.7.12",
-  "apkUrl": "https://gitee.com/z-gis/MobileMap/releases/download/0.2.7.12/mobilemap-v0.2.7.12.apk",
-  "apkSizeBytes": 74500998 ,
-  "changelog": "新增帮助菜单；启动页与主界面合并；修复放大到20级后瓦片撕裂/黑屏与中心漂移；采集照片不再被系统相册收录",
+  "versionCode": 26091801,
+  "versionName": "0.2.8.0",
+  "apkUrl": "https://gitee.com/z-gis/MobileMap/releases/download/0.2.8.0/mobilemap-v0.2.8.0.apk",
+  "apkSizeBytes": 74557874,
+  "changelog": "1. 新增调查模块：主界面调查按键，点击矢量要素可编辑并回写属性\n2. 新增样地调查：调查模式下录入样地数据\n3. 新增 GPKG 数据支持\n4. 优化矢量渲染，支持 10 万+要素大数据\n5. 新增 KML/KMZ 名称标注显示开关",
   "force": false
 }
