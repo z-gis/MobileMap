@@ -116,6 +116,17 @@
             android:padding="5.0dp"
             android:src="@drawable/nav_overlay_manager" />
 
+        <!-- 调查模式切换按键：点击进入/退出调查模式；调查模式下测量/拍照/轨迹按键隐藏 -->
+        <ImageView
+            android:id="@+id/main_iv_survey"
+            android:layout_width="@dimen/main_icon_size"
+            android:layout_height="@dimen/main_icon_size"
+            android:layout_marginTop="6dp"
+            android:background="@color/main_icon_bg"
+            android:padding="5.0dp"
+            android:contentDescription="@string/main_survey"
+            android:src="@drawable/nav_survey" />
+
     </LinearLayout>
 
     <!--拍照-->

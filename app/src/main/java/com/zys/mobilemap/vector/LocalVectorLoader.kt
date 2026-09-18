@@ -40,6 +40,8 @@ import javax.xml.parsers.DocumentBuilderFactory
  *  - shp：两条读取路径并存，由设置开关 [com.zys.mobilemap.doc.SystemConfig.shpUseGdal] 选定：
  *    默认 GDAL/OGR 读取并重投影到 WGS84（任意坐标系含 CGCS2000、北京54 等需基准转换的
  *    地理坐标系均能正确落位）；关闭时走 WorldWind 原生字节入口（原生不支持的投影仍自动回退 GDAL）；
+ *  - gpkg：OGC GeoPackage（单文件 SQLite 容器 + R-tree 空间索引），恒走 GDAL/OGR，
+ *    多子图层时合并到一个 RenderableLayer（与 shp/dwg 一致）；
  *  - dwg/dxf：WorldWind 无读取器，恒走 GDAL/OGR；
  *  - kml/kmz：WorldWind 原生解析优先（保留源文件配色/图标/地面覆盖物，为 LocalLayer.md
  *    明确要求的渲染效果，GDAL 通用要素读取无法保留），失败或超大文件时回退 GDAL。
@@ -52,9 +54,16 @@ object LocalVectorLoader {
      * 内存峰值约为文件十余倍，15MB 级 KML 极易 OOM，且失败后再回退相当于双倍消耗） */
     private const val NATIVE_KML_MAX_BYTES = 5L * 1024 * 1024
 
-    /** 空间过滤仅对 shp（走 GDAL 时）生效：shp 一律按屏幕四至过滤（不论文件大小），
-     * 配合相机变化动态重载保证平移后要素不缺失；kml/kmz/dwg/dxf 全量读取常驻不过滤
-     * （它们无动态重载，过滤会造成视野外要素永久缺失）。 */
+    /** 小数据集直接全量渲染阈值（所有走 GDAL 的矢量格式 shp/gpkg/kml/kmz/dwg/dxf）：要素总数 < 5000 时
+     * 不按屏幕四至过滤，直接全量渲染（0.2.8 回退：实测小数据集按屏幕过滤+动态重载不如全量直接渲染流畅；
+     * 打 FEATURE_DIRECT_KEY 标记后不参与相机变化后的重载，消除小数据平移刷新） */
+    private const val DIRECT_RENDER_LIMIT = 5000
+
+    /** 空间过滤对所有走 GDAL 的路径生效（shp+GDAL / dwg / dxf / kml>5MB / kmz 回退）：
+     *  C++ 侧采用「图层 WGS84 四至预判 + 逐要素手工过滤」，避开反向变换失败隐患（如 CGCS2000 3度带高斯-克吕格）。
+     *  屏幕与图层四至不相交时整层跳过（0 要素 0 内存）；相交时仅 emit 屏幕内要素。
+     *  不过滤的例外：要素总数 < DIRECT_RENDER_LIMIT 的小数据（含 shp/gpkg/kml/kmz/dwg/dxf，全量渲染不参与重载）、
+     *  shp 原生路径（ShapefileLayerFactory 整文读入，无法过滤）与 kml 小文件原生解析（KmlLayerFactory 同理）。 */
 
     /** 矢量图层标记：拾取时据此过滤出矢量要素（底图/注记不参与点选） */
     const val VECTOR_LAYER_KEY = "isVectorLayer"
@@ -64,6 +73,10 @@ object LocalVectorLoader {
 
     /** 图层 userProperty 键：GDAL 路径本次读取的要素数，供级别可见性用户值回退校验（>5000 复位） */
     const val FEATURE_COUNT_KEY = "vectorFeatureCount"
+
+    /** 图层 userProperty 键：小数据集 shp/gpkg 直接全量渲染标记（要素总数 < [DIRECT_RENDER_LIMIT]），
+     *  已全量加载不需相机变化后按屏幕四至重载 */
+    const val FEATURE_DIRECT_KEY = "vectorFeatureDirect"
 
     /** 图层 userProperty 键：文档图层路径，点击后据此定位 LayerInfo 写回样式 */
     const val LAYER_PATH_KEY = "vectorLayerPath"
@@ -115,8 +128,10 @@ object LocalVectorLoader {
 
     /**
      * 按文档图层信息加载矢量图层，加载失败抛异常由调用方提示。
-     * extent 为当前屏幕四至（WGS84 [minLon,minLat,maxLon,maxLat]），仅对 shp（走 GDAL 时）生效：
-     * 从源头按屏幕范围过滤读取；kml/kmz/dwg/dxf 一律全量读取，不过滤。
+     * extent 为当前屏幕四至（WGS84 [minLon,minLat,maxLon,maxLat]），对所有走 GDAL 的路径生效：
+     * 从源头按屏幕范围过滤读取。但要素总数 < [DIRECT_RENDER_LIMIT] 时（含 shp/gpkg/kml/kmz/dwg/dxf）
+     * 全量渲染不过滤、不参与相机重载（小数据全量加载比按屏过滤+动态重载更流畅）；
+     * shp 原生路径与 kml 小文件原生解析为整文读入，本就不使用 extent。
      */
     suspend fun loadLayers(context: Context, layerInfo: LayerInfo, extent: DoubleArray? = null): List<Layer> {
         val path = layerInfo.path ?: throw IllegalArgumentException("图层路径为空")
@@ -125,8 +140,10 @@ object LocalVectorLoader {
 
         val style = layerInfo.vectorStyle?.takeIf { !it.isEmpty() }
         val ext = file.extension.lowercase(Locale.getDefault())
-        // 仅 shp 且走 GDAL 时空间过滤（不论文件大小）；kml/kmz/dwg/dxf 与 shp 原生路径均全量读取
-        val filterExtent = extent?.takeIf { ext == "shp" && shpUseGdal() }
+        // 走 GDAL 的路径均传 extent 做屏幕四至过滤（shp+GDAL / gpkg / dwg / dxf / kml>5MB / kmz 回退），
+        // 但 loadWithGdal 内部对小数据（要素总数 <5000，含 kml/dwg/dxf）丢弃 extent 全量渲染；
+        // shp 原生路径与 kml 小文件原生解析内部不使用 extent（整文读入，无法过滤）
+        val filterExtent = extent
         val layers = when (ext) {
             "kml" -> loadKml(context, file, layerInfo.name, filterExtent, style)
             "kmz" -> {
@@ -138,6 +155,8 @@ object LocalVectorLoader {
             // shp 读取引擎由设置开关决定（默认 GDAL），两条路径并存不删除
             "shp" -> if (shpUseGdal()) loadWithGdal(file, layerInfo.name, filterExtent, style)
             else loadShpNative(file, layerInfo.name, filterExtent, style)
+            // gpkg 无 WorldWind 原生读取器，恒走 GDAL/OGR（SQLite R-tree 空间索引由 GDAL 自动利用）
+            "gpkg" -> loadWithGdal(file, layerInfo.name, filterExtent, style)
             // dwg/dxf 无 WorldWind 原生读取器，恒走 GDAL/OGR
             "dwg", "dxf" -> loadWithGdal(file, layerInfo.name, filterExtent, style)
             else -> throw IllegalArgumentException("不支持的矢量格式: ${file.extension}")
@@ -180,9 +199,11 @@ object LocalVectorLoader {
     private suspend fun loadKmlNative(context: Context, file: File, style: VectorStyle?): List<Layer> {
         val text = withContext(Dispatchers.IO) { file.readText() }
         val density = context.resources.displayMetrics.density
+        // KML/KMZ 标注开关（默认关）：控制面/线名称标注（renderLabelsForShapes）与点 Placemark 名称标注（isDrawLabel）
+        val showLabel = showKmlLabel()
         val layers = KmlLayerFactory.createLayers(
             text,
-            KmlLayerFactory.Options(density = density, renderLabelsForShapes = true)
+            KmlLayerFactory.Options(density = density, renderLabelsForShapes = showLabel)
         )
         if (layers.isEmpty()) throw IllegalArgumentException("KML 无可渲染内容: ${file.name}")
         // WorldWind 原生 KML 转换器只保留 name、丢弃 <description>，此处自建轻量 DOM 解析
@@ -202,10 +223,15 @@ object LocalVectorLoader {
                     // 文档整层样式覆盖（优先级高于源文件样式）
                     if (style != null) applyShapeStyle(r, style)
                 }
-                if (r is Placemark && r.highlightAttributes == null) {
-                    r.highlightAttributes = PlacemarkAttributes(r.attributes).apply {
-                        imageScale = r.attributes.imageScale * 1.4
+                if (r is Placemark) {
+                    if (r.highlightAttributes == null) {
+                        r.highlightAttributes = PlacemarkAttributes(r.attributes).apply {
+                            imageScale = r.attributes.imageScale * 1.4
+                        }
                     }
+                    // 标注开关（默认关）：关闭时隐藏点 Placemark 名称标注（含高亮态）
+                    r.attributes.isDrawLabel = showLabel
+                    r.highlightAttributes?.isDrawLabel = showLabel
                 }
                 // KML 形状标注（renderLabelsForShapes）默认底边中点锚定，改为文字中心对齐几何中心
                 if (r is Label) r.attributes.textOffset = Offset.center()
@@ -220,6 +246,10 @@ object LocalVectorLoader {
     /** shp 读取引擎开关：文档未加载时缺省按 GDAL 读取（新功能统一走 GDAL） */
     private fun shpUseGdal(): Boolean =
         DocumentManager.getInstance().getDocument()?.systemConfig?.shpUseGdal ?: true
+
+    /** KML/KMZ 标注显示开关：默认 false（隐藏标注，地图更清爽），作用于原生解析与 GDAL 回退两条路径 */
+    private fun showKmlLabel(): Boolean =
+        DocumentManager.getInstance().getDocument()?.systemConfig?.showKmlLabel ?: false
 
     /**
      * SHP 原生路径（WorldWind 字节入口，设置关闭 GDAL 时使用）：
@@ -285,21 +315,65 @@ object LocalVectorLoader {
 
     /**
      * GDAL 路径：读取要素（已重投影 WGS84）构建渲染图层；
-     * extent 非空时仅读取屏幕四至范围内的要素。
+     * extent 非空时仅读取屏幕四至范围内的要素，但要素总数 < [DIRECT_RENDER_LIMIT] 时
+     * 丢弃过滤全量渲染（适用所有走 GDAL 的格式 shp/gpkg/kml/kmz/dwg/dxf）。
      */
     private suspend fun loadWithGdal(file: File, name: String?, extent: DoubleArray?, style: VectorStyle?): List<Layer> = withContext(Dispatchers.Default) {
-        val features = GdalVectorReader.readFeatures(file.absolutePath, extent)
-            ?: throw IllegalStateException(gdalOpenFailMessage(file))
+        val extLower = file.extension.lowercase(Locale.getDefault())
+        // 小数据全量直接渲染豁免（0.2.8）：扩展到所有走 GDAL 的矢量格式（shp/gpkg/kml/kmz/dwg/dxf）。
+        // 先快速取要素总数，<5000 时丢弃屏幕四至过滤全量渲染，并打 FEATURE_DIRECT_KEY 标记，
+        // BaseMapActivity.checkAndReloadVectorLayers 据此跳过相机变化后的重载（消除小 KML 平移刷新）。
+        // 超过阈值的大文件维持按屏过滤 + 动态重载（防 OOM/卡顿）；countFeatures 失败返回 -1 自动落回按屏过滤。
+        var directRender = false
+        val effectiveExtent: DoubleArray? = if (extent != null) {
+            val total = GdalVectorReader.countFeatures(file.absolutePath)
+            if (total in 0 until DIRECT_RENDER_LIMIT) {
+                Log.i(TAG, "$extLower 要素总数 $total < $DIRECT_RENDER_LIMIT，回退全量直接渲染: ${file.name}")
+                directRender = true
+                null
+            } else extent
+        } else extent
+        // 延迟属性读取仍仅对 shp/gpkg 生效：KML description 依赖完整属性，dwg/dxf 属性表窄，改造收益低
+        val lazyAttrs = extLower == "shp" || extLower == "gpkg"
+        val labelField = style?.labelField
+        val features = GdalVectorReader.readFeatures(
+            file.absolutePath,
+            effectiveExtent,
+            includeAllFields = !lazyAttrs,
+            labelField = if (lazyAttrs) labelField else null,
+            simplifyGeometry = VectorReloadConfig.SIMPLIFY_GEOMETRY,
+            simplifyTolerance = VectorReloadConfig.SIMPLIFY_TOLERANCE_DEGREES
+        ) ?: throw IllegalStateException(gdalOpenFailMessage(file))
+        // 屏幕四至过滤后无命中要素（相机在图层范围外）：返回带 FEATURE_COUNT_KEY=0 标记的空图层，
+        // 不抛异常——避免动态重载时被 syncUserLayers catch 块误删图层；标记供后续重载识别 GDAL 路径
+        if (features.isEmpty() && effectiveExtent != null) {
+            Log.i(TAG, "屏幕四至内无要素（相机可能在图层范围外）: ${file.name}")
+            return@withContext listOf(RenderableLayer(name).apply {
+                isPickEnabled = true
+                putUserProperty(VECTOR_LAYER_KEY, true)
+                putUserProperty(FEATURE_COUNT_KEY, 0)
+            })
+        }
         if (features.isEmpty()) throw IllegalStateException("矢量数据无可渲染要素: ${file.name}")
-        Log.i(TAG, "GDAL 读取 ${features.size} 个要素: ${file.name}")
+        // Phase 2：单图层要素上限截断（MAX_FEATURES_PER_LAYER > 0 时生效，默认 0 = 不截断），
+        // 避免相机缩小时要素数量爆炸导致 buildRenderables 卡顿；按 fid 顺序保留前 N 个（C++ 已按空间索引返回）。
+        val capped: List<VectorFeature> = if (VectorReloadConfig.MAX_FEATURES_PER_LAYER > 0
+            && features.size > VectorReloadConfig.MAX_FEATURES_PER_LAYER) {
+            Log.i(TAG, "features ${features.size} > MAX_FEATURES_PER_LAYER=${VectorReloadConfig.MAX_FEATURES_PER_LAYER}，截断保留前 N 个: ${file.name}")
+            features.subList(0, VectorReloadConfig.MAX_FEATURES_PER_LAYER)
+        } else features
+        Log.i(TAG, "GDAL 读取 ${capped.size} 个要素: ${file.name}")
 
         val layer = RenderableLayer(name).apply {
             isPickEnabled = true
             putUserProperty(VECTOR_LAYER_KEY, true)
             // 回传本次读取要素数，供级别可见性用户值回退校验（生效值来自用户且 >5000 时复位）
-            putUserProperty(FEATURE_COUNT_KEY, features.size)
+            putUserProperty(FEATURE_COUNT_KEY, capped.size)
+            // 小数据集全量直接渲染标记：相机变化后不参与四至重载
+            if (directRender) putUserProperty(FEATURE_DIRECT_KEY, true)
         }
-        buildRenderables(layer, features, style)
+        buildRenderables(layer, capped, style, lazyAttrs = lazyAttrs,
+            suppressLabels = (extLower == "kml" || extLower == "kmz") && !showKmlLabel())
         listOf(layer)
     }
 
@@ -344,8 +418,15 @@ object LocalVectorLoader {
      * 按要素列表构建渲染对象加入图层（矢量读取与 SQL 查询结果共用）：
      * 要素携带源数据 FID（写入 userProperty），供点击拾取后读取属性/回写定位；
      * 样式覆盖按 FID 区分单要素（featureStyles），标注取 GDAL 属性字段。
+     *
+     * [suppressLabels]=true 时不生成任何标注（点 Placemark label 与线/面 makeLabel 均跳过），
+     * 用于 KML/KMZ 标注开关关闭时抑制 GDAL 回退路径的标注。
+     *
+     * [lazyAttrs]=true 时为延迟属性读取模式：f.fields 仅含 labelField 白名单，
+     * 不将局部属性写入 FEATURE_ATTRS_KEY 缓存，避免点击时误判为“已缓存”而跳过二次回取。
      */
-    private fun buildRenderables(layer: RenderableLayer, features: List<VectorFeature>, style: VectorStyle?) {
+    private fun buildRenderables(layer: RenderableLayer, features: List<VectorFeature>, style: VectorStyle?,
+                                 lazyAttrs: Boolean = false, suppressLabels: Boolean = false) {
         for (f in features) {
             // 单要素样式优先，缺省继承整层样式
             val s = style?.let { it.featureStyles[f.fid] ?: it }
@@ -354,14 +435,14 @@ object LocalVectorLoader {
             val descKey = f.fields.keys.firstOrNull { it.equals("description", ignoreCase = true) }
             val description = descKey?.let { f.fields[it]?.takeIf { v -> v.isNotBlank() } }
             val restFields = if (descKey != null) f.fields - descKey else f.fields
-            // 属性表随行存储（GDAL 字段），点击后直接读取
-            val attrs = restFields.takeIf { it.isNotEmpty() }
+            // 属性表随行存储（GDAL 字段），点击后直接读取；延迟模式下 fields 仅含 labelField，不写缓存
+            val attrs = if (lazyAttrs) null else restFields.takeIf { it.isNotEmpty() }
             when (f.geom) {
                 "POINT" -> layer.addRenderable(
                     Placemark(Position.fromDegrees(f.y, f.x, 0.0), PlacemarkAttributes()).apply {
                         if (s != null) {
-                            // 点标注：指定标注字段时以属性值作为标注文本，颜色/缩放随样式
-                            labelTextOf(s.labelField) { f.fields[it] }?.let { label = it }
+                            // 点标注：指定标注字段时以属性值作为标注文本，颜色/缩放随样式（suppressLabels 时不生成）
+                            if (!suppressLabels) labelTextOf(s.labelField) { f.fields[it] }?.let { label = it }
                             s.labelColor?.let { attributes.labelAttributes.textColor = parseColor(it) }
                             s.labelSize?.let { attributes.labelAttributes.scale = it.toDouble() }
                             if (s.labelOutline == true) attributes.labelAttributes.isOutlineEnabled = true
@@ -405,8 +486,8 @@ object LocalVectorLoader {
                     }
                 }
             }
-            // 线/面标注：取属性字段文本置于要素质心（点已由 Placemark 标注承担）
-            if (s != null && f.geom != "POINT") {
+            // 线/面标注：取属性字段文本置于要素质心（点已由 Placemark 标注承担；suppressLabels 时不生成）
+            if (!suppressLabels && s != null && f.geom != "POINT") {
                 val text = labelTextOf(s.labelField) { f.fields[it] }
                 val flat = f.outer ?: f.parts?.firstOrNull()
                 if (text != null && flat != null) {

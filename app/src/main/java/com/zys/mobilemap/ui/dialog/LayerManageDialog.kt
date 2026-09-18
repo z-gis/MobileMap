@@ -154,7 +154,8 @@ class LayerManageDialog(
         } else {
             val fileTypes = if (currentTab == TAB_VECTOR) {
                 // dwg/dxf 由 GDAL/OGR 内置驱动读取（DXF 驱动 + libopencad 的 CAD 驱动，只读）
-                arrayOf("shp", "kml", "kmz", "zip", "dwg", "dxf")
+                // gpkg 为 OGC GeoPackage（单文件 SQLite 容器 + R-tree 空间索引），GDAL 3.7 完整支持
+                arrayOf("shp", "kml", "kmz", "zip", "dwg", "dxf", "gpkg")
             } else {
                 // img 为 ERDAS Imagine 栅格，由 GDAL HFA 驱动读取（与 GeoTIFF 同一格式无关渲染链路）
                 arrayOf("tif", "tiff", "img")
@@ -469,7 +470,7 @@ class LayerManageDialog(
         }
         val ext = path.substringAfterLast('.', "").lowercase(Locale.getDefault())
         when (ext) {
-            "shp", "kml", "kmz" -> showLayerStyle(item, ext)
+            "shp", "kml", "kmz", "gpkg" -> showLayerStyle(item, ext)
             else -> Toast.makeText(requireContext(), R.string.layer_style_not_open, Toast.LENGTH_SHORT).show()
         }
     }
@@ -482,9 +483,10 @@ class LayerManageDialog(
     private fun showLayerStyle(item: LayerItem, ext: String) {
         val doc = DocumentManager.getInstance().getDocument() ?: return
         val layerInfo = doc.vectorLayers.firstOrNull { it.path == item.path } ?: return
-        val isShp = ext == "shp"
-        // 标注字段候选：shp 取 DBF 字段清单（GDAL）；kml 标注随源文件不开放设置
-        val fieldOptions = if (isShp) item.path?.let { nativeGetVectorFieldNames(it)?.toList() } else null
+        // shp/gpkg 均为 GDAL 索引格式，支持整层样式与标注字段下拉（DBF/GPKG 字段名）
+        val isIndexed = ext == "shp" || ext == "gpkg"
+        // 标注字段候选：shp 取 DBF 字段清单，gpkg 取 SQLite 表字段清单（均经 GDAL）；kml 标注随源文件不开放设置
+        val fieldOptions = if (isIndexed) item.path?.let { nativeGetVectorFieldNames(it)?.toList() } else null
         // 所见即所得：优先取地图上该图层当前实际渲染色（已含文档样式效果），
         // 图层未加载时回退默认渲染色（与 LocalVectorLoader 面默认样式一致）
         val renderColors = item.path?.let { layerRenderColors?.invoke(it) }
@@ -497,26 +499,27 @@ class LayerManageDialog(
             attributes = null,
             initialStyle = layerInfo.vectorStyle?.takeIf { !it.isEmpty() },
             styleEditable = true,
-            fallbackFill = renderColors?.first ?: if (isShp) DEFAULT_SHAPE_FILL else null,
-            fallbackOutline = renderColors?.second ?: if (isShp) DEFAULT_SHAPE_OUTLINE else null,
+            fallbackFill = renderColors?.first ?: if (isIndexed) DEFAULT_SHAPE_FILL else null,
+            fallbackOutline = renderColors?.second ?: if (isIndexed) DEFAULT_SHAPE_OUTLINE else null,
             layerStyleMode = true,
             labelFieldOptions = fieldOptions,
-            labelSectionVisible = isShp
-        ) { style ->
-            val vs = layerInfo.vectorStyle ?: VectorStyle().also { layerInfo.vectorStyle = it }
-            // 整层字段整体替换（空样式即清除覆盖）；单要素覆盖不受影响，随渲染时优先级生效
-            vs.fillColor = style.fillColor
-            vs.fillOpacity = style.fillOpacity
-            vs.outlineColor = style.outlineColor
-            vs.outlineWidth = style.outlineWidth
-            vs.labelField = style.labelField
-            vs.labelColor = style.labelColor
-            vs.labelSize = style.labelSize
-            vs.labelOutline = style.labelOutline
-            vs.labelOutlineColor = style.labelOutlineColor
-            layerInfo.styleVersion++
-            DocumentManager.getInstance().save(requireContext())
-        }.show(childFragmentManager, "LayerStyleDialog")
+            labelSectionVisible = isIndexed,
+            onSave = { style ->
+                val vs = layerInfo.vectorStyle ?: VectorStyle().also { layerInfo.vectorStyle = it }
+                // 整层字段整体替换（空样式即清除覆盖）；单要素覆盖不受影响，随渲染时优先级生效
+                vs.fillColor = style.fillColor
+                vs.fillOpacity = style.fillOpacity
+                vs.outlineColor = style.outlineColor
+                vs.outlineWidth = style.outlineWidth
+                vs.labelField = style.labelField
+                vs.labelColor = style.labelColor
+                vs.labelSize = style.labelSize
+                vs.labelOutline = style.labelOutline
+                vs.labelOutlineColor = style.labelOutlineColor
+                layerInfo.styleVersion++
+                DocumentManager.getInstance().save(requireContext())
+            }
+        ).show(childFragmentManager, "LayerStyleDialog")
     }
 
     /**
@@ -764,11 +767,11 @@ class LayerManageDialog(
 
             tvName.setOnClickListener { layerItems.getOrNull(adapterPosition)?.let { selectLayer(adapterPosition, it) } }
 
-            // SQL 查询仅对 shp 开放（表名与文件主名一致，语句预填可靠）；
+            // SQL 查询对 shp/gpkg 开放（shp 表名与文件主名一致；gpkg 表名即图层名，语句预填可靠）；
             // 回收复用时需显式隐藏，避免栅格/其他格式项残留按键
-            val isShp = isVector &&
-                    item.path?.substringAfterLast('.', "")?.lowercase(Locale.getDefault()) == "shp"
-            ivSql.visibility = if (isShp) View.VISIBLE else View.GONE
+            val ext = item.path?.substringAfterLast('.', "")?.lowercase(Locale.getDefault())
+            val sqlQueryable = isVector && (ext == "shp" || ext == "gpkg")
+            ivSql.visibility = if (sqlQueryable) View.VISIBLE else View.GONE
             ivSql.setOnClickListener { onSqlQueryClick(adapterPosition) }
 
             // 级别可见性对所有矢量图层开放（shp/kml/kmz/dwg/dxf）；回收复用时需显式隐藏

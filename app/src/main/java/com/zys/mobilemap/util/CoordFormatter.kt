@@ -12,7 +12,8 @@ object CoordFormatter {
 
     /** 当前配置是否以米（2000 投影坐标系）显示坐标 */
     fun isMeterDisplay(): Boolean =
-        DocumentManager.getInstance().getDocument()?.systemConfig?.coordDisplayMeter == true
+        DocumentManager.getInstance()
+            .getDocument()?.systemConfig?.coordDisplayMeter == true
 
     /**
      * 按当前配置格式化坐标文本：“前缀: 值1 值2”。
@@ -24,9 +25,11 @@ object CoordFormatter {
         if (isMeterDisplay()) {
             val meters = CoordTransform.toCgcs2000Meters(lon, lat)
             if (meters != null) {
-                return String.format(Locale.getDefault(), "%s: %.3f %.3f", prefix, meters[0], meters[1])
+                return String.format(Locale.getDefault(),
+                    "%s: %.3f %.3f", prefix, meters[0], meters[1])
             }
         }
-        return String.format(Locale.getDefault(), "%s: %.4f %.4f", prefix, lon, lat)
+        return String.format(Locale.getDefault(),
+            "%s: %.4f %.4f", prefix, lon, lat)
     }
 }

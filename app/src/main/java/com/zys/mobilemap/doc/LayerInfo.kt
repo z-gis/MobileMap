@@ -16,9 +16,9 @@ class LayerInfo {
     var styleVersion: Int = 0
 
     /**
-     * 级别可见性——自动值：首次加载按图层四至宽高（公里）自动算出的最小显示级别。
+     * 级别可见性——自动值：首次加载写入的默认最小显示级别（固定为 5）。
      * 当前级别 < 生效级别时隐藏图层（整层入屏、要素密集成片无辨识意义）。
-     * `-1` 表示尚未计算。生效规则见 [userMinDisplayLevel]。
+     * `-1` 表示尚未初始化。生效规则见 [userMinDisplayLevel]。
      */
     var autoMinDisplayLevel: Int = -1
 

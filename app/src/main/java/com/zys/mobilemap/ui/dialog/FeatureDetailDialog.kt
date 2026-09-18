@@ -54,7 +54,15 @@ class FeatureDetailDialog(
     private val geometryText: String? = null,
     /** KML/KMZ 要素 <description> HTML：非空时属性页以 WebView 渲染（对齐 2.5.3），否则显示键值属性表 */
     private val description: String? = null,
-    private val onSave: ((VectorStyle) -> Unit)?
+    private val onSave: ((VectorStyle) -> Unit)?,
+    /** 调查模式：属性值可点击编辑，保存写回矢量源文件（仅 shp/dxf/gpkg/geojson/kml/kmz 可写） */
+    private val attrsEditable: Boolean = false,
+    /** 属性保存回调：入参为本次会话内修改过的字段键值对，返回写回是否成功 */
+    private val onSaveAttributes: ((Map<String, String>) -> Boolean)? = null,
+    /** 样地调查入口可见性：调查模式下 shp 面要素为 true */
+    private val surveyEntryVisible: Boolean = false,
+    /** 样地调查入口点击回调：由宿主弹出样地列表/新建样地对话框 */
+    private val onSurveyEntry: (() -> Unit)? = null
 ) : BaseBottomSheetDialog(resource) {
 
     /** 当前样式编辑状态（初始取文档已有样式，缺省用默认值） */
@@ -71,6 +79,15 @@ class FeatureDetailDialog(
 
     /** 图标网格视图（key -> ImageView），供选中态高亮刷新 */
     private val iconViews = mutableListOf<Pair<String, ImageView>>()
+
+    /** 调查模式：本次会话内修改过的属性键值对（仅含被编辑过的字段） */
+    private val pendingAttrs = LinkedHashMap<String, String>()
+
+    /** 调查模式：属性是否有改动（控制保存按键可见性） */
+    private var attrsDirty = false
+
+    /** 属性页保存按键引用（fillAttributePage 中初始化，编辑后刷新可见性） */
+    private var btnSaveAttrs: Button? = null
 
     private lateinit var spLabelField: Spinner
 
@@ -313,11 +330,32 @@ class FeatureDetailDialog(
     /**
      * 属性页：KML/KMZ 有 <description> 时用 WebView 渲染 HTML（对齐 2.5.3），
      * 否则显示属性名/属性值两列表格；无属性时显示提示。
+     * 调查模式（[attrsEditable]=true）下值列可点击弹出编辑框，修改后显示保存按键。
      */
     private fun fillAttributePage(sheet: View) {
         val hint = sheet.findViewById<TextView>(R.id.feature_detail_tv_attr_hint)
         val header = sheet.findViewById<View>(R.id.feature_detail_ll_attr_header)
         val container = sheet.findViewById<LinearLayout>(R.id.feature_detail_ll_attr_rows)
+
+        // 样地调查入口按键：调查模式下 shp 面要素可见
+        val btnSurvey = sheet.findViewById<Button>(R.id.feature_detail_btn_survey_entry)
+        if (surveyEntryVisible) {
+            btnSurvey.visibility = View.VISIBLE
+            btnSurvey.setOnClickListener {
+                onSurveyEntry?.invoke()
+                dismiss()
+            }
+        }
+
+        // 保存修改按键：调查模式下属性有改动时可见
+        btnSaveAttrs = sheet.findViewById<Button>(R.id.feature_detail_btn_save_attrs).also { btn ->
+            if (attrsEditable) {
+                btn.setOnClickListener {
+                    val ok = onSaveAttributes?.invoke(pendingAttrs) ?: false
+                    if (ok) dismiss()
+                }
+            }
+        }
 
         // KML/KMZ 描述优先：WebView 渲染 HTML（隐藏键值表头）
         if (!description.isNullOrBlank()) {
@@ -354,6 +392,20 @@ class FeatureDetailDialog(
                 text = v.ifEmpty { "<空>" }
                 setTextColor(ATTR_VALUE_COLOR)
                 textSize = ATTR_TEXT_SIZE_SP
+            }
+            // 调查模式：值列可点击弹出编辑框，保存后更新本地状态并标脏
+            if (attrsEditable) {
+                tvVal.setOnClickListener {
+                    val current = pendingAttrs[k] ?: v
+                    AttributeEditDialog.show(requireActivity(), k, current) { newValue ->
+                        pendingAttrs[k] = newValue
+                        tvVal.text = newValue.ifEmpty { "<空>" }
+                        if (!attrsDirty) {
+                            attrsDirty = true
+                            btnSaveAttrs?.visibility = View.VISIBLE
+                        }
+                    }
+                }
             }
             row.addView(tvKey)
             row.addView(tvVal)

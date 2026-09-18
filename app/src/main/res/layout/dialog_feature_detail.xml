@@ -454,6 +454,19 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
+            <!-- 样地调查入口按键：调查模式下 shp 面要素可见，点击弹出样地列表/新建样地对话框 -->
+            <Button
+                android:id="@+id/feature_detail_btn_survey_entry"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_marginTop="12dp"
+                android:layout_marginEnd="12dp"
+                android:text="样地调查"
+                android:visibility="gone"
+                tools:ignore="HardcodedText"
+                xmlns:tools="http://schemas.android.com/tools" />
+
             <TextView
                 android:id="@+id/feature_detail_tv_attr_hint"
                 android:layout_width="match_parent"
@@ -501,6 +514,20 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical" />
+
+            <!-- 保存修改按键：调查模式下属性编辑后有改动时可见，点击写回矢量源文件 -->
+            <Button
+                android:id="@+id/feature_detail_btn_save_attrs"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_marginTop="12dp"
+                android:layout_marginEnd="12dp"
+                android:layout_marginBottom="12dp"
+                android:text="保存修改"
+                android:visibility="gone"
+                tools:ignore="HardcodedText"
+                xmlns:tools="http://schemas.android.com/tools" />
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 </LinearLayout>

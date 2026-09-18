@@ -68,6 +68,13 @@ class SettingsActivity : BaseStyledActivity() {
             config.coordDisplayMeter = isChecked
         }
 
+        // KML/KMZ 名称标注显示（默认关）：退出设置页落盘后经文档变更通知重载 KML/KMZ 图层（开关已纳入图层缓存键）
+        val kmlLabelSwitch: SwitchCompat = findViewById(R.id.set_switch_kml_label)
+        kmlLabelSwitch.isChecked = config.showKmlLabel
+        kmlLabelSwitch.setOnCheckedChangeListener { _, isChecked ->
+            config.showKmlLabel = isChecked
+        }
+
         // ==================== 设置类分组 ====================
 
         // 照片坐标水印

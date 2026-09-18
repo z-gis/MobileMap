@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="8dp"
+    android:background="#FFFFFF">
+
+    <!-- 第一行：序号 + 树种 + 胸径 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/tv_sort_no"
+            android:layout_width="28dp"
+            android:layout_height="wrap_content"
+            android:text="1"
+            android:textSize="13sp"
+            android:textColor="#424242"
+            android:gravity="center" />
+
+        <Spinner
+            android:id="@+id/sp_species"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="2"
+            android:layout_marginStart="4dp" />
+
+        <EditText
+            android:id="@+id/et_dbh"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1.2"
+            android:layout_marginStart="4dp"
+            android:hint="胸径"
+            android:inputType="numberDecimal"
+            android:textSize="13sp"
+            android:gravity="center"
+            android:background="@android:drawable/edit_text" />
+    </LinearLayout>
+
+    <!-- 第二行：分类 + 抚育方式 + 备注 + 删除 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <Spinner
+            android:id="@+id/sp_category"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:layout_marginStart="28dp" />
+
+        <Spinner
+            android:id="@+id/sp_thinning"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1.5"
+            android:layout_marginStart="4dp" />
+
+        <EditText
+            android:id="@+id/et_remark"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1.5"
+            android:layout_marginStart="4dp"
+            android:hint="备注"
+            android:textSize="13sp"
+            android:gravity="center_vertical"
+            android:background="@android:drawable/edit_text" />
+
+        <ImageView
+            android:id="@+id/iv_delete"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="4dp"
+            android:padding="4dp"
+            android:contentDescription="删除"
+            android:src="@drawable/ic_delete"
+            android:background="?attr/selectableItemBackgroundBorderless" />
+    </LinearLayout>
+</LinearLayout>

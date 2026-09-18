@@ -24,6 +24,13 @@ class SystemConfig {
      */
     var shpUseGdal: Boolean = true
 
+    /**
+     * KML/KMZ 标注显示：true = 显示名称标注（点 Placemark 名称 + 面/线名称），
+     * false = 隐藏标注（默认，地图更清爽）。同时作用于原生解析与 GDAL 回退两条路径；
+     * 切换后经文档变更通知重载 KML/KMZ 图层（开关已纳入图层缓存键）。
+     */
+    var showKmlLabel: Boolean = false
+
     fun toJson(): JSONObject {
         val o = JSONObject()
         o.put("showCenterCross", showCenterCross)
@@ -35,6 +42,7 @@ class SystemConfig {
         o.put("showMeasureLayer", showMeasureLayer)
         o.put("coordDisplayMeter", coordDisplayMeter)
         o.put("shpUseGdal", shpUseGdal)
+        o.put("showKmlLabel", showKmlLabel)
         return o
     }
 
@@ -50,6 +58,7 @@ class SystemConfig {
             if (o.has("showMeasureLayer")) c.showMeasureLayer = o.getBoolean("showMeasureLayer")
             if (o.has("coordDisplayMeter")) c.coordDisplayMeter = o.getBoolean("coordDisplayMeter")
             if (o.has("shpUseGdal")) c.shpUseGdal = o.getBoolean("shpUseGdal")
+            if (o.has("showKmlLabel")) c.showKmlLabel = o.getBoolean("showKmlLabel")
             return c
         }
     }

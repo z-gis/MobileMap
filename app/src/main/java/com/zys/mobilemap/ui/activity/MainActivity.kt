@@ -23,6 +23,9 @@ import com.zys.mobilemap.media.MediaCaptureHelper
 import com.zys.mobilemap.media.MediaOverlayModel
 import com.zys.mobilemap.media.MediaPackage
 import com.zys.mobilemap.media.MediaPlacemark
+import com.zys.mobilemap.survey.SampleSurveyActivity
+import com.zys.mobilemap.survey.SampleSurveyStore
+import com.zys.mobilemap.survey.SurveyOverlayModel
 import com.zys.mobilemap.track.TrackModel
 import com.zys.mobilemap.ui.dialog.FeatureDetailDialog
 import com.zys.mobilemap.ui.dialog.LayerManageDialog
@@ -34,6 +37,7 @@ import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.util.ColorHex
 import com.zys.mobilemap.util.GeoCalc
 import com.zys.mobilemap.util.PermissionUtil
+import com.zys.mobilemap.vector.GdalVectorReader
 import com.zys.mobilemap.vector.LocalVectorLoader
 import com.zys.mobilemap.vector.PickedFeatureInfo
 import com.zys.mobilemap.vector.VectorFileImporter
@@ -71,6 +75,11 @@ class MainActivity : BaseMapActivity() {
     private var mediaOverlayModel: MediaOverlayModel? = null
     private var trackModel: TrackModel? = null
     private var measureModel: MeasureModel? = null
+    private var surveyOverlayModel: SurveyOverlayModel? = null
+
+    /** 调查模式（运行时会话状态，不落文档，退出应用即复位）：
+     *  开启后隐藏测量/拍照/轨迹按键，矢量要素属性可编辑，面要素弹出样地调查入口 */
+    private var surveyMode = false
 
     /** 加载遮罩安全超时兜底：瓦片长时间未就绪也强制淡出，避免卡在启动画面 */
     private val loadingOverlayTimeout = Runnable { hideLoadingOverlay() }
@@ -89,6 +98,9 @@ class MainActivity : BaseMapActivity() {
 
         /** 加载遮罩安全超时（毫秒）：首屏瓦片迟迟未就绪时兜底淡出 */
         private const val LOADING_OVERLAY_TIMEOUT_MS = 8000L
+
+        /** 支持属性写回的矢量格式（GDAL 驱动能力矩阵：dwg 只读） */
+        private val WRITABLE_FORMATS = setOf("shp", "dxf", "gpkg", "geojson", "kml", "kmz")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -239,7 +251,46 @@ class MainActivity : BaseMapActivity() {
 
         // 拍照入口：列表对话框（拍照/管理），菜单用词与轨迹菜单一致
         binding.mainIvPoto.setOnClickListener { showPhotoMenu() }
+
+        // 调查模式切换：点击进入/退出调查模式，隐藏与调查无关的按键
+        binding.mainIvSurvey.setOnClickListener { toggleSurveyMode() }
+
+        // 样地调查覆盖图层：调查模式下显示已保存样地的 Placemark
+        surveyOverlayModel = SurveyOverlayModel(this, getWorldWindow())
+        surveyOverlayModel?.attach()
     }
+
+    /** 切换调查模式：翻转状态、刷新按键可见性与图标着色，Toast 提示 */
+    private fun toggleSurveyMode() {
+        surveyMode = !surveyMode
+        applySurveyModeUi()
+        val msg = if (surveyMode) R.string.main_survey_enter_toast else R.string.main_survey_exit_toast
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        AppLog.i(TAG, "调查模式切换：$surveyMode")
+    }
+
+    /**
+     * 应用调查模式 UI：
+     * - 调查模式下隐藏测量/拍照/轨迹按键，避免与调查作业冲突；退出后恢复
+     * - 调查按键图标着色（琥珀色）作为视觉提示，退出时清除
+     */
+    private fun applySurveyModeUi() {
+        val vis = if (surveyMode) android.view.View.GONE else android.view.View.VISIBLE
+        binding.mainIvMeasure.visibility = vis
+        binding.mainIvPoto.visibility = vis
+        binding.mainIvTrk.visibility = vis
+        if (surveyMode) {
+            binding.mainIvSurvey.setColorFilter(0xFFFFC107.toInt())
+            surveyOverlayModel?.reload()
+            surveyOverlayModel?.setEnabled(true)
+        } else {
+            binding.mainIvSurvey.clearColorFilter()
+            surveyOverlayModel?.setEnabled(false)
+        }
+    }
+
+    /** 供 FeatureDetailDialog 判定属性编辑与样地调查入口可见性 */
+    fun isSurveyMode(): Boolean = surveyMode
 
     private fun loadNativeLibrary() {
         try {
@@ -414,7 +465,10 @@ class MainActivity : BaseMapActivity() {
         val doc = DocumentManager.getInstance().getDocument() ?: return
         val layerInfo = doc.vectorLayers.firstOrNull { it.path == info.layerPath }
         val ext = info.layerPath?.substringAfterLast('.', "")?.lowercase(Locale.getDefault()) ?: ""
-        val styleEditable = ext == "shp" && info.featureId >= 0
+        // shp/gpkg 均为 GDAL 索引矢量，支持整层/单要素样式覆盖；kml/kmz 无 fid（待二期）、dwg/dxf 只读
+        val styleEditable = (ext == "shp" || ext == "gpkg") && info.featureId >= 0
+        // 调查模式：属性可编辑（仅可写格式 + 有效 FID）
+        val attrsEditable = surveyMode && info.featureId >= 0 && isWritableFormat(ext)
 
         // 样式初值：单要素覆盖优先，缺省继承整层样式（供控件回显）
         val layerStyle = layerInfo?.vectorStyle
@@ -446,17 +500,108 @@ class MainActivity : BaseMapActivity() {
             fallbackFill = renderColors.first,
             fallbackOutline = renderColors.second,
             isPointFeature = info.renderable is Placemark,
-            geometryText = featureGeometryText(info.renderable)
-        ) { style ->
-            val li = layerInfo ?: return@FeatureDetailDialog
-            val vs = li.vectorStyle ?: VectorStyle().also { li.vectorStyle = it }
-            if (style.isEmpty()) vs.featureStyles.remove(info.featureId)
-            else vs.featureStyles[info.featureId] = style
-            li.styleVersion++
-            // 保存后图层将重载，旧渲染对象失效，先取消选中态
-            vectorPickModel?.clearSelection()
-            DocumentManager.getInstance().save(this)
-        }.show(supportFragmentManager, "FeatureDetailDialog")
+            geometryText = featureGeometryText(info.renderable),
+            attrsEditable = attrsEditable,
+            onSaveAttributes = if (attrsEditable) {{ pending -> persistAttributes(info, pending) }} else null,
+            surveyEntryVisible = surveyMode && ext == "shp" && info.renderable is Polygon && info.featureId >= 0,
+            onSurveyEntry = if (surveyMode && ext == "shp" && info.renderable is Polygon && info.featureId >= 0)
+                {{ showSurveyEntryDialog(info) }} else null,
+            onSave = { style ->
+                val li = layerInfo
+                if (li != null) {
+                    val vs = li.vectorStyle ?: VectorStyle().also { li.vectorStyle = it }
+                    if (style.isEmpty()) vs.featureStyles.remove(info.featureId)
+                    else vs.featureStyles[info.featureId] = style
+                    li.styleVersion++
+                    // 保存后图层将重载，旧渲染对象失效，先取消选中态
+                    vectorPickModel?.clearSelection()
+                    DocumentManager.getInstance().save(this)
+                }
+            }
+        ).show(supportFragmentManager, "FeatureDetailDialog")
+    }
+
+    /**
+     * 调查模式属性写回：IO 线程调 GDAL 写回源文件，成功后就地更新 renderable 的
+     * FEATURE_ATTRS_KEY userProperty（避免整层重载引起样式抖动），并刷新地图。
+     * @return 写回是否成功（供对话框决定是否 dismiss）
+     */
+    private fun persistAttributes(info: PickedFeatureInfo, pending: Map<String, String>): Boolean {
+        val path = info.layerPath ?: return false
+        if (pending.isEmpty()) return true
+        var success = false
+        // 同步写回（对话框等待结果决定是否关闭），GDAL SetField+SetFeature 耗时可忽略
+        try {
+            success = GdalVectorReader.updateAttributes(path, info.featureId, pending)
+        } catch (e: Exception) {
+            AppLog.e(TAG, "属性写回异常", e)
+        }
+        if (success) {
+            // 就地更新 renderable 属性缓存，避免整层重载
+            @Suppress("UNCHECKED_CAST")
+            val existing = info.renderable.getUserProperty(LocalVectorLoader.FEATURE_ATTRS_KEY) as? MutableMap<String, String>
+            if (existing != null) {
+                existing.putAll(pending)
+            } else {
+                val merged = LinkedHashMap(info.attributes ?: emptyMap())
+                merged.putAll(pending)
+                info.renderable.putUserProperty(LocalVectorLoader.FEATURE_ATTRS_KEY, merged)
+            }
+            getWorldWindow().requestRedraw()
+            Toast.makeText(this, R.string.main_survey_edit_success, Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, R.string.main_survey_edit_failed, Toast.LENGTH_SHORT).show()
+        }
+        return success
+    }
+
+    /** 可写格式判定：shp/dxf/gpkg/geojson/kml/kmz 支持属性写回，dwg 只读 */
+    private fun isWritableFormat(ext: String): Boolean =
+        ext in WRITABLE_FORMATS
+
+    /**
+     * 样地调查入口对话框：查询该要素已有样地记录，
+     * 空则直接新建样地调查，非空则弹出单选列表（已有样地 + 新建）。
+     * 定位未就绪时 Toast 提示并中止。
+     */
+    private fun showSurveyEntryDialog(info: PickedFeatureInfo) {
+        val loc = LocationManager.getInstance().getLastLocation()
+        if (loc == null) {
+            Toast.makeText(this, R.string.main_survey_location_required, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val path = info.layerPath ?: return
+        val fid = info.featureId
+        val plots = SampleSurveyStore.loadPlots(this, path, fid)
+        // 尝试从属性表提取小班编号（常见字段名）
+        val compartmentNo = info.attributes?.get("小班号")
+            ?: info.attributes?.get("XBH")
+            ?: info.attributes?.get("小班")
+            ?: info.name
+            ?: "未命名小班"
+
+        if (plots.isEmpty()) {
+            SampleSurveyActivity.start(this, path, fid, compartmentNo, loc.latitude, loc.longitude)
+            return
+        }
+        // 弹出单选列表：已有样地 + 新建样地调查
+        val items = plots.map { "样地#${it.plotNo}" }.toMutableList()
+        items.add("新建样地调查")
+        AlertDialog.Builder(this)
+            .setTitle("样地调查")
+            .setItems(items.toTypedArray()) { _, which ->
+                if (which < plots.size) {
+                    // 编辑已有样地
+                    SampleSurveyActivity.start(this, path, fid, compartmentNo,
+                        loc.latitude, loc.longitude, plots[which].id)
+                } else {
+                    // 新建样地
+                    SampleSurveyActivity.start(this, path, fid, compartmentNo,
+                        loc.latitude, loc.longitude)
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     /**

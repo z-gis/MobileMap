@@ -1,7 +1,9 @@
 package com.zys.mobilemap.vector
 
+import android.util.JsonReader
 import android.util.Log
 import org.json.JSONObject
+import java.io.StringReader
 
 /**
  * 单个矢量要素（坐标已统一为 WGS84 经纬度）：
@@ -46,24 +48,87 @@ object GdalVectorReader {
     private const val TAG = "GdalVectorReader"
 
     // JNI 符号为 Java_com_zys_mobilemap_vector_GdalVectorReader_nativeReadVectorFeatures
+    // includeAllFields=false 时 C++ 仅保留 labelField 白名单字段（延迟属性读取模式，shp/gpkg 专用）
+    // simplifyGeometry=true 时 C++ 重投影后调用 OGRGeometry::Simplify(simplifyTolerance) 简化顶点
     private external fun nativeReadVectorFeatures(
-        path: String, minLon: Double, minLat: Double, maxLon: Double, maxLat: Double
+        path: String, minLon: Double, minLat: Double, maxLon: Double, maxLat: Double,
+        includeAllFields: Boolean, labelField: String?,
+        simplifyGeometry: Boolean, simplifyTolerance: Double
     ): String?
+
+    // JNI 符号为 Java_com_zys_mobilemap_vector_GdalVectorReader_nativeGetFeatureAttributes
+    // 按 FID 单要素回取全字段（延迟属性读取模式配套），未找到返回 null
+    private external fun nativeGetFeatureAttributes(path: String, featureId: Long): String?
 
     // JNI 符号为 Java_com_zys_mobilemap_vector_GdalVectorReader_nativeQueryVectorFeatures
     private external fun nativeQueryVectorFeatures(path: String, sql: String): String?
+
+    // JNI 符号为 Java_com_zys_mobilemap_vector_GdalVectorReader_nativeCountVectorFeatures
+    private external fun nativeCountVectorFeatures(path: String): Int
+
+    // JNI 符号为 Java_com_zys_mobilemap_vector_GdalVectorReader_nativeUpdateFeatureAttributes
+    private external fun nativeUpdateFeatureAttributes(
+        path: String, featureId: Long, keys: Array<String>, values: Array<String>
+    ): Boolean
+
+    /**
+     * 快速统计矢量数据要素总数（遍历全部子图层求和），供上层判定小数据集是否直接全量渲染。
+     * 打开失败或原生库未加载返回 -1。
+     */
+    fun countFeatures(path: String): Int {
+        return try {
+            nativeCountVectorFeatures(path)
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "nativeCountVectorFeatures 未加载", e)
+            -1
+        } catch (e: Exception) {
+            Log.e(TAG, "统计要素数失败: $path", e)
+            -1
+        }
+    }
+
+    /**
+     * 按 FID 就地写回属性字段到源文件（GDAL_OF_UPDATE + SetField + SetFeature）。
+     * 仅修改现有字段值；dwg 等只读驱动、无写权限、字段名不存在时返回 false。
+     * attrs 为空直接返回 true（无需写入）。
+     */
+    fun updateAttributes(path: String, featureId: Long, attrs: Map<String, String>): Boolean {
+        if (attrs.isEmpty()) return true
+        if (featureId < 0) return false
+        return try {
+            val keys = attrs.keys.toTypedArray()
+            val values = attrs.values.toTypedArray()
+            nativeUpdateFeatureAttributes(path, featureId, keys, values)
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "nativeUpdateFeatureAttributes 未加载", e)
+            false
+        } catch (e: Exception) {
+            Log.e(TAG, "属性写回失败: $path fid=$featureId", e)
+            false
+        }
+    }
 
     /**
      * 读取矢量要素列表，打开失败（如不支持的格式）返回 null。
      * extent 为 WGS84 四至 [minLon, minLat, maxLon, maxLat]：非空时仅读取范围内要素（空间过滤）；
      * null 时读取全部。
+     *
+     * [includeAllFields]=false 启用延迟属性读取：C++ 仅保留 [labelField] 匹配的字段（供标注渲染），
+     * 其余字段留到点击时经 [getFeatureAttributes] 按 FID 单独回取。仅对 shp/gpkg 等索引格式启用，
+     * kml/kmz/dwg/dxf 保持全字段（要素数少 / description 依赖 / CAD 属性表窄，改造收益低）。
      */
-    fun readFeatures(path: String, extent: DoubleArray? = null): List<VectorFeature>? {
+    fun readFeatures(path: String, extent: DoubleArray? = null,
+                     includeAllFields: Boolean = true,
+                     labelField: String? = null,
+                     simplifyGeometry: Boolean = false,
+                     simplifyTolerance: Double = 0.0): List<VectorFeature>? {
         val json = try {
             if (extent != null) {
-                nativeReadVectorFeatures(path, extent[0], extent[1], extent[2], extent[3])
+                nativeReadVectorFeatures(path, extent[0], extent[1], extent[2], extent[3],
+                    includeAllFields, labelField, simplifyGeometry, simplifyTolerance)
             } else {
-                nativeReadVectorFeatures(path, Double.NaN, Double.NaN, Double.NaN, Double.NaN)
+                nativeReadVectorFeatures(path, Double.NaN, Double.NaN, Double.NaN, Double.NaN,
+                    includeAllFields, labelField, simplifyGeometry, simplifyTolerance)
             }
         } catch (e: UnsatisfiedLinkError) {
             Log.e(TAG, "nativeReadVectorFeatures 未加载", e)
@@ -74,6 +139,38 @@ object GdalVectorReader {
         val err = runCatching { JSONObject(json).optString("error", "") }.getOrDefault("")
         if (err.isNotBlank()) throw NoCoordinateSystemException(err)
         return parseFeatures(json, path)
+    }
+
+    /**
+     * 按 FID 单要素属性回取（延迟属性读取模式配套）：加载阶段仅传 labelField 白名单，
+     * 点击时经此二次拉取全字段。shp/gpkg 索引 seek ~10-30ms。
+     * 打开失败 / fid 未命中 / 原生库未加载均返回 null（由调用方回退到已有缓存）。
+     */
+    fun getFeatureAttributes(path: String, featureId: Long): Map<String, String>? {
+        if (featureId < 0) return null
+        val json = try {
+            nativeGetFeatureAttributes(path, featureId)
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "nativeGetFeatureAttributes 未加载", e)
+            return null
+        } catch (e: Exception) {
+            Log.e(TAG, "属性回取失败: $path fid=$featureId", e)
+            return null
+        }
+        if (json == null) return null
+        return try {
+            val fo = JSONObject(json).optJSONObject("fields") ?: return emptyMap()
+            val map = LinkedHashMap<String, String>()
+            val keys = fo.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                map[k] = fo.optString(k)
+            }
+            map
+        } catch (e: Exception) {
+            Log.e(TAG, "解析属性 JSON 失败: $path fid=$featureId", e)
+            null
+        }
     }
 
     /**
@@ -101,6 +198,17 @@ object GdalVectorReader {
 
     /** 解析要素 JSON（读取与查询共用），格式异常返回 null */
     private fun parseFeatures(json: String, path: String): List<VectorFeature>? {
+        // Phase 4：流式解析开关（默认 false = 沿用 JSONObject 树形解析）
+        if (VectorReloadConfig.USE_STREAMING_JSON) {
+            val streamed = parseFeaturesStreaming(json, path)
+            if (streamed != null) return streamed
+            Log.w(TAG, "流式解析失败回退树形解析: $path")
+        }
+        return parseFeaturesTree(json, path)
+    }
+
+    /** 树形解析（org.json.JSONObject）：当前行为，大 JSON 下 GC 压力大 */
+    private fun parseFeaturesTree(json: String, path: String): List<VectorFeature>? {
         return try {
             val arr = JSONObject(json).getJSONArray("features")
             val list = ArrayList<VectorFeature>(arr.length())
@@ -171,5 +279,105 @@ object GdalVectorReader {
             flat[i * 2 + 1] = pt.getDouble(1)
         }
         return flat
+    }
+
+    // ═════════════════ Phase 4：流式解析（android.util.JsonReader）═════════════════
+
+    /**
+     * 流式解析：逐 token 读取，避免构造完整 JSONObject/JSONArray 树，大幅降低 GC 压力。
+     * 仅处理已知结构 {"features":[{...}]}，遇未知字段 skipValue（容忍 C++ 侧新增字段）。
+     * 解析异常返回 null，由调用方回退到树形解析。
+     */
+    private fun parseFeaturesStreaming(json: String, path: String): List<VectorFeature>? {
+        return try {
+            val list = ArrayList<VectorFeature>()
+            JsonReader(StringReader(json)).use { r ->
+                r.beginObject()
+                while (r.hasNext()) {
+                    when (r.nextName()) {
+                        "features" -> {
+                            r.beginArray()
+                            while (r.hasNext()) list.add(readFeatureStreaming(r))
+                            r.endArray()
+                        }
+                        else -> r.skipValue()
+                    }
+                }
+                r.endObject()
+            }
+            list
+        } catch (e: Exception) {
+            Log.e(TAG, "流式解析矢量要素 JSON 失败: $path", e)
+            null
+        }
+    }
+
+    /** 读取单个要素对象，支持 POINT / LINE / POLYGON；未知几何类型抛异常触发回退 */
+    private fun readFeatureStreaming(r: JsonReader): VectorFeature {
+        var geom: String? = null
+        var x = Double.NaN
+        var y = Double.NaN
+        var fid = -1L
+        var layerName: String? = null
+        var parts: List<DoubleArray>? = null
+        var outer: DoubleArray? = null
+        var holes: List<DoubleArray>? = null
+        val fields = LinkedHashMap<String, String>()
+        r.beginObject()
+        while (r.hasNext()) {
+            when (r.nextName()) {
+                "geom" -> geom = r.nextString()
+                "x" -> x = r.nextDouble()
+                "y" -> y = r.nextDouble()
+                "fid" -> fid = r.nextLong()
+                "layer" -> layerName = if (r.peek() == android.util.JsonToken.NULL) { r.nextNull(); null } else r.nextString()
+                "fields" -> {
+                    r.beginObject()
+                    while (r.hasNext()) {
+                        val k = r.nextName()
+                        val v = if (r.peek() == android.util.JsonToken.NULL) { r.nextNull(); "" } else r.nextString()
+                        fields[k] = v
+                    }
+                    r.endObject()
+                }
+                "parts" -> parts = readRingListStreaming(r)
+                "outer" -> outer = readRingStreaming(r)
+                "holes" -> holes = readRingListStreaming(r)
+                else -> r.skipValue()
+            }
+        }
+        r.endObject()
+        return when (geom) {
+            "POINT" -> VectorFeature("POINT", x = x, y = y, fid = fid, layerName = layerName, fields = fields)
+            "LINE" -> VectorFeature("LINE", parts = parts, fid = fid, layerName = layerName, fields = fields)
+            "POLYGON" -> VectorFeature("POLYGON", outer = outer, holes = holes, fid = fid, layerName = layerName, fields = fields)
+            else -> throw IllegalStateException("未知几何类型: $geom")
+        }
+    }
+
+    /** 读取环列表：[[[lon,lat],...], ...] -> List<DoubleArray>（摊平） */
+    private fun readRingListStreaming(r: JsonReader): List<DoubleArray> {
+        val out = ArrayList<DoubleArray>()
+        r.beginArray()
+        while (r.hasNext()) out.add(readRingStreaming(r))
+        r.endArray()
+        return out
+    }
+
+    /** 读取单环：[[lon,lat],...] -> DoubleArray(lon,lat,lon,lat,...) */
+    private fun readRingStreaming(r: JsonReader): DoubleArray {
+        val buf = ArrayList<Double>()
+        r.beginArray()
+        while (r.hasNext()) {
+            r.beginArray()
+            // 每点固定 2 个坐标（lon, lat）
+            buf.add(r.nextDouble())
+            buf.add(r.nextDouble())
+            r.endArray()
+        }
+        r.endArray()
+        val arr = DoubleArray(buf.size)
+        for (i in buf.indices) arr[i] = buf[i]
+        return arr
     }
 }

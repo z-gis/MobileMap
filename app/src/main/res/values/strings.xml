@@ -111,6 +111,12 @@
     <!-- MainActivity -->
     <string name="main_annotation_toggle">切换注记图层显示</string>
     <string name="main_north">北朝向（点击纠正到正北）</string>
+    <string name="main_survey">调查</string>
+    <string name="main_survey_enter_toast">已进入调查模式</string>
+    <string name="main_survey_exit_toast">已退出调查模式</string>
+    <string name="main_survey_edit_success">属性已保存</string>
+    <string name="main_survey_edit_failed">属性写回失败（该格式可能不支持编辑）</string>
+    <string name="main_survey_location_required">定位未就绪，无法开始样地调查</string>
 
     <!-- OpenFileActivity -->
     <string name="open_file_title">选择文件</string>
@@ -138,6 +144,7 @@
     <string name="settings_show_track_layer">显示轨迹记录</string>
     <string name="settings_show_measure_layer">显示测量结果</string>
     <string name="settings_coord_display_meter">坐标以米显示（2000坐标系）</string>
+    <string name="settings_kml_label">显示 KML/KMZ 标注</string>
     <string name="settings_shp_use_gdal">shp 使用 GDAL 读取（关闭则走 WorldWind 原生）</string>
     <string name="settings_personal_info_list">关于</string>
     <string name="settings_help">帮助</string>

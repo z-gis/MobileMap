@@ -59,7 +59,7 @@
             </intent-filter>
 
             <!-- 系统外部打开数据统一由 MainActivity 承接：初始化完成后处理 intent，
-                 kml/kmz/zip 按 MIME，shp/dwg/dxf 及拍照数据包(mphoto) 按扩展名 -->
+                 kml/kmz/zip 按 MIME，shp/dwg/dxf/gpkg 及拍照数据包(mphoto) 按扩展名 -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -79,6 +79,7 @@
                 <data android:pathPattern=".*\\.shp" />
                 <data android:pathPattern=".*\\.dwg" />
                 <data android:pathPattern=".*\\.dxf" />
+                <data android:pathPattern=".*\\.gpkg" />
                 <!-- 拍照数据包（自定义扩展名，实为 zip）：分享后经微信/文件管理器打开回到本 app 导入 -->
                 <data android:pathPattern=".*\\.mphoto" />
             </intent-filter>
@@ -99,6 +100,10 @@
         <activity
             android:name=".ui.activity.PhotoViewerActivity"
             android:exported="false" />
+        <activity
+            android:name=".survey.SampleSurveyActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MobileMap" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

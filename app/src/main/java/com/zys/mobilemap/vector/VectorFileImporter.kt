@@ -16,7 +16,7 @@ class ImportResult(val path: String, val name: String)
 
 /**
  * 矢量数据导入器，按扩展名分发：
- *  - shp/kml/dwg/dxf：直接引用原路径（shp 依赖同目录的 dbf/prj/cpg 附属文件）；
+ *  - shp/kml/dwg/dxf/gpkg：直接引用原路径（shp 依赖同目录的 dbf/prj/cpg 附属文件；gpkg 为单文件 SQLite 容器）；
  *  - zip：shp 压缩包，解压到 /调查宝/layer/<文件名>/ 后查找内部 shp；
  *  - kmz：解压后查找内部 kml（优先 doc.kml）。
  */
@@ -35,7 +35,7 @@ object VectorFileImporter {
         val name = AppDirectories.deriveBaseName(path)
         // 根据文件扩展名分发处理
         return when (file.extension.lowercase(Locale.getDefault())) {
-            "shp", "kml", "dwg", "dxf" -> ImportResult(path, name)
+            "shp", "kml", "dwg", "dxf", "gpkg" -> ImportResult(path, name)
             "zip" -> extractAndFind(context, file, listOf("shp"), name)
             // kmz 显示名用压缩包本身文件名，而非内部 doc.kml 的名称
             "kmz" -> extractAndFind(context, file, listOf("kml"), name)

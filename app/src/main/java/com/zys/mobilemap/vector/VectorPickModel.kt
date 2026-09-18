@@ -11,7 +11,9 @@ import earth.worldwind.render.Renderable
 import earth.worldwind.shape.AbstractShape
 import earth.worldwind.shape.Placemark
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 拾取到的矢量要素信息：图层名/图层路径（定位文档 LayerInfo）、
@@ -47,6 +49,9 @@ class VectorPickModel(
 
     /** 当前选中的渲染对象（用于切换选中时取消上一个高亮） */
     private var selected: Renderable? = null
+
+    /** 延迟属性补拉竞态防护：快速连点两个要素时，仅回调最后一次的属性结果 */
+    private var pickToken = 0L
 
     fun setup(context: Context) {
         val detector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
@@ -88,6 +93,11 @@ class VectorPickModel(
 
     /**
      * 切换选中：旧要素取消高亮，新要素高亮并回调反馈；点击空白处取消选中。
+     *
+     * 延迟属性读取（shp/gpkg 启用，见 [LocalVectorLoader.loadWithGdal]）：加载阶段仅传 labelField
+     * 白名单字段，FEATURE_ATTRS_KEY 缓存为空。首次点击时按 FID 异步回取全字段（IO
+     * 线程，~10-30ms），写回缓存后回调详情对话框；二次点击命中缓存直接回调。
+     * 竞态防护：[pickToken] 序号保证连点时只回调最后一次；选中态二次校验避免图层重载后弹旧要素。
      */
     private fun select(po: PickedObject?) {
         val renderable = po?.userObject as? Renderable
@@ -96,18 +106,51 @@ class VectorPickModel(
         setHighlighted(renderable, true)
         worldWindow.requestRedraw()
 
-        // renderable 由 po 安全转换而来，非空即蕴含 po 非空（此处已智能转换为非空型）
-        onFeaturePicked(if (renderable == null) null else PickedFeatureInfo(
+        // 点击空白：取消选中，直接回调 null（renderable 由 po 安全转换而来，非空即蕴含 po 非空）
+        if (renderable == null) {
+            onFeaturePicked(null)
+            return
+        }
+
+        val cachedRaw = renderable.getUserProperty(LocalVectorLoader.FEATURE_ATTRS_KEY) as? Map<*, *>
+        val cached = cachedRaw?.mapValues { it.value?.toString() ?: "" }?.mapKeys { it.key.toString() }
+        val fid = renderable.getUserProperty(LocalVectorLoader.FEATURE_ID_KEY) as? Long ?: -1L
+        val path = po.layer?.getUserProperty(LocalVectorLoader.LAYER_PATH_KEY) as? String
+
+        // 已有属性缓存 / 无 fid / 无图层路径：直接回调（延迟模式未启用或不可补拉）
+        if (cached != null || fid < 0 || path == null) {
+            onFeaturePicked(buildInfo(po, renderable, cached))
+            return
+        }
+
+        // 延迟属性模式：IO 线程按 FID 单 seek 回取全字段，写缓存后回调
+        val token = ++pickToken
+        scope.launch(Dispatchers.IO) {
+            val attrs = GdalVectorReader.getFeatureAttributes(path, fid)
+            if (attrs != null) {
+                renderable.putUserProperty(LocalVectorLoader.FEATURE_ATTRS_KEY, attrs)
+            }
+            withContext(Dispatchers.Main) {
+                // 竞态：连点只回调最后一次；图层重载/取消选中时跳过回调避免弹错要素
+                if (token == pickToken && selected === renderable) {
+                    onFeaturePicked(buildInfo(po, renderable, attrs))
+                }
+            }
+        }
+    }
+
+    /** 构造拾取要素信息：[attrs] 为延迟模式下二次回取的全字段或已有缓存 */
+    private fun buildInfo(po: PickedObject, renderable: Renderable,
+                          attrs: Map<String, String>?): PickedFeatureInfo {
+        return PickedFeatureInfo(
             layerName = po.layer?.displayName,
             layerPath = po.layer?.getUserProperty(LocalVectorLoader.LAYER_PATH_KEY) as? String,
             featureId = renderable.getUserProperty(LocalVectorLoader.FEATURE_ID_KEY) as? Long ?: -1L,
             name = renderableName(renderable),
             renderable = renderable,
-            attributes = (renderable.getUserProperty(LocalVectorLoader.FEATURE_ATTRS_KEY) as? Map<*, *>)
-                ?.mapValues { it.value?.toString() ?: "" }
-                ?.mapKeys { it.key.toString() },
+            attributes = attrs,
             description = renderable.getUserProperty(LocalVectorLoader.FEATURE_DESC_KEY) as? String
-        ))
+        )
     }
 
     private fun setHighlighted(renderable: Renderable?, on: Boolean) {
