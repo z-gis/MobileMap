@@ -3,7 +3,8 @@
 # See: https://shop.swisstopo.admin.ch/en/products/geo_software/GIS_info
 #
 # You'll need to download the grids separately and put in a directory
-# scanned by libproj.
+# scanned by libproj. Directories may be added to the scan list through
+# the PROJ_LIB environment variable
 #
 # Note that an independent effort was made to derive an usable grid
 # from the CH1903->CH1903+ grid initially available from the Swisstopo

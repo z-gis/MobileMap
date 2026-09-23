@@ -1,12 +1,13 @@
 package com.zys.mobilemap.util
 
 import android.util.Log
+import com.zys.worldwindjni.NativeSrs
 import kotlin.math.roundToInt
 
 /**
  * 坐标转换（PROJ）：WGS84 经纬度与 CGCS2000 3 度带高斯-克吕格平面坐标（米）互转。
  *
- * C++ 侧按 "源坐标系|目标坐标系" 缓存 PJ 转换管道（[nativeConvert]），
+ * C++ 侧按 "源坐标系|目标坐标系" 缓存 PJ 转换管道（经 worldwindjni [NativeSrs.convert]），
  * 因此可承受主界面坐标文本随导航事件逐帧刷新的高频调用。
  * 转换不可用（native 库未加载 / proj.db 未就绪 / 超出带号范围）时返回 null，
  * 调用方需回退到十进制度显示，不得抛异常中断渲染。
@@ -14,9 +15,6 @@ import kotlin.math.roundToInt
 object CoordTransform {
 
     private const val TAG = "CoordTransform"
-
-    // JNI 符号为 Java_com_zys_mobilemap_util_CoordTransform_nativeConvert（object 单例的实例方法）
-    private external fun nativeConvert(x: Double, y: Double, srcCrs: String, tgtCrs: String): DoubleArray?
 
     /** CGCS2000 3 度带（带号前缀假东偏移）EPSG 编码起点：25 带 -> EPSG:4534 */
     private const val ZONE_MIN_EPSG = 4534
@@ -60,7 +58,7 @@ object CoordTransform {
     fun convert(x: Double, y: Double, srcCrs: String, tgtCrs: String): DoubleArray? {
         if (srcCrs == tgtCrs) return doubleArrayOf(x, y)
         return try {
-            nativeConvert(x, y, srcCrs, tgtCrs)
+            NativeSrs.convert(x, y, srcCrs, tgtCrs)
         } catch (e: Throwable) {
             // UnsatisfiedLinkError（native 库未加载）等：标记不可用，后续直接回退
             unavailable = true

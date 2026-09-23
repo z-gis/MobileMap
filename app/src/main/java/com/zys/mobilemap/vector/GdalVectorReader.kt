@@ -2,6 +2,7 @@ package com.zys.mobilemap.vector
 
 import android.util.JsonReader
 import android.util.Log
+import com.zys.worldwindjni.NativeVector
 import org.json.JSONObject
 import java.io.StringReader
 
@@ -36,6 +37,7 @@ class VectorQueryResult(val features: List<VectorFeature>?, val error: String?) 
  * GDAL/OGR 矢量读取：矢量数据的统一读取入口（shp/dwg/dxf/kml/kmz 均经此重投影到 WGS84），
  * 并提供 SQL 查询（[queryFeatures]）供属性筛选高亮。
  *
+ * native 调用经 worldwindjni [NativeVector] 门面（符号实现见其 cpp/bridge/vector_io.cpp），本类只做 JSON 解析与业务包装。
  * JNI 返回 JSON：{"features":[{"geom":"POINT|LINE|POLYGON",…,"fields":{"k":"v"}}]}，
  * 查询失败额外返回 {"error":"…"}；要素数上限在 C++ 层控制，防大文件 OOM。
  */
@@ -47,37 +49,13 @@ object GdalVectorReader {
 
     private const val TAG = "GdalVectorReader"
 
-    // JNI 符号为 Java_com_zys_mobilemap_vector_GdalVectorReader_nativeReadVectorFeatures
-    // includeAllFields=false 时 C++ 仅保留 labelField 白名单字段（延迟属性读取模式，shp/gpkg 专用）
-    // simplifyGeometry=true 时 C++ 重投影后调用 OGRGeometry::Simplify(simplifyTolerance) 简化顶点
-    private external fun nativeReadVectorFeatures(
-        path: String, minLon: Double, minLat: Double, maxLon: Double, maxLat: Double,
-        includeAllFields: Boolean, labelField: String?,
-        simplifyGeometry: Boolean, simplifyTolerance: Double
-    ): String?
-
-    // JNI 符号为 Java_com_zys_mobilemap_vector_GdalVectorReader_nativeGetFeatureAttributes
-    // 按 FID 单要素回取全字段（延迟属性读取模式配套），未找到返回 null
-    private external fun nativeGetFeatureAttributes(path: String, featureId: Long): String?
-
-    // JNI 符号为 Java_com_zys_mobilemap_vector_GdalVectorReader_nativeQueryVectorFeatures
-    private external fun nativeQueryVectorFeatures(path: String, sql: String): String?
-
-    // JNI 符号为 Java_com_zys_mobilemap_vector_GdalVectorReader_nativeCountVectorFeatures
-    private external fun nativeCountVectorFeatures(path: String): Int
-
-    // JNI 符号为 Java_com_zys_mobilemap_vector_GdalVectorReader_nativeUpdateFeatureAttributes
-    private external fun nativeUpdateFeatureAttributes(
-        path: String, featureId: Long, keys: Array<String>, values: Array<String>
-    ): Boolean
-
     /**
      * 快速统计矢量数据要素总数（遍历全部子图层求和），供上层判定小数据集是否直接全量渲染。
      * 打开失败或原生库未加载返回 -1。
      */
     fun countFeatures(path: String): Int {
         return try {
-            nativeCountVectorFeatures(path)
+            NativeVector.countVectorFeatures(path)
         } catch (e: UnsatisfiedLinkError) {
             Log.e(TAG, "nativeCountVectorFeatures 未加载", e)
             -1
@@ -98,7 +76,7 @@ object GdalVectorReader {
         return try {
             val keys = attrs.keys.toTypedArray()
             val values = attrs.values.toTypedArray()
-            nativeUpdateFeatureAttributes(path, featureId, keys, values)
+            NativeVector.updateFeatureAttributes(path, featureId, keys, values)
         } catch (e: UnsatisfiedLinkError) {
             Log.e(TAG, "nativeUpdateFeatureAttributes 未加载", e)
             false
@@ -124,10 +102,10 @@ object GdalVectorReader {
                      simplifyTolerance: Double = 0.0): List<VectorFeature>? {
         val json = try {
             if (extent != null) {
-                nativeReadVectorFeatures(path, extent[0], extent[1], extent[2], extent[3],
+                NativeVector.readVectorFeatures(path, extent[0], extent[1], extent[2], extent[3],
                     includeAllFields, labelField, simplifyGeometry, simplifyTolerance)
             } else {
-                nativeReadVectorFeatures(path, Double.NaN, Double.NaN, Double.NaN, Double.NaN,
+                NativeVector.readVectorFeatures(path, Double.NaN, Double.NaN, Double.NaN, Double.NaN,
                     includeAllFields, labelField, simplifyGeometry, simplifyTolerance)
             }
         } catch (e: UnsatisfiedLinkError) {
@@ -149,7 +127,7 @@ object GdalVectorReader {
     fun getFeatureAttributes(path: String, featureId: Long): Map<String, String>? {
         if (featureId < 0) return null
         val json = try {
-            nativeGetFeatureAttributes(path, featureId)
+            NativeVector.getFeatureAttributes(path, featureId)
         } catch (e: UnsatisfiedLinkError) {
             Log.e(TAG, "nativeGetFeatureAttributes 未加载", e)
             return null
@@ -179,7 +157,7 @@ object GdalVectorReader {
      */
     fun queryFeatures(path: String, sql: String): VectorQueryResult {
         val json = try {
-            nativeQueryVectorFeatures(path, sql)
+            NativeVector.queryVectorFeatures(path, sql)
         } catch (e: UnsatisfiedLinkError) {
             Log.e(TAG, "nativeQueryVectorFeatures 未加载", e)
             return VectorQueryResult(null, "原生库未加载，无法执行查询")

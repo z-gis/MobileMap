@@ -1,121 +1,183 @@
 package com.zys.mobilemap.ui.activity
 
+import android.Manifest
 import android.content.Intent
-import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.provider.OpenableColumns
-import android.util.Log
+import android.os.SystemClock
 import android.view.View
+import android.widget.Button
+import android.widget.ImageView
+import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import androidx.fragment.app.DialogFragment
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.lifecycleScope
 import com.zys.mobilemap.R
-import com.zys.mobilemap.databinding.ActivityMainBinding
+import com.zys.mobilemap.db.MapDataStore
 import com.zys.mobilemap.doc.DocumentManager
-import com.zys.mobilemap.doc.LayerInfo
-import com.zys.mobilemap.doc.VectorStyle
+import com.zys.mobilemap.doc.MapDocument
 import com.zys.mobilemap.location.LocationManager
-import com.zys.mobilemap.location.LocationModel
-import com.zys.mobilemap.location.NavigatorModel
-import com.zys.mobilemap.measure.MeasureModel
 import com.zys.mobilemap.media.MediaCaptureHelper
-import com.zys.mobilemap.media.MediaOverlayModel
-import com.zys.mobilemap.media.MediaPackage
-import com.zys.mobilemap.media.MediaPlacemark
 import com.zys.mobilemap.survey.SampleSurveyActivity
 import com.zys.mobilemap.survey.SampleSurveyStore
-import com.zys.mobilemap.survey.SurveyOverlayModel
-import com.zys.mobilemap.track.TrackModel
-import com.zys.mobilemap.ui.dialog.FeatureDetailDialog
 import com.zys.mobilemap.ui.dialog.LayerManageDialog
 import com.zys.mobilemap.ui.dialog.MediaManageDialog
 import com.zys.mobilemap.ui.dialog.MoveToDialog
 import com.zys.mobilemap.ui.dialog.PhotoSheetDialog
+import com.zys.mobilemap.ui.map.BusinessOverlayManager
+import com.zys.mobilemap.ui.map.CameraNavigator
+import com.zys.mobilemap.ui.map.ExternalImportHandler
+import com.zys.mobilemap.ui.map.FeaturePickController
+import com.zys.mobilemap.ui.map.LocationFollowController
+import com.zys.mobilemap.ui.map.MapLayerManager
+import com.zys.mobilemap.ui.map.MeasureCaptureController
+import com.zys.mobilemap.ui.map.PickHitRouter
+import com.zys.mobilemap.ui.map.SqlQueryController
+import com.zys.mobilemap.ui.map.StartupInitializer
+import com.zys.mobilemap.ui.map.TrackCaptureController
+import com.zys.mobilemap.ui.map.decodeIconArgb
 import com.zys.mobilemap.util.AppDirectories
 import com.zys.mobilemap.util.AppLog
-import com.zys.mobilemap.util.ColorHex
-import com.zys.mobilemap.util.GeoCalc
 import com.zys.mobilemap.util.PermissionUtil
-import com.zys.mobilemap.vector.GdalVectorReader
-import com.zys.mobilemap.vector.LocalVectorLoader
-import com.zys.mobilemap.vector.PickedFeatureInfo
-import com.zys.mobilemap.vector.VectorFileImporter
-import com.zys.mobilemap.vector.VectorPickModel
-import com.zys.mobilemap.vector.VectorQueryModel
-import earth.worldwind.PickedObjectList
-import earth.worldwind.layer.RenderableLayer
-import earth.worldwind.render.Color
-import earth.worldwind.render.Renderable
-import earth.worldwind.shape.AbstractShape
-import earth.worldwind.shape.Path
-import earth.worldwind.shape.Placemark
-import earth.worldwind.shape.Polygon
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
-import java.util.Locale
-import kotlin.math.abs
-import kotlin.math.roundToInt
+import com.zys.mobilemap.util.UiUtil
+import com.zys.worldwindjni.NativeMapView
 
-class MainActivity : BaseMapActivity() {
+/**
+ * MainActivity：程序主页（LAUNCHER）宿主装配层（worldwindjni [NativeMapView] 渲染 2D 墨卡托瓦片）。
+ *
+ * 本类现仅承担「宿主」职责：View 装配与生命周期编排、对话框/Fragment 专属逻辑、各功能域协作类的创建与接线。
+ * 具体功能已按域拆出至 `com.zys.mobilemap.ui.map` 十个协作类（行为零变化，函数体原样搬移）：
+ *  - [StartupInitializer]：权限门 + proj 解压 + 启动加载遮罩；
+ *  - [CameraNavigator]：缩放/四至/移动、状态栏轮询、相机独立视角持久化；
+ *  - [MapLayerManager]：瓦片底图/注记 + 矢量 + 栅格层栈装配与可见性驱动、结构签名判定；
+ *  - [BusinessOverlayManager]：测量/轨迹/拍照/样地业务叠加显示与命中分类（含 [MeasureLabels] 标注锚点）；
+ *  - [SqlQueryController]：图层 SQL 查询高亮；
+ *  - [FeaturePickController]：矢量拾取分发 + 选中高亮 + 详情 + 属性写回 + 样地入口（命中分流经 [PickHitRouter] 回本类）；
+ *  - [MeasureCaptureController] / [TrackCaptureController]：测量/轨迹采集；
+ *  - [LocationFollowController]：定位展示与跟随；
+ *  - [ExternalImportHandler]：系统外部文件承接（矢量导入 / 拍照数据包）。
+ *
+ * 依赖单向：本类创建并接线各控制器；控制器之间只经回调或引用协作类，不反向引用本类私有成员
+ * （对话框/Fragment 生命周期、挂起 recreate、权限申请器、拍照菜单留在本类）。
+ *
+ * 迁移史：原 wwd 主界面（同名 MainActivity）及其渲染链路已删除（wwd→jni 迁移终点），权限门与启动初始化由本界面
+ * 自行承担；相机独立保存为迁移期历史成因（原 wwd 界面 onPause 会覆盖共享文档相机），独立 prefs 保留以兼容既有视角。
+ */
+class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener, PickHitRouter {
 
-    lateinit var binding: ActivityMainBinding
+    private lateinit var mapView: NativeMapView
 
-    private var locationDisplayManager: LocationModel? = null
-    private var navigatorModel: NavigatorModel? = null
-    private var vectorPickModel: VectorPickModel? = null
+    // 导航与采集控件（对齐原主界面）：级别/中心/定位文本、注记显隐、定位跟随、测量与轨迹采集子控件、启动遮罩
+    private lateinit var levelText: TextView
+    private lateinit var centerText: TextView
+    private lateinit var locationText: TextView
+    private lateinit var annotationButton: ImageView
+    private lateinit var locateButton: ImageView
+    private lateinit var loadingOverlay: View
+    private lateinit var measureUndoButton: Button
+    private lateinit var measureCenterButton: Button
+    private lateinit var measureFinishButton: Button
+    private lateinit var trackButton: ImageView
+    private lateinit var trackStartButton: ImageView
+    private lateinit var trackPauseButton: ImageView
+    private lateinit var trackStopButton: ImageView
 
-    /** 矢量 SQL 查询：命中要素以高亮图层叠加在源图层之上（临时结果，不写入文档） */
-    private var vectorQueryModel: VectorQueryModel? = null
+    // ── 功能域协作类（setupMapUi 中创建并接线）────────────────────────────────────────
+    private lateinit var startup: StartupInitializer
+    private lateinit var navigator: CameraNavigator
+    private lateinit var layerManager: MapLayerManager
+    private lateinit var overlayManager: BusinessOverlayManager
+    private lateinit var queryController: SqlQueryController
+    private lateinit var measureController: MeasureCaptureController
+    private lateinit var trackController: TrackCaptureController
+    private lateinit var pickController: FeaturePickController
+    private lateinit var locationController: LocationFollowController
+    private lateinit var importHandler: ExternalImportHandler
 
+    /** 拍照会话（复用原主界面 [MediaCaptureHelper]，不依赖 wwd）：拍照/连拍/水印/入库/编辑全由其处理，变更回调刷新叠加层 */
     private var mediaCaptureHelper: MediaCaptureHelper? = null
-    private var mediaOverlayModel: MediaOverlayModel? = null
-    private var trackModel: TrackModel? = null
-    private var measureModel: MeasureModel? = null
-    private var surveyOverlayModel: SurveyOverlayModel? = null
 
-    /** 调查模式（运行时会话状态，不落文档，退出应用即复位）：
-     *  开启后隐藏测量/拍照/轨迹按键，矢量要素属性可编辑，面要素弹出样地调查入口 */
-    private var surveyMode = false
+    /**
+     * 挂起的 recreate 标记：结构/样式变更到达时若图层管理对话框处于打开态则置 true，
+     * 由 [layerDialogLifecycleCallback] 在对话框销毁后触发一次 dismissOpenDialogs + recreate 并清零。
+     */
+    private var pendingRecreateOnLayerDialogDismiss = false
 
-    /** 加载遮罩安全超时兜底：瓦片长时间未就绪也强制淡出，避免卡在启动画面 */
-    private val loadingOverlayTimeout = Runnable { hideLoadingOverlay() }
+    /**
+     * 图层管理对话框生命周期观察：捕获其销毁时机，若期间有挂起的结构变更（[pendingRecreateOnLayerDialogDismiss]）
+     * 则执行延迟的 recreate。用 post 到主消息队列尾，避开 Fragment 生命周期回调中直接触发 Activity 重建的时序风险。
+     * 只观察根 FragmentManager（recursive=false），子层的样式对话框销毁不参与判定。
+     */
+    private val layerDialogLifecycleCallback = object : FragmentManager.FragmentLifecycleCallbacks() {
+        override fun onFragmentDestroyed(fm: FragmentManager, f: Fragment) {
+            if (f.tag != TAG_LAYER_MANAGE_DIALOG) return
+            if (!pendingRecreateOnLayerDialogDismiss) return
+            pendingRecreateOnLayerDialogDismiss = false
+            AppLog.i(TAG, "图层管理对话框已关闭，执行挂起的重建")
+            mapView.post {
+                if (isFinishing || isDestroyed) return@post
+                dismissOpenDialogs()
+                recreate()
+            }
+        }
+    }
 
-    /** 启动初始化是否完成：native/proj/文档加载与地图 UI 装配均完成后为 true */
+    /** 定位权限申请（现代 Activity Result API，须在 onCreate 前作为属性注册）：授予后转定位控制器启动定位 */
+    private val locationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        if (result[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            result[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        ) {
+            if (::locationController.isInitialized) locationController.startLocating()
+        } else {
+            AppLog.w(TAG, "定位权限被拒绝，定位标记不可用")
+        }
+    }
+
+    /** 启动初始化是否完成：native/proj/文档加载与地图 UI 装配均完成后为 true；onResume/onPause/onDestroy 据此守卫 */
     private var initialized = false
 
     /** 等待系统“所有文件访问”授权返回：跳系统页时置 true，onResume 复检并续跑初始化 */
     private var waitingForAllFilesPermission = false
 
-    companion object {
-        private const val TAG = "MainActivity"
-
-        /** 拍照标识"缩放至"目标相机高度（米） */
-        private const val MEDIA_ZOOM_ALTITUDE = 1200.0
-
-        /** 加载遮罩安全超时（毫秒）：首屏瓦片迟迟未就绪时兜底淡出 */
-        private const val LOADING_OVERLAY_TIMEOUT_MS = 8000L
-
-        /** 支持属性写回的矢量格式（GDAL 驱动能力矩阵：dwg 只读） */
-        private val WRITABLE_FORMATS = setOf("shp", "dxf", "gpkg", "geojson", "kml", "kmz")
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
+        // 全屏沉浸式，与原主界面一致
+        UiUtil.enableFullscreen(this)
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
 
-        binding = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(binding.root)
-        AppLog.i(TAG, "MainActivity onCreate")
+        mapView = findViewById(R.id.jni_map_view)
+        levelText = findViewById(R.id.jni_map_level)
+        centerText = findViewById(R.id.jni_map_center)
+        locationText = findViewById(R.id.jni_map_location)
+        annotationButton = findViewById(R.id.jni_map_annotation)
+        locateButton = findViewById(R.id.jni_map_locate)
+        loadingOverlay = findViewById(R.id.jni_map_loading_overlay)
+        measureUndoButton = findViewById(R.id.jni_map_measure_undo)
+        measureCenterButton = findViewById(R.id.jni_map_measure_center)
+        measureFinishButton = findViewById(R.id.jni_map_measure_finish)
+        trackButton = findViewById(R.id.jni_map_track)
+        trackStartButton = findViewById(R.id.jni_map_track_start)
+        trackPauseButton = findViewById(R.id.jni_map_track_pause)
+        trackStopButton = findViewById(R.id.jni_map_track_stop)
 
-        // 启动加载遮罩：盖住底图瓦片异步加载的白屏，首屏就绪（或安全超时）后淡出；
-        // 合并启动页后，遮罩同时覆盖初始化阶段（native/proj/文档加载），初始化未完成前不淡出
-        binding.root.postDelayed(loadingOverlayTimeout, LOADING_OVERLAY_TIMEOUT_MS)
+        startup = StartupInitializer(this)
 
-        // 权限门：Android 11+ 需“管理所有文件”权限，未授予则跳系统授权页，onResume 复检后续跑
-        if (!hasAllFilesPermission()) {
+        // 启动加载遮罩：盖住 native/proj/文档初始化与首屏瓦片异步加载的白屏，初始化完成（或安全超时）后淡出。
+        // recreate（图源/栅格结构变更触发）时跳过遮罩：避免重建闪动（新实例瓦片多已在磁盘缓存）。
+        // savedInstanceState != null 视为重建/恢复场景。
+        if (savedInstanceState == null) {
+            startup.beginLoadingOverlay(loadingOverlay)
+        } else {
+            startup.skipLoadingOverlay(loadingOverlay)
+        }
+
+        // 权限门：Android 11+ 需“管理所有文件”权限，未授予则跳系统授权页，onResume 复检后续跑初始化
+        if (!startup.hasAllFilesPermission()) {
             waitingForAllFilesPermission = true
             Toast.makeText(this, R.string.open_file_permission_required, Toast.LENGTH_SHORT).show()
             PermissionUtil.goManagerFileAccess(this)
@@ -126,7 +188,7 @@ class MainActivity : BaseMapActivity() {
     }
 
     /**
-     * 启动初始化 + 地图 UI 装配（合并自原 SplashActivity）：
+     * 启动初始化 + 地图 UI 装配（作为主入口自行承担，复刻原主界面的 initializeAndSetup）：
      * native 库、外部目录、日志目录切换、proj 数据解压、文档加载，随后装配地图与各模块，最后处理外部 VIEW intent。
      * 幂等：已初始化直接返回，避免权限页返回后重复装配。
      */
@@ -134,805 +196,321 @@ class MainActivity : BaseMapActivity() {
         if (initialized) return
         initialized = true
 
-        loadNativeLibrary()
+        // 启动链耗时打点：主线程串行初始化各阶段逐项记录，便于真机核对卡顿分解
+        // native 库由 worldwindjni 门面类（NativeSrs/NativeLayerInfo/NativeVector）首次触达时自动加载
+        var t = SystemClock.elapsedRealtime()
         AppDirectories.ensureAll(this)
         // 全文件访问权限已就绪，将日志目录切到外部 调查宝/log，便于用户取出反馈
         AppLog.refreshLogDir(this)
         // 解压 proj 数据（PROJ 坐标转换依赖 proj.db 与格网改正数文件）
-        extractProjData()
+        t = SystemClock.elapsedRealtime()
+        startup.extractProjData()
+        AppLog.i(TAG, "启动耗时 proj解压=${SystemClock.elapsedRealtime() - t}ms")
         // 加载或创建文档
+        t = SystemClock.elapsedRealtime()
         DocumentManager.getInstance().loadOrCreate(this)
-        AppLog.i(TAG, "初始化完成，文档已加载")
+        AppLog.i(TAG, "初始化完成，文档已加载 启动耗时 文档=${SystemClock.elapsedRealtime() - t}ms")
 
+        t = SystemClock.elapsedRealtime()
         setupMapUi()
+        AppLog.i(TAG, "启动耗时 UI装配合计=${SystemClock.elapsedRealtime() - t}ms")
 
         // 系统外部打开数据（文件管理器/微信分享）：初始化完成后立即处理
-        handleViewIntent(intent)
+        importHandler.handleViewIntent(intent)
+
+        // 加载遮罩淡出由 onCreate 挂的安全超时（LOADING_OVERLAY_TIMEOUT_MS）兜底（首帧回调路径当前未接入，见 StartupInitializer）
     }
 
     /**
-     * 地图 UI 与各功能模块装配（原 onCreate 主体，抽为独立方法以便权限授予后续跑）。
+     * 地图 UI 与各功能模块装配（原 onCreate 主体，抽为独立方法以便权限授予后续跑）：创建各协作类并接线到控件/回调。
      */
     private fun setupMapUi() {
-        // 拍照会话：尽早注册 Activity 结果回调（拍照完成后刷新标注图层）
-        mediaCaptureHelper = MediaCaptureHelper(this) { mediaOverlayModel?.reload() }
+        // 拍照会话：尽早注册 Activity 结果回调（复用原主界面 [MediaCaptureHelper]），变更回调刷新业务叠加层
+        mediaCaptureHelper = MediaCaptureHelper(this) { overlayManager.rebuild() }
         mediaCaptureHelper?.register()
 
-        binding.globe.addView(createWorldWindow())
-
-        // 首屏就绪回调：淡出加载遮罩
-        (getWorldWindow() as? MapWorldWindow)?.onFirstFrameSettled = { hideLoadingOverlay() }
-
-        // 设置导航器
-        navigatorModel = NavigatorModel(this, getWorldWindow())
-        navigatorModel?.setup()
-
-        // 测量工具模块：测量模式下拦截地图点击加点（优先于矢量拾取）
-        measureModel = MeasureModel(this, binding, getWorldWindow(), lifecycleScope)
-        measureModel?.setup()
-        measureModel?.reloadSaved()
-
-        // 拍照标注图层：默认读取媒体数据库渲染，点击点位查看照片列表（优先于矢量要素）
-        mediaOverlayModel = MediaOverlayModel(this, getWorldWindow())
-        mediaOverlayModel?.attach()
-        mediaOverlayModel?.reload()
-
-        // 轨迹记录模块：开始/暂停/停止 + 历史轨迹渲染
-        trackModel = TrackModel(this, binding, getWorldWindow())
-        trackModel?.setup()
-        trackModel?.reloadSavedTracks()
-
-        // 矢量要素点击拾取：高亮选中并弹出要素详情（样式编辑/属性显示）；
-        // 测量模式拦截点击，已保存测量几何/媒体标注优先于矢量要素
-        vectorPickModel = VectorPickModel(
-            lifecycleScope,
-            getWorldWindow(),
-            onFeaturePicked = { info ->
-                if (info != null) showFeatureDetail(info)
-            },
-            onBeforePick = { x, y -> measureModel?.onMapTap(x, y) ?: false },
-            onPicked = { x, y, picked ->
-                measureModel?.handlePickedGeometry(x, y, picked) == true ||
-                        trackModel?.handlePickedGeometry(x, y, picked) == true ||
-                        handleMediaPicked(picked)
-            }
-        )
-        vectorPickModel?.setup(this)
-
-        // 矢量 SQL 查询：查询结果高亮图层叠加到地图，并缩放到命中要素四至
-        vectorQueryModel = VectorQueryModel(getWorldWindow(), lifecycleScope) { minLon, minLat, maxLon, maxLat ->
-            zoomToExtent(minLon, minLat, maxLon, maxLat)
-        }
-
-        // 读取文档
         val doc = DocumentManager.getInstance().getDocument()
-        if (doc != null) {
-            syncMapLayers(doc)
+
+        // 矢量标注字体：传空串让 native 自动探测系统 CJK 字体（零 APK 增量）。UI 线程加载，避开 GL 线程文件 IO 卡顿。
+        mapView.setFontPath("")
+
+        // 定位标记罗盘图标（对齐原主界面 LocationModel ic_compass 方式）：解码 drawable → ARGB 像素，传 native 作纹理。
+        decodeIconArgb(this, R.drawable.ic_compass)?.let { (pixels, w, h) ->
+            mapView.setLocationMarkerIcon(pixels, w, h)
         }
+
+        // ── 创建并接线各功能域协作类（构造参数即依赖注入，回调在此闭包捕获尚未赋值的 lateinit 属安全：均在装配完成后触发）──
+        navigator = CameraNavigator(this, mapView, levelText, centerText)
+        layerManager = MapLayerManager(this, mapView, annotationButton,
+            findViewById(R.id.jni_map_vector_loading)) { overlayManager.rebuild() }
+        // 矢量屏幕过滤渐进加载接线：layerManager 取当前相机可见范围作初始 extent（大数据层首屏按视口加载）；
+        // 相机静止（连续≥静止阈值不变）后按新范围重载可见大数据层（native 内 Swap-on-ready，停下即有数据、无空窗）。
+        layerManager.extentProvider = { mapView.getCamera()?.let { navigator.computeVisibleExtent(it) } }
+        navigator.onCameraSettled = { cam -> layerManager.onCameraSettled(navigator.computeVisibleExtent(cam)) }
+        overlayManager = BusinessOverlayManager(
+            this, mapView,
+            isCapturing = { measureController.capturing || trackController.capturing },
+            onOverlayLayersCleared = {
+                queryController.onOverlayLayersCleared()
+                pickController.onOverlayLayersCleared()
+            },
+            restoreQueryHighlight = { queryController.restoreAfterRebuild() }
+        )
+        queryController = SqlQueryController(this, mapView, navigator, lifecycleScope)
+        measureController = MeasureCaptureController(
+            this, mapView, supportFragmentManager,
+            measureUndoButton, measureCenterButton, measureFinishButton
+        ) { overlayManager.rebuild() }
+        trackController = TrackCaptureController(
+            this, mapView, supportFragmentManager, navigator,
+            trackButton, trackStartButton, trackPauseButton, trackStopButton
+        ) { overlayManager.rebuild() }
+        pickController = FeaturePickController(
+            this, mapView, layerManager, overlayManager, queryController, measureController,
+            this, supportFragmentManager, lifecycleScope
+        )
+        locationController = LocationFollowController(this, mapView, locationText, locateButton, navigator)
+        locationController.onTrackLocation = { lat, lon, alt -> trackController.onLocation(lat, lon, alt) }
+        importHandler = ExternalImportHandler(this, navigator, lifecycleScope) { overlayManager.rebuild() }
+
+        // 装配瓦片图层栈 + 栅格层 + 矢量层（懒加入、可见性驱动）+ 业务叠加层
+        var t = SystemClock.elapsedRealtime()
+        layerManager.buildLayers(doc)
+        AppLog.i(TAG, "启动耗时 瓦片层装配=${SystemClock.elapsedRealtime() - t}ms")
+        t = SystemClock.elapsedRealtime()
+        layerManager.syncRasterLayers(doc)
+        AppLog.i(TAG, "启动耗时 栅格层装配=${SystemClock.elapsedRealtime() - t}ms")
+
+        // 相机先于矢量层就位：使 layerManager 加入大数据矢量层时 extentProvider 能取到正确的首屏范围。
+        // 相机优先级：本界面上次保存的独立视角 > 文档相机 > 兜底默认（由 navigator 判定并返回）
+        val cam = navigator.initialCamera(doc)
+        mapView.setCamera(cam)
+        AppLog.i(TAG, "相机 lon=${cam.longitude} lat=${cam.latitude} altitude=${cam.altitude}")
+
+        t = SystemClock.elapsedRealtime()
+        layerManager.syncVectorLayers(doc)
+        AppLog.i(TAG, "启动耗时 矢量层装配=${SystemClock.elapsedRealtime() - t}ms")
+        t = SystemClock.elapsedRealtime()
+        overlayManager.rebuild()
+        AppLog.i(TAG, "启动耗时 叠加层重建(读DB)=${SystemClock.elapsedRealtime() - t}ms")
+
+        // 导航控件接线：缩放（高度乘系数）、注记显隐开关、定位跟随锁定
+        findViewById<ImageView>(R.id.jni_map_zoom_in).setOnClickListener { navigator.zoomIn() }
+        findViewById<ImageView>(R.id.jni_map_zoom_out).setOnClickListener { navigator.zoomOut() }
+        annotationButton.setOnClickListener { layerManager.toggleAnnotation() }
+        locateButton.setOnClickListener { locationController.toggleFollow() }
+
+        // 交互入口（对齐原主界面）：设置页、图层管理（地图源页签切换底图）、点定位文本「移动到」
+        findViewById<ImageView>(R.id.jni_map_setting).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
+        findViewById<ImageView>(R.id.jni_map_layer_manage).setOnClickListener { showLayerManageDialog() }
+        locationText.setOnClickListener { showMoveToDialog() }
+
+        // 采集控件接线（对齐原主界面 MeasureModel/TrackModel.setup 的按钮绑定）
+        findViewById<ImageView>(R.id.jni_map_measure).setOnClickListener { measureController.showMeasureMenu() }
+        measureUndoButton.setOnClickListener { measureController.undoLastMeasurePoint() }
+        measureCenterButton.setOnClickListener { measureController.addMeasureCenterPoint() }
+        measureFinishButton.setOnClickListener { measureController.finishMeasurement() }
+        findViewById<ImageView>(R.id.jni_map_photo).setOnClickListener { showPhotoMenu() }
+        trackButton.setOnClickListener { trackController.onTrackButtonClick() }
+        trackStartButton.setOnClickListener { trackController.resumeTrackRecording() }
+        trackPauseButton.setOnClickListener { trackController.pauseTrackRecording() }
+        trackStopButton.setOnClickListener { trackController.stopTrackRecording() }
+
+        // 单击拾取矢量要素：native 命中检测 → 测量拦截 → 叠加命中分流 → 文件矢量拾取（原序由 pickController 保证）
+        mapView.setOnTapListener { x, y -> pickController.onMapTap(x, y) }
+
+        navigator.updateStatusText()
+
+        // 监听文档变更：底图切换 / 注记显隐 / 图源增删改经此即时同步（对齐原主界面文档驱动）
         DocumentManager.getInstance().registerDocumentChangeListener(this)
 
-        // 初始化定位
-        locationDisplayManager = LocationModel(this, getWorldWindow()) {
-            permissions, requestCode -> requestPermissions(permissions, requestCode)
-        }
-        locationDisplayManager?.init()
-
-        updateCenterCrossVisibility()
-        updateAnnotationIcon()
-
-        binding.mainIvZoomIn.setOnClickListener { navigatorModel?.zoomIn() }
-        binding.mainIvZoomOut.setOnClickListener { navigatorModel?.zoomOut() }
-
-        // 注记图层开关：控制天地图-注记图层可见性
-        binding.mainIvIsCIA.setOnClickListener { toggleAnnotationLayer() }
-
-        binding.mainIvSetting.setOnClickListener {
-            val intent = Intent(this, SettingsActivity::class.java)
-            startActivity(intent)
+        // 定位：已授权则直接开始，否则申请权限（授权结果在 locationPermissionLauncher 回调中启动）
+        locationController.initLocation {
+            locationPermissionLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            )
         }
 
-        // 定位锁定开关：点击锁定并跟随定位，再次点击解锁（参照 0.2.5.3 MainLocationModule）
-        binding.mainIvGotoLocation.setOnClickListener { locationDisplayManager?.toggleLocationLock() }
-        binding.mainTvLocation.setOnClickListener { showMoveToDialog() }
-        // 北朝向按键：点击动画纠正到正北
-        binding.mainIvNorth.setOnClickListener { (getWorldWindow() as? MapWorldWindow)?.orientNorth() }
+        // 上次轨迹采集未结束（进程被回收/异常退出）时恢复草稿：读回落库采集点重建活动轨迹 live 层并恢复记录状态
+        trackController.restoreDraftTrack()
 
-        binding.mainIvLayerManage.setOnClickListener {
-            LayerManageDialog(
-                R.layout.dialog_layer_manage,
-                onZoomToExtent = { minLon, minLat, maxLon, maxLat ->
-                    zoomToExtent(minLon, minLat, maxLon, maxLat)
-                },
-                layerRenderColors = { path -> layerRenderColorsOf(path) },
-                onSqlQuery = { path, sql -> runSqlQuery(path, sql) },
-                onClearSqlQuery = { clearSqlQuery() }
-            ).show(supportFragmentManager, "LayerManageDialog")
-        }
-
-        // 拍照入口：列表对话框（拍照/管理），菜单用词与轨迹菜单一致
-        binding.mainIvPoto.setOnClickListener { showPhotoMenu() }
-
-        // 调查模式切换：点击进入/退出调查模式，隐藏与调查无关的按键
-        binding.mainIvSurvey.setOnClickListener { toggleSurveyMode() }
-
-        // 样地调查覆盖图层：调查模式下显示已保存样地的 Placemark
-        surveyOverlayModel = SurveyOverlayModel(this, getWorldWindow())
-        surveyOverlayModel?.attach()
-    }
-
-    /** 切换调查模式：翻转状态、刷新按键可见性与图标着色，Toast 提示 */
-    private fun toggleSurveyMode() {
-        surveyMode = !surveyMode
-        applySurveyModeUi()
-        val msg = if (surveyMode) R.string.main_survey_enter_toast else R.string.main_survey_exit_toast
-        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
-        AppLog.i(TAG, "调查模式切换：$surveyMode")
+        // 监听图层管理对话框销毁：结构/样式变更触发的 recreate 若因对话框打开被挂起，待其关闭后再执行
+        supportFragmentManager.registerFragmentLifecycleCallbacks(layerDialogLifecycleCallback, false)
     }
 
     /**
-     * 应用调查模式 UI：
-     * - 调查模式下隐藏测量/拍照/轨迹按键，避免与调查作业冲突；退出后恢复
-     * - 调查按键图标着色（琥珀色）作为视觉提示，退出时清除
+     * 打开图层管理对话框（BottomSheet）。缩放/回显/SQL 查询分别接线到 navigator/layerManager/queryController。
      */
-    private fun applySurveyModeUi() {
-        val vis = if (surveyMode) android.view.View.GONE else android.view.View.VISIBLE
-        binding.mainIvMeasure.visibility = vis
-        binding.mainIvPoto.visibility = vis
-        binding.mainIvTrk.visibility = vis
-        if (surveyMode) {
-            binding.mainIvSurvey.setColorFilter(0xFFFFC107.toInt())
-            surveyOverlayModel?.reload()
-            surveyOverlayModel?.setEnabled(true)
-        } else {
-            binding.mainIvSurvey.clearColorFilter()
-            surveyOverlayModel?.setEnabled(false)
-        }
-    }
-
-    /** 供 FeatureDetailDialog 判定属性编辑与样地调查入口可见性 */
-    fun isSurveyMode(): Boolean = surveyMode
-
-    private fun loadNativeLibrary() {
-        try {
-            System.loadLibrary("mobilemap")
-            AppLog.i(TAG, "原生库 mobilemap 加载成功")
-        } catch (e: UnsatisfiedLinkError) {
-            Log.e(TAG, "Failed to load native library 'mobilemap'", e)
-            AppLog.e(TAG, "原生库 mobilemap 加载失败", e)
-        }
-    }
-
-    private fun hasAllFilesPermission(): Boolean {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.R
-                || PermissionUtil.isExternalStorageManager()
-    }
-
-    private fun extractProjData() {
-        try {
-            val projDir = File(filesDir, "proj")
-            if (!projDir.exists()) {
-                projDir.mkdirs()
-            }
-            copyAssetFolder("proj", projDir)
-            initProjDataPath(projDir.absolutePath)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to extract proj data", e)
-            AppLog.e(TAG, "解压 proj 数据失败", e)
-        }
+    private fun showLayerManageDialog() {
+        LayerManageDialog(
+            R.layout.dialog_layer_manage,
+            // 点图层名称/缩放键时回调四至，定位到该图层范围（对齐原主界面 zoomToExtent）
+            onZoomToExtent = { minLon, minLat, maxLon, maxLat -> navigator.zoomToExtent(minLon, minLat, maxLon, maxLat) },
+            // 样式所见即所得：回显图层当前实际渲染色（复用矢量层同款解析）
+            layerRenderColors = { path -> layerManager.layerRenderColorsOf(path) },
+            // shp/gpkg 图层 SQL 查询：复用原主界面数据入口执行查询并高亮命中要素，支持清除
+            onSqlQuery = { path, sql -> queryController.runSqlQuery(path, sql) },
+            onClearSqlQuery = { queryController.clearSqlQuery() }
+        ).show(supportFragmentManager, TAG_LAYER_MANAGE_DIALOG)
     }
 
     /**
-     * 递归复制 assets 目录到 [destDir]：子目录建同名目录后递归（保持层级），
-     * 文件已存在时跳过，避免每次启动重复解压。
+     * 「移动到」对话框（复用原主界面 [MoveToDialog]，支持经纬度 / 投影平面坐标双输入 + 坐标系换算）：
+     * 初值优先取当前定位，无则回退相机中心，再无则兜底默认；确认后相机平移到目标（保留当前缩放级别）。
      */
-    private fun copyAssetFolder(assetPath: String, destDir: File) {
-        try {
-            val children = assets.list(assetPath)
-            // 空清单即叶子节点（assets 对文件返回空数组），按文件复制
-            if (children.isNullOrEmpty()) {
-                val leaf = File(destDir, assetPath.substringAfterLast('/'))
-                if (!leaf.exists()) copyAssetFile(assetPath, leaf)
-                return
-            }
-            if (!destDir.exists()) destDir.mkdirs()
-            for (child in children) {
-                val subPath = "$assetPath/$child"
-                val subChildren = assets.list(subPath)
-                if (subChildren.isNullOrEmpty()) {
-                    val destFile = File(destDir, child)
-                    if (!destFile.exists()) copyAssetFile(subPath, destFile)
-                } else {
-                    copyAssetFolder(subPath, File(destDir, child))
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to copy asset: $assetPath", e)
+    private fun showMoveToDialog() {
+        val loc = LocationManager.getInstance().getLastLocation()
+        val cam = mapView.getCamera()
+        var initLon = loc?.longitude ?: Double.NaN
+        var initLat = loc?.latitude ?: Double.NaN
+        if ((initLon.isNaN() || initLat.isNaN()) && cam != null) {
+            initLon = cam.longitude
+            initLat = cam.latitude
         }
-    }
-
-    private fun copyAssetFile(assetPath: String, destFile: File) {
-        try {
-            assets.open(assetPath).use { input ->
-                FileOutputStream(destFile).use { out -> input.copyTo(out) }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to copy: $assetPath", e)
+        if (initLon.isNaN() || initLat.isNaN()) {
+            initLon = CameraNavigator.DEFAULT_LON
+            initLat = CameraNavigator.DEFAULT_LAT
         }
+        MoveToDialog(this, initLon, initLat) { lon, lat ->
+            navigator.moveToLocation(lat, lon, notify = false)
+        }.create().show()
     }
 
-    // JNI 符号为 Java_com_zys_mobilemap_ui_activity_MainActivity_initProjDataPath（合并自 SplashActivity）
-    private external fun initProjDataPath(projDataPath: String?)
-
-    /**
-     * 淡出并隐藏加载遮罩（首屏就绪或安全超时触发，幂等）。
-     */
-    private fun hideLoadingOverlay() {
-        binding.root.removeCallbacks(loadingOverlayTimeout)
-        val overlay = binding.mainLoadingOverlay
-        if (overlay.visibility == View.GONE) return
-        overlay.animate().alpha(0f).setDuration(300).withEndAction {
-            overlay.visibility = View.GONE
-        }.start()
-    }
-
-    override fun onDestroy() {
-        AppLog.i(TAG, "MainActivity onDestroy")
-        binding.root.removeCallbacks(loadingOverlayTimeout)
-        // 未完成初始化时 WorldWindow 尚未创建，跳过相关清理（lateinit 未赋值会抛异常）
-        if (initialized) {
-            (getWorldWindow() as? MapWorldWindow)?.onFirstFrameSettled = null
-            vectorQueryModel?.clear()
-            // 关闭轨迹落库线程（采集点已实时写库，下次启动可恢复未完成的记录）
-            trackModel?.shutdown()
-        }
-        super.onDestroy()
-    }
-
-    /**
-     * 执行 shp 图层 SQL 查询：命中要素高亮叠加并缩放到结果范围，
-     * 语句错误时按 GDAL/OGR 上报的原因长时间提示（便于阅读完整错误）。
-     */
-    private fun runSqlQuery(path: String, sql: String) {
-        Toast.makeText(this, R.string.sql_query_running, Toast.LENGTH_SHORT).show()
-        vectorQueryModel?.query(path, sql) { success, count, error ->
-            val message = when {
-                !success -> getString(R.string.sql_query_failed, error ?: "")
-                count == 0 -> getString(R.string.sql_query_result_empty)
-                else -> getString(R.string.sql_query_result_count, count)
-            }
-            Toast.makeText(this, message, if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
-        }
-    }
-
-    /**
-     * 清除地图上的 SQL 查询高亮结果。
-     */
-    private fun clearSqlQuery() {
-        vectorQueryModel?.clear()
-        Toast.makeText(this, R.string.sql_query_cleared, Toast.LENGTH_SHORT).show()
-    }
-
-    /**
-     * 拍照入口菜单：选择拍照进入拍摄会话（连拍），选择管理打开"采集数据管理"界面
-     * 管理在库拍照标识（重命名/可见性/缩放至/删除）；用词与轨迹菜单（开始轨迹/管理）一致。
-     */
+    /** 拍照菜单入口：拍照（启动相机会话）/ 管理（弹出采集数据管理），对齐原主界面 showPhotoMenu */
     private fun showPhotoMenu() {
-        AlertDialog.Builder(this)
+        androidx.appcompat.app.AlertDialog.Builder(this)
             .setItems(arrayOf("拍照", "管理")) { _, which ->
                 when (which) {
                     0 -> mediaCaptureHelper?.launchPhotoCapture()
                     1 -> MediaManageDialog(
-                        onChanged = { mediaOverlayModel?.reload() },
-                        onZoomTo = { placemark -> zoomToMediaPlacemark(placemark) }
+                        onChanged = { overlayManager.rebuild() },
+                        onZoomTo = { placemark -> navigator.zoomToMediaPlacemark(placemark) }
                     ).show(supportFragmentManager, "MediaManageDialog")
                 }
             }
             .show()
     }
 
+    // ── 文档变更驱动（结构变化判定交 layerManager，recreate 编排留本类）─────────────────────
+
     /**
-     * 缩放至拍照点位：相机移至点位坐标（保持当前姿态），重绘地图。
+     * 文档变更响应（对齐原主界面 BaseMapActivity 的文档驱动，回调在主线程）：图源/栅格结构变化交 [MapLayerManager] 判定，
+     * 需重建时——图层管理对话框打开态则挂起至其关闭（[layerDialogLifecycleCallback]），否则先 dismiss 弹层再 recreate；
+     * 非结构变化则由 layerManager 就地同步可见性/矢量/栅格层并刷新叠加层。
      */
-    private fun zoomToMediaPlacemark(placemark: MediaPlacemark) {
-        val camera = getWorldWindow().engine.camera
-        // 动画缩放至拍照点位：保持当前航向，远距离自动走飞越弧线
-        (getWorldWindow() as? MapWorldWindow)?.smoothMoveTo(
-            placemark.latitude, placemark.longitude, MEDIA_ZOOM_ALTITUDE, camera.heading.inDegrees
+    override fun onDocumentChanged(document: MapDocument) {
+        if (!layerManager.onDocumentChanged(document)) return
+        if (supportFragmentManager.findFragmentByTag(TAG_LAYER_MANAGE_DIALOG) != null) {
+            AppLog.i(TAG, "文档图源/栅格结构变化，图层管理对话框打开中，挂起重建至对话框关闭")
+            pendingRecreateOnLayerDialogDismiss = true
+            return
+        }
+        AppLog.i(TAG, "文档图源/栅格结构变化，重建界面")
+        // 重建前先移除已打开的弹层：recreate() 会复原仍存在的带参构造 BottomSheetDialogFragment（无公共无参构造），
+        // 反射实例化失败会崩溃；结构变更常由弹层自身触发，故此处同步移除确保其不进入被保存的状态。
+        dismissOpenDialogs()
+        recreate()
+    }
+
+    /**
+     * 同步移除当前已打开的全部 [DialogFragment] 弹层（供 recreate 前调用，避免不可复原的带参构造弹层被反射重建而崩溃）。
+     */
+    private fun dismissOpenDialogs() {
+        val fm = supportFragmentManager
+        for (f in fm.fragments) {
+            if (f is DialogFragment) runCatching { fm.beginTransaction().remove(f).commitNowAllowingStateLoss() }
+        }
+    }
+
+    // ── 拾取命中分流路由（FeaturePickController → 本类）：读记录 + 弹层/启动编辑（对话框/Fragment 专属留宿主）──
+
+    /** 测量叠加命中：读记录后弹测量详情（记录可能已被外部删除，空安全） */
+    override fun onMeasureHit(recordId: Long) {
+        val record = MapDataStore.getInstance(this).loadMeasurements().firstOrNull { it.id == recordId }
+        if (record != null) measureController.showMeasureDetail(record)
+    }
+
+    /** 轨迹叠加命中：读记录后弹轨迹详情 */
+    override fun onTrackHit(recordId: Long) {
+        val record = MapDataStore.getInstance(this).loadTracks().firstOrNull { it.id == recordId }
+        if (record != null) trackController.showTrackDetail(record)
+    }
+
+    /** 拍照点位命中：弹出照片管理（[PhotoSheetDialog]） */
+    override fun onMediaHit(placemark: com.zys.mobilemap.media.MediaPlacemark) {
+        PhotoSheetDialog.show(supportFragmentManager, placemark.id, placemark.name)
+    }
+
+    /** 样地点位命中：按 fid=样地主键打开样地调查编辑（对齐原主界面 SurveyOverlayModel 点击识别） */
+    override fun onSurveyHit(plotId: Long) {
+        val plot = SampleSurveyStore.loadPlot(this, plotId) ?: return
+        SampleSurveyActivity.start(
+            this, plot.sourcePath, plot.sourceFid, plot.compartmentNo,
+            plot.centerLatitude, plot.centerLongitude, plot.id
         )
     }
 
-    /**
-     * 媒体标注拾取优先：命中拍照点位时弹出该点位照片列表，并消费该点击。
-     */
-    private fun handleMediaPicked(picked: PickedObjectList): Boolean {
-        val model = mediaOverlayModel ?: return false
-        if (!model.layer.isEnabled) return false
-        val po = picked.objects.firstOrNull {
-            it.layer?.getUserProperty(MediaOverlayModel.MEDIA_LAYER_KEY) as? Boolean == true
-        } ?: return false
-        val placemark = model.findPlacemark(po.userObject as? Renderable) ?: return false
-        PhotoSheetDialog.show(supportFragmentManager, placemark.id, placemark.name)
-        return true
-    }
-
-    /**
-     * 要素详情对话框：样式编辑 + 属性表显示。
-     * 样式保存写入图层 [com.zys.mobilemap.doc.LayerInfo.vectorStyle] 的单要素覆盖（[com.zys.mobilemap.doc.VectorStyle.featureStyles]），
-     * 递增样式版本后保存文档，经文档变更监听重载图层生效（原数据不变）。
-     * kml/kmz 无要素 id（待二期）、dwg/dxf 不改样式，仅属性表可见。
-     */
-    private fun showFeatureDetail(info: PickedFeatureInfo) {
-        val doc = DocumentManager.getInstance().getDocument() ?: return
-        val layerInfo = doc.vectorLayers.firstOrNull { it.path == info.layerPath }
-        val ext = info.layerPath?.substringAfterLast('.', "")?.lowercase(Locale.getDefault()) ?: ""
-        // shp/gpkg 均为 GDAL 索引矢量，支持整层/单要素样式覆盖；kml/kmz 无 fid（待二期）、dwg/dxf 只读
-        val styleEditable = (ext == "shp" || ext == "gpkg") && info.featureId >= 0
-        // 调查模式：属性可编辑（仅可写格式 + 有效 FID）
-        val attrsEditable = surveyMode && info.featureId >= 0 && isWritableFormat(ext)
-
-        // 样式初值：单要素覆盖优先，缺省继承整层样式（供控件回显）
-        val layerStyle = layerInfo?.vectorStyle
-        val featureStyle = layerStyle?.featureStyles?.get(info.featureId)
-        val merged = VectorStyle().apply {
-            fillColor = featureStyle?.fillColor ?: layerStyle?.fillColor
-            fillOpacity = featureStyle?.fillOpacity ?: layerStyle?.fillOpacity
-            outlineColor = featureStyle?.outlineColor ?: layerStyle?.outlineColor
-            outlineWidth = featureStyle?.outlineWidth ?: layerStyle?.outlineWidth
-            labelField = featureStyle?.labelField ?: layerStyle?.labelField
-            labelColor = featureStyle?.labelColor ?: layerStyle?.labelColor
-            labelSize = featureStyle?.labelSize ?: layerStyle?.labelSize
-            labelOutline = featureStyle?.labelOutline ?: layerStyle?.labelOutline
-            labelOutlineColor = featureStyle?.labelOutlineColor ?: layerStyle?.labelOutlineColor
-            iconKey = featureStyle?.iconKey ?: layerStyle?.iconKey
-        }
-
-        // 渲染色只采样一次（填充/描边两个兜底色块共用同一结果）
-        val renderColors = renderColorsOf(info.renderable)
-        FeatureDetailDialog(
-            R.layout.dialog_feature_detail,
-            featureName = info.name,
-            layerName = info.layerName,
-            featureId = info.featureId,
-            attributes = info.attributes,
-            description = info.description,
-            initialStyle = merged.takeIf { !it.isEmpty() },
-            styleEditable = styleEditable,
-            fallbackFill = renderColors.first,
-            fallbackOutline = renderColors.second,
-            isPointFeature = info.renderable is Placemark,
-            geometryText = featureGeometryText(info.renderable),
-            attrsEditable = attrsEditable,
-            onSaveAttributes = if (attrsEditable) {{ pending -> persistAttributes(info, pending) }} else null,
-            surveyEntryVisible = surveyMode && ext == "shp" && info.renderable is Polygon && info.featureId >= 0,
-            onSurveyEntry = if (surveyMode && ext == "shp" && info.renderable is Polygon && info.featureId >= 0)
-                {{ showSurveyEntryDialog(info) }} else null,
-            onSave = { style ->
-                val li = layerInfo
-                if (li != null) {
-                    val vs = li.vectorStyle ?: VectorStyle().also { li.vectorStyle = it }
-                    if (style.isEmpty()) vs.featureStyles.remove(info.featureId)
-                    else vs.featureStyles[info.featureId] = style
-                    li.styleVersion++
-                    // 保存后图层将重载，旧渲染对象失效，先取消选中态
-                    vectorPickModel?.clearSelection()
-                    DocumentManager.getInstance().save(this)
-                }
-            }
-        ).show(supportFragmentManager, "FeatureDetailDialog")
-    }
-
-    /**
-     * 调查模式属性写回：IO 线程调 GDAL 写回源文件，成功后就地更新 renderable 的
-     * FEATURE_ATTRS_KEY userProperty（避免整层重载引起样式抖动），并刷新地图。
-     * @return 写回是否成功（供对话框决定是否 dismiss）
-     */
-    private fun persistAttributes(info: PickedFeatureInfo, pending: Map<String, String>): Boolean {
-        val path = info.layerPath ?: return false
-        if (pending.isEmpty()) return true
-        var success = false
-        // 同步写回（对话框等待结果决定是否关闭），GDAL SetField+SetFeature 耗时可忽略
-        try {
-            success = GdalVectorReader.updateAttributes(path, info.featureId, pending)
-        } catch (e: Exception) {
-            AppLog.e(TAG, "属性写回异常", e)
-        }
-        if (success) {
-            // 就地更新 renderable 属性缓存，避免整层重载
-            @Suppress("UNCHECKED_CAST")
-            val existing = info.renderable.getUserProperty(LocalVectorLoader.FEATURE_ATTRS_KEY) as? MutableMap<String, String>
-            if (existing != null) {
-                existing.putAll(pending)
-            } else {
-                val merged = LinkedHashMap(info.attributes ?: emptyMap())
-                merged.putAll(pending)
-                info.renderable.putUserProperty(LocalVectorLoader.FEATURE_ATTRS_KEY, merged)
-            }
-            getWorldWindow().requestRedraw()
-            Toast.makeText(this, R.string.main_survey_edit_success, Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(this, R.string.main_survey_edit_failed, Toast.LENGTH_SHORT).show()
-        }
-        return success
-    }
-
-    /** 可写格式判定：shp/dxf/gpkg/geojson/kml/kmz 支持属性写回，dwg 只读 */
-    private fun isWritableFormat(ext: String): Boolean =
-        ext in WRITABLE_FORMATS
-
-    /**
-     * 样地调查入口对话框：查询该要素已有样地记录，
-     * 空则直接新建样地调查，非空则弹出单选列表（已有样地 + 新建）。
-     * 定位未就绪时 Toast 提示并中止。
-     */
-    private fun showSurveyEntryDialog(info: PickedFeatureInfo) {
-        val loc = LocationManager.getInstance().getLastLocation()
-        if (loc == null) {
-            Toast.makeText(this, R.string.main_survey_location_required, Toast.LENGTH_SHORT).show()
-            return
-        }
-        val path = info.layerPath ?: return
-        val fid = info.featureId
-        val plots = SampleSurveyStore.loadPlots(this, path, fid)
-        // 尝试从属性表提取小班编号（常见字段名）
-        val compartmentNo = info.attributes?.get("小班号")
-            ?: info.attributes?.get("XBH")
-            ?: info.attributes?.get("小班")
-            ?: info.name
-            ?: "未命名小班"
-
-        if (plots.isEmpty()) {
-            SampleSurveyActivity.start(this, path, fid, compartmentNo, loc.latitude, loc.longitude)
-            return
-        }
-        // 弹出单选列表：已有样地 + 新建样地调查
-        val items = plots.map { "样地#${it.plotNo}" }.toMutableList()
-        items.add("新建样地调查")
-        AlertDialog.Builder(this)
-            .setTitle("样地调查")
-            .setItems(items.toTypedArray()) { _, which ->
-                if (which < plots.size) {
-                    // 编辑已有样地
-                    SampleSurveyActivity.start(this, path, fid, compartmentNo,
-                        loc.latitude, loc.longitude, plots[which].id)
-                } else {
-                    // 新建样地
-                    SampleSurveyActivity.start(this, path, fid, compartmentNo,
-                        loc.latitude, loc.longitude)
-                }
-            }
-            .setNegativeButton("取消", null)
-            .show()
-    }
-
-    /**
-     * 渲染对象当前实际渲染色（#AARRGGBB）：无文档样式覆盖时色块回显所见即所得。
-     * 面/线取填充/描边色；点取图标着色，无描边色。
-     */
-    private fun renderColorsOf(renderable: Renderable): Pair<String?, String?> = when (renderable) {
-        is AbstractShape -> colorToHex(renderable.attributes.interiorColor) to
-                colorToHex(renderable.attributes.outlineColor)
-        is Placemark -> colorToHex(renderable.attributes.imageColor) to null
-        else -> null to null
-    }
-
-    /**
-     * 要素几何量算：面要素返回面积+周长（带洞多边形按各环带符号面积代数和），
-     * 线要素返回长度；点要素无量算信息返回 null（对话框隐藏该行）。
-     */
-    private fun featureGeometryText(renderable: Renderable): String? {
-        if (renderable is Polygon) {
-            var signedArea = 0.0
-            var perimeter = 0.0
-            var hasBoundary = false
-            for (i in 0 until renderable.boundaryCount) {
-                val ring = renderable.getBoundary(i)
-                if (ring.size < 2) continue
-                hasBoundary = true
-                val degrees = ring.map { doubleArrayOf(it.latitude.inDegrees, it.longitude.inDegrees) }
-                signedArea += GeoCalc.polygonSignedAreaSquareMeters(degrees)
-                perimeter += GeoCalc.ringPerimeterMeters(degrees)
-            }
-            if (!hasBoundary) return null
-            return "面积：" + GeoCalc.formatArea(abs(signedArea)) +
-                    "    周长：" + GeoCalc.formatDistance(perimeter)
-        }
-        if (renderable is Path) {
-            val degrees = renderable.positions.map { doubleArrayOf(it.latitude.inDegrees, it.longitude.inDegrees) }
-            if (degrees.size < 2) return null
-            return "长度：" + GeoCalc.formatDistance(GeoCalc.polylineLengthMeters(degrees))
-        }
-        return null
-    }
-
-    /**
-     * 矢量图层当前实际渲染色（填充/描边）：按 [com.zys.mobilemap.vector.LocalVectorLoader.LAYER_PATH_KEY]
-     * 定位已加载图层，取首个面/线/点渲染对象的真实颜色（已含文档样式效果），
-     * 供整层样式对话框色块回显所见即所得；图层未加载返回 null。
-     */
-    private fun layerRenderColorsOf(path: String): Pair<String?, String?> {
-        for (layer in getWorldWindow().engine.layers) {
-            if (layer.getUserProperty(LocalVectorLoader.LAYER_PATH_KEY) != path) continue
-            // 矢量图层均为 RenderableLayer（实现 Iterable<Renderable>），逐对象采样真实颜色
-            if (layer !is RenderableLayer) continue
-            for (r in layer) {
-                val colors = renderColorsOf(r)
-                if (colors.first != null || colors.second != null) return colors
-            }
-        }
-        return null to null
-    }
-
-    /** wwd 颜色转 #AARRGGBB 十六进制字符串（分量先限幅到 0..255） */
-    private fun colorToHex(c: Color): String = ColorHex.fromArgb(
-        alpha = (c.alpha * 255).roundToInt().coerceIn(0, 255),
-        red = (c.red * 255).roundToInt().coerceIn(0, 255),
-        green = (c.green * 255).roundToInt().coerceIn(0, 255),
-        blue = (c.blue * 255).roundToInt().coerceIn(0, 255)
-    )
+    // ── 生命周期 ──────────────────────────────────────────────────────────────────
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         // 未初始化完成前（如权限页返回前）外部 VIEW intent 先暂存，初始化完成后统一处理
         if (!initialized) return
-        handleViewIntent(intent)
-    }
-
-    /**
-     * 处理系统外部打开（ACTION_VIEW）：先按显示名分流——拍照数据包（.mphoto）导入新建点位，
-     * 其余按矢量数据 content:// 复制到本地经矢量导入器导入（zip/kmz 解压），写入文档同步地图后缩放到图层范围。
-     */
-    private fun handleViewIntent(intent: Intent?) {
-        if (intent == null || intent.action != Intent.ACTION_VIEW) return
-        val uri = intent.data ?: return
-        lifecycleScope.launch {
-            // 拍照数据包与矢量数据共用同一外部打开入口，先按文件名后缀分流，避免误当矢量导入
-            val displayName = withContext(Dispatchers.IO) { resolveDisplayName(uri) }
-            if (MediaPackage.isPackageFile(displayName)) {
-                importMediaPackage(uri)
-                return@launch
-            }
-            val localPath = withContext(Dispatchers.IO) { resolveToLocalPath(uri) }
-            if (localPath == null) {
-                Toast.makeText(this@MainActivity, R.string.vector_open_failed, Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-            val imported = VectorFileImporter.importFile(this@MainActivity, localPath)
-            if (imported == null) {
-                Toast.makeText(this@MainActivity, R.string.vector_import_failed, Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-            val doc = DocumentManager.getInstance().getDocument() ?: return@launch
-            if (doc.vectorLayers.none { it.path == imported.path }) {
-                doc.vectorLayers.add(LayerInfo(imported.name, imported.path, LayerInfo.TYPE_VECTOR, true))
-                DocumentManager.getInstance().save(this@MainActivity)
-            }
-            zoomToLayerExtent(imported.path)
-        }
-    }
-
-    /**
-     * 导入拍照数据包：复制到应用私有临时目录 → 解包新建点位 → 刷新标注图层并缩放到首个新点位。
-     * 与矢量导入一致，IO 均在工作线程；临时副本导入后清理。
-     */
-    private suspend fun importMediaPackage(uri: Uri) {
-        val staged = withContext(Dispatchers.IO) { stagePackageFile(uri) }
-        if (staged == null) {
-            Toast.makeText(this@MainActivity, "拍照数据包读取失败", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val file = staged.first
-        val imported = try {
-            withContext(Dispatchers.IO) { MediaPackage.importPackage(this@MainActivity, file) }
-        } finally {
-            // 仅清理为导入复制出的临时副本（file:// 原件不动）
-            if (staged.second) runCatching { file.delete() }
-        }
-        if (imported.isEmpty()) {
-            Toast.makeText(this@MainActivity, "拍照数据包导入失败", Toast.LENGTH_SHORT).show()
-            return
-        }
-        mediaOverlayModel?.reload()
-        Toast.makeText(this@MainActivity, "已导入 ${imported.size} 个拍照点位", Toast.LENGTH_SHORT).show()
-        zoomToMediaPlacemark(imported.first())
-    }
-
-    /** 取外部 Uri 的显示文件名（content:// 查 DISPLAY_NAME，file:// 取路径末段）。 */
-    private fun resolveDisplayName(uri: Uri): String? = try {
-        when (uri.scheme) {
-            "file" -> uri.path?.substringAfterLast('/')
-            "content" -> queryDisplayName(uri) ?: uri.lastPathSegment?.substringAfterLast('/')
-            else -> null
-        }
-    } catch (e: Exception) {
-        Log.e(TAG, "解析外部文件名失败: $uri", e)
-        null
-    }
-
-    private fun queryDisplayName(uri: Uri): String? {
-        var name: String? = null
-        contentResolver.query(uri, null, null, null, null)?.use { c ->
-            val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (idx >= 0 && c.moveToFirst()) name = c.getString(idx)
-        }
-        return name
-    }
-
-    /**
-     * 拍照数据包落地为本地文件：file:// 直接用（非临时，勿删）；content:// 复制到应用私有
-     * getExternalFilesDir/media_import（临时副本，导入后删）。返回 (文件, 是否临时副本)。
-     */
-    private fun stagePackageFile(uri: Uri): Pair<File, Boolean>? {
-        return try {
-            when (uri.scheme) {
-                "file" -> uri.path?.let { File(it) }?.takeIf { it.exists() }?.let { it to false }
-                "content" -> {
-                    val name = queryDisplayName(uri) ?: "package.${MediaPackage.EXT}"
-                    val dir = File(getExternalFilesDir(null) ?: cacheDir, "media_import")
-                    dir.mkdirs()
-                    val target = File(dir, name)
-                    contentResolver.openInputStream(uri)?.use { input ->
-                        target.outputStream().use { output -> input.copyTo(output) }
-                    } ?: return null
-                    target to true
-                }
-                else -> null
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "拍照数据包复制到本地失败: $uri", e)
-            null
-        }
-    }
-
-    /**
-     * 外部 Uri 转本地可读路径：file:// 直接使用；
-     * content:// 经 ContentResolver 复制到 /调查宝/layer/import_<时间戳>/。
-     */
-    private fun resolveToLocalPath(uri: Uri): String? {
-        return try {
-            when (uri.scheme) {
-                "file" -> uri.path
-                "content" -> {
-                    var name: String? = null
-                    contentResolver.query(uri, null, null, null, null)?.use { c ->
-                        val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        if (idx >= 0 && c.moveToFirst()) name = c.getString(idx)
-                    }
-                    if (name.isNullOrEmpty()) {
-                        name = uri.lastPathSegment?.substringAfterLast('/') ?: "import_file"
-                    }
-                    val dir = File(
-                        AppDirectories.getLayerDir(this),
-                        "import_${System.currentTimeMillis()}"
-                    )
-                    dir.mkdirs()
-                    val target = File(dir, name)
-                    contentResolver.openInputStream(uri)?.use { input ->
-                        target.outputStream().use { output -> input.copyTo(output) }
-                    } ?: return null
-                    target.absolutePath
-                }
-                else -> null
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "外部矢量文件复制到本地失败: $uri", e)
-            null
-        }
-    }
-
-    /**
-     * 缩放到图层四至范围（GDAL 读取，kmz 走 /vsizip/ 虚拟文件）。
-     */
-    private fun zoomToLayerExtent(path: String) {
-        val openPath = if (path.lowercase(Locale.getDefault()).endsWith(".kmz")) "/vsizip/$path" else path
-        val extent = nativeGetLayerExtent(openPath)
-        if (extent != null && extent.size == 4) {
-            zoomToExtent(extent[0], extent[1], extent[2], extent[3])
-        }
-    }
-
-    /**
-     * 缩放到图层四至范围
-     */
-    private fun zoomToExtent(minLon: Double, minLat: Double, maxLon: Double, maxLat: Double) {
-        val span = maxOf(maxLon - minLon, maxLat - minLat).coerceAtLeast(0.01)
-        val altitude = span * 111320.0 * 1.5
-        // 动画缩放到图层四至：北向归零，远距离自动走飞越弧线
-        (getWorldWindow() as? MapWorldWindow)?.smoothMoveTo(
-            (minLat + maxLat) / 2.0, (minLon + maxLon) / 2.0, altitude, 0.0
-        )
-    }
-
-    // 四至读取 nativeGetLayerExtent 已上提到基类 BaseMapActivity（protected external），此处继承使用
-
-    /**
-     * 按系统配置显示/隐藏中心十字
-     */
-    private fun updateCenterCrossVisibility() {
-        val show = DocumentManager.getInstance().getDocument()?.systemConfig?.showCenterCross ?: true
-        binding.mainCross.visibility = if (show) View.VISIBLE else View.GONE
-    }
-
-    /**
-     * 切换天地图-注记图层可见性，保存后由文档监听同步地图。
-     */
-    private fun toggleAnnotationLayer() {
-        val doc = DocumentManager.getInstance().getDocument() ?: return
-        val src = doc.mapSources.firstOrNull { it.isAnnotation } ?: return
-        src.visible = !src.visible
-        DocumentManager.getInstance().save(this)
-        updateAnnotationIcon()
-    }
-
-    /**
-     * 按注记图层可见性更新主界面开关图标。
-     */
-    private fun updateAnnotationIcon() {
-        val visible = DocumentManager.getInstance().getDocument()
-            ?.mapSources?.firstOrNull { it.isAnnotation }?.visible ?: false
-        binding.mainIvIsCIA.setImageResource(
-            if (visible) R.drawable.nav_ic_cia_open else R.drawable.nav_ic_cia_close
-        )
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        locationDisplayManager?.handlePermissionResult(requestCode, grantResults)
-    }
-
-    /**
-     * “移动到”对话框初值：优先取当前定位（由定位文本点开，与上下文一致），
-     * 无定位时回退到当前相机中心。
-     */
-    private fun showMoveToDialog() {
-        val loc = LocationManager.getInstance().getLastLocation()
-        var initLon = loc?.longitude ?: Double.NaN
-        var initLat = loc?.latitude ?: Double.NaN
-
-        if (initLon.isNaN() || initLat.isNaN()) {
-            val pos = getWorldWindow().engine.camera.position
-            initLon = pos.longitude.inDegrees
-            initLat = pos.latitude.inDegrees
-        }
-
-        MoveToDialog(this, initLon, initLat) { lon: Double, lat: Double ->
-            val camera = getWorldWindow().engine.camera
-            // 动画移动到输入坐标：保持当前高度与航向，远距离自动走飞越弧线
-            (getWorldWindow() as? MapWorldWindow)?.smoothMoveTo(
-                lat, lon, camera.position.altitude, camera.heading.inDegrees
-            )
-        }.create().show()
+        importHandler.handleViewIntent(intent)
     }
 
     override fun onResume() {
         super.onResume()
         // 权限页返回复检：“所有文件访问”已授予则续跑启动初始化（幂等）
-        if (waitingForAllFilesPermission && hasAllFilesPermission()) {
+        if (waitingForAllFilesPermission && startup.hasAllFilesPermission()) {
             waitingForAllFilesPermission = false
             initializeAndSetup()
         }
-        // 未完成初始化时地图尚未创建，跳过依赖 WorldWindow 的刷新逻辑
+        // 未完成初始化时地图尚未装配（mapView 无图层），跳过依赖它的刷新逻辑
         if (!initialized) return
-        getWorldWindow().onResume()
-        updateCenterCrossVisibility()
-        applyModuleVisibility()
+        // GLSurfaceView 要求：驱动 GL 渲染线程
+        mapView.onResume()
+        // 刷新业务叠加层：数据签名变化才重建（捕获设置开关切换 / 外部数据库变更 / 样地调查返回后新增样地）
+        overlayManager.rebuild()
+        // 启动级别/中心文本轮询刷新
+        navigator.startPolling()
     }
 
-    /**
-     * 按系统配置驱动拍照标注/轨迹/测量图层可见性与坐标文本格式（设置页返回后生效）。
-     */
-    private fun applyModuleVisibility() {
-        val config = DocumentManager.getInstance().getDocument()?.systemConfig ?: return
-        mediaOverlayModel?.setEnabled(config.showMediaLayer)
-        mediaOverlayModel?.reload()
-        trackModel?.setEnabled(config.showTrackLayer)
-        measureModel?.setEnabled(config.showMeasureLayer)
-        // 坐标显示格式（十进制度 / 米）可能已变更，立即重算中心与定位坐标文本
-        navigatorModel?.refresh()
-        locationDisplayManager?.refresh()
+    override fun onPause() {
+        super.onPause()
+        navigator.stopPolling()
+        // 未完成初始化时地图尚未装配，跳过相机保存与 GL 暂停
+        if (!initialized) return
+        // 把当前视角存到本界面独立的 SharedPreferences（不碰共享文档相机），最后暂停 GL 线程
+        navigator.saveCameraState()
+        mapView.onPause()
+    }
+
+    override fun onDestroy() {
+        if (::navigator.isInitialized) navigator.stopPolling()
+        if (::startup.isInitialized) startup.cancelLoadingOverlayTimeout()
+        // 取消矢量加载提示胶囊的挂起任务（延迟显示/轮询均为主线程 postDelayed，界面销毁后不可再触碰 View）
+        if (::layerManager.isInitialized) layerManager.cancelVectorLoadingPill()
+        // 注销图层管理对话框生命周期观察（避免界面销毁后仍被回调）
+        supportFragmentManager.unregisterFragmentLifecycleCallbacks(layerDialogLifecycleCallback)
+        // 注销文档变更监听（避免界面销毁后仍被回调）
+        DocumentManager.getInstance().unregisterDocumentChangeListener(this)
+        // 注销定位监听（不调 stopLocation：定位由 LocationManager 单例统一管理，其他模块可能仍在使用）
+        if (::locationController.isInitialized) locationController.onDestroy()
+        // 关闭轨迹落库线程（已入队的采集点写入仍会执行完毕；采集点已实时写库，下次启动可恢复未完成记录）
+        if (::trackController.isInitialized) trackController.onDestroy()
+        // 释放 native 地图实例（GL 资源在 onDetachedFromWindow 经 GL 线程释放）；未初始化时 mapView 无图层亦安全
+        if (::mapView.isInitialized) mapView.destroy()
+        super.onDestroy()
+    }
+
+    companion object {
+        private const val TAG = "MainActivity"
+
+        /** 图层管理对话框 FragmentManager tag（判定当前是否处于打开态、挂起 recreate 用） */
+        private const val TAG_LAYER_MANAGE_DIALOG = "LayerManageDialog"
     }
 }

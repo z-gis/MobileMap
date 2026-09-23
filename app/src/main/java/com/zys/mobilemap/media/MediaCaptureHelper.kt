@@ -20,6 +20,7 @@ import com.zys.mobilemap.location.LocationManager
 import com.zys.mobilemap.ui.dialog.MediaEditDialog
 import com.zys.mobilemap.util.AppDirectories
 import java.io.File
+import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
@@ -93,7 +94,7 @@ class MediaCaptureHelper(
             val store = MediaStore.getInstance(activity)
             val now = System.currentTimeMillis()
             sessionPlacemarkId = store.insertPlacemark(
-                MediaOverlayModel.formatPlacemarkName(now),
+                formatPlacemarkName(now),
                 pendingCaptureLat, pendingCaptureLon, now
             )
             if (sessionPlacemarkId < 0) {
@@ -235,5 +236,9 @@ class MediaCaptureHelper(
 
     companion object {
         private const val TAG = "MediaCaptureHelper"
+
+        /** 会话点位默认时间名（自原 wwd 主界面 MediaOverlayModel 抽入，该类已随主界面移除） */
+        fun formatPlacemarkName(time: Long): String =
+            "拍照 " + SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(time))
     }
 }

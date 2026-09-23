@@ -39,6 +39,7 @@ import com.zys.mobilemap.ui.activity.OpenFileActivity
 import com.zys.mobilemap.util.AppDirectories
 import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.vector.VectorFileImporter
+import com.zys.worldwindjni.NativeLayerInfo
 import java.io.File
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -345,7 +346,7 @@ class LayerManageDialog(
         }
         // kmz 压缩包通过 GDAL /vsizip/ 虚拟文件读取
         val openPath = if (path.lowercase(Locale.getDefault()).endsWith(".kmz")) "/vsizip/$path" else path
-        val extent = nativeGetLayerExtent(openPath)
+        val extent = NativeLayerInfo.getLayerExtent(openPath)
         if (extent == null || extent.size != 4) {
             Toast.makeText(requireContext(), R.string.layer_extent_failed, Toast.LENGTH_SHORT).show()
             return
@@ -367,7 +368,7 @@ class LayerManageDialog(
             return
         }
         // 字段名供语句书写提示（OGR 读 DBF 字段），读取失败不阻断查询
-        val fields = runCatching { nativeGetVectorFieldNames(path)?.toList() }.getOrNull()
+        val fields = runCatching { NativeLayerInfo.getVectorFieldNames(path)?.toList() }.getOrNull()
         SqlQueryDialog(
             requireContext(),
             path,
@@ -486,9 +487,9 @@ class LayerManageDialog(
         // shp/gpkg 均为 GDAL 索引格式，支持整层样式与标注字段下拉（DBF/GPKG 字段名）
         val isIndexed = ext == "shp" || ext == "gpkg"
         // 标注字段候选：shp 取 DBF 字段清单，gpkg 取 SQLite 表字段清单（均经 GDAL）；kml 标注随源文件不开放设置
-        val fieldOptions = if (isIndexed) item.path?.let { nativeGetVectorFieldNames(it)?.toList() } else null
+        val fieldOptions = if (isIndexed) item.path?.let { NativeLayerInfo.getVectorFieldNames(it)?.toList() } else null
         // 所见即所得：优先取地图上该图层当前实际渲染色（已含文档样式效果），
-        // 图层未加载时回退默认渲染色（与 LocalVectorLoader 面默认样式一致）
+        // 图层未加载时回退默认渲染色（与 MainActivity 矢量默认样式一致）
         val renderColors = item.path?.let { layerRenderColors?.invoke(it) }
 
         FeatureDetailDialog(
@@ -626,7 +627,7 @@ class LayerManageDialog(
         val srsPath = item.path?.let {
             if (it.lowercase(Locale.getDefault()).endsWith(".kmz")) "/vsizip/$it" else it
         }
-        val srsStr = srsPath?.let { nativeGetLayerSrs(it) }
+        val srsStr = srsPath?.let { NativeLayerInfo.getLayerSrs(it) }
             ?.substringBefore('\n')
             ?.trim()
             ?.takeIf { it.isNotBlank() }
@@ -654,18 +655,6 @@ class LayerManageDialog(
         if (mb < 1024) return String.format(Locale.getDefault(), "%.1f MB", mb)
         return String.format(Locale.getDefault(), "%.2f GB", mb / 1024.0)
     }
-
-    // JNI 符号为 Java_com_zys_mobilemap_ui_dialog_LayerManageDialog_nativeGetLayerExtent，
-    // 与 MoveToDialog 一致声明为类成员 external 函数（不能放入 companion object）
-    private external fun nativeGetLayerExtent(path: String): DoubleArray?
-
-    // JNI 符号为 Java_com_zys_mobilemap_ui_dialog_LayerManageDialog_nativeGetVectorFieldNames，
-    // OGR 读取矢量图层字段名（shp 取 DBF 字段，供整层样式标注字段下拉）
-    private external fun nativeGetVectorFieldNames(path: String): Array<String>?
-
-    // JNI 符号为 Java_com_zys_mobilemap_ui_dialog_LayerManageDialog_nativeGetLayerSrs，
-    // 读取图层原始文件坐标系（名称 + proj4），无 SRS/打开失败返回 null
-    private external fun nativeGetLayerSrs(path: String): String?
 
     internal class LayerItem(
         var name: String?,
@@ -816,7 +805,7 @@ class LayerManageDialog(
         private const val TAB_RASTER = 1
         private const val TAB_MAP_SOURCE = 2
 
-        /** 无样式覆盖时面要素默认渲染色（与 LocalVectorLoader 面默认样式一致，色块所见即所得） */
+        /** 无样式覆盖时面要素默认渲染色（与 MainActivity 矢量默认样式一致，色块所见即所得） */
         private const val DEFAULT_SHAPE_FILL = "#664A8FE3"
         private const val DEFAULT_SHAPE_OUTLINE = "#FFFFFFFF"
 

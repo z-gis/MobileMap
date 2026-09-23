@@ -7,7 +7,7 @@ import org.json.JSONObject
  * 全部字段可空，空 = 保持源文件/默认样式。
  * 优先级：单要素样式（[featureStyles]）> 整层样式 > 源文件自带样式。
  *
- * 颜色统一 #AARRGGBB 十六进制字符串；加载时由渲染层覆盖应用（见 LocalVectorLoader）。
+ * 颜色统一 #AARRGGBB 十六进制字符串；加载时由渲染层覆盖应用（MainActivity/native 矢量装载链路）。
  */
 class VectorStyle {
 

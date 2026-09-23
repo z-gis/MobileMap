@@ -33,13 +33,14 @@ open class BaseBottomSheetDialog(private val resource: Int) : BottomSheetDialogF
         sheetView = view
         dialog.setContentView(view)
 
-        // 圆角背景与高度档位须在 onShow 后配置：design_bottom_sheet 容器在 show 之前尚未就绪，
-        // 内容实测高度也要等布局完成才有值
+        // 圆角背景与高度档位须在 onShow 后配置：design_bottom_sheet 容器在 show 之前尚未就绪；
+        // 但不可再经 view.post 延后一拍——那会让弹层先以系统默认收起态入画、下一帧才跳展开态，
+        // 表现为打开时上下抖动（二段跳）；内容高度改在 onShow 内同步手动测量（见 applyHeightSteps）
         dialog.setOnShowListener {
             val bottomSheet = dialog.findViewById<FrameLayout>(MaterialR.id.design_bottom_sheet)
             if (bottomSheet != null) {
                 bottomSheet.setBackgroundResource(R.drawable.bg_bottom_sheet_rounded)
-                view.post { applyHeightSteps(bottomSheet, view) }
+                applyHeightSteps(bottomSheet, view)
             }
         }
 
@@ -47,20 +48,31 @@ open class BaseBottomSheetDialog(private val resource: Int) : BottomSheetDialogF
     }
 
     /**
-     * 按内容实测高度配置手势档位，须在布局完成后（post）调用。
+     * 按内容实测高度配置手势档位，于 onShow 内同帧调用（保证入画首帧即展开态，无二段跳）。
      *
      * 收起态高度取屏高 [PEEK_HEIGHT_RATIO] 与内容实测高度的较小者，展开态为内容全高：
      * 两档拉开差距后，下拉先收到收起态、继续下拉才关闭，上拉回到展开态。
      * 内容高于屏幕时容器被父布局限制，超出部分由内容自身（列表/网格）滚动。
+     *
+     * onShow 时首帧布局尚未完成（content.height == 0），改以手动 measure 同步量出内容高度
+     * （宽取容器/屏宽、高不超过屏高），避免依赖 post 延后配置档位造成的打开抖动。
      */
     private fun applyHeightSteps(bottomSheet: FrameLayout, content: View) {
         val collapsedHeight = (resources.displayMetrics.heightPixels * PEEK_HEIGHT_RATIO).toInt()
+        if (content.height <= 0) {
+            val w = if (bottomSheet.width > 0) bottomSheet.width else resources.displayMetrics.widthPixels
+            content.measure(
+                View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(resources.displayMetrics.heightPixels, View.MeasureSpec.AT_MOST)
+            )
+        }
+        val contentHeight = if (content.height > 0) content.height else content.measuredHeight
         BottomSheetBehavior.from(bottomSheet).apply {
             isHideable = true
             isDraggable = true
             // 不能取 peekHeight = 内容全高：那会让收起态与展开态重合，
             // 下拉直接跳过收起态关闭弹层，手势无法在两档间调整高度
-            peekHeight = if (content.height in 1..collapsedHeight) content.height else collapsedHeight
+            peekHeight = if (contentHeight in 1..collapsedHeight) contentHeight else collapsedHeight
             state = BottomSheetBehavior.STATE_EXPANDED
         }
     }

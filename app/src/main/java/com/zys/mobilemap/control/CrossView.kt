@@ -9,7 +9,7 @@ import android.view.View
 
 /**
  * 地图中心十字准星：横竖两条红线交于视图中心，指示当前地图中心点。
- * 由 activity_main.xml 直接声明，故用 @JvmOverloads 生成三个标准 View 构造函数供 XML 反射调用。
+ * 由活动布局（activity_main.xml）直接声明，故用 @JvmOverloads 生成三个标准 View 构造函数供 XML 反射调用。
  */
 class CrossView @JvmOverloads constructor(
     context: Context,

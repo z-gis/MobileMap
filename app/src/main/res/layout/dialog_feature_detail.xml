@@ -17,12 +17,48 @@
             android:layout_height="wrap_content"
             android:layout_alignParentStart="true"
             android:layout_centerVertical="true"
-            android:layout_toStartOf="@id/feature_detail_tv_close"
+            android:layout_toStartOf="@id/feature_detail_btn_survey_entry"
             android:ellipsize="end"
             android:maxLines="1"
             android:textColor="#212121"
             android:textSize="16sp"
             android:textStyle="bold"
+            tools:ignore="HardcodedText"
+            xmlns:tools="http://schemas.android.com/tools" />
+
+        <!-- 顶部“样地调查”按键：紧邻编辑左侧，始终可见（不受编辑门控与标签页切换影响） -->
+        <TextView
+            android:id="@+id/feature_detail_btn_survey_entry"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_toStartOf="@id/feature_detail_btn_edit"
+            android:layout_centerVertical="true"
+            android:gravity="center"
+            android:paddingStart="8dp"
+            android:paddingEnd="4dp"
+            android:text="样地调查"
+            android:textColor="#4CAF50"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            tools:ignore="HardcodedText"
+            xmlns:tools="http://schemas.android.com/tools" />
+
+        <!-- 顶部“编辑”按键（文本式）：editButtonVisible 时可见，点击后进入可编辑态（属性可改），取代原全局调查模式门控 -->
+        <TextView
+            android:id="@+id/feature_detail_btn_edit"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_toStartOf="@id/feature_detail_tv_close"
+            android:layout_centerVertical="true"
+            android:gravity="center"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:text="编辑"
+            android:textColor="#2196F3"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:visibility="gone"
             tools:ignore="HardcodedText"
             xmlns:tools="http://schemas.android.com/tools" />
 
@@ -453,19 +489,6 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical">
-
-            <!-- 样地调查入口按键：调查模式下 shp 面要素可见，点击弹出样地列表/新建样地对话框 -->
-            <Button
-                android:id="@+id/feature_detail_btn_survey_entry"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:layout_marginTop="12dp"
-                android:layout_marginEnd="12dp"
-                android:text="样地调查"
-                android:visibility="gone"
-                tools:ignore="HardcodedText"
-                xmlns:tools="http://schemas.android.com/tools" />
 
             <TextView
                 android:id="@+id/feature_detail_tv_attr_hint"

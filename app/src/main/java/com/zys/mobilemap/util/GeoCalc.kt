@@ -174,6 +174,27 @@ object GeoCalc {
         return min
     }
 
+    /**
+     * 射线法判定点是否在多边形环内（经纬度平面近似）。
+     * [ring] 为 [lat, lon] 序列（至少 3 点，无需首尾闭合）；从点 (lat, lon) 向 +lon 方向发水平射线，
+     * 统计与环边的交点数，奇数则在内部。供样地调查判定 GPS 是否在小班范围内。
+     */
+    fun containsPoint(ring: List<DoubleArray>, lat: Double, lon: Double): Boolean {
+        if (ring.size < 3) return false
+        var inside = false
+        var j = ring.size - 1
+        for (i in ring.indices) {
+            val yi = ring[i][0]; val xi = ring[i][1]
+            val yj = ring[j][0]; val xj = ring[j][1]
+            if ((yi > lat) != (yj > lat)) {
+                val intersectLon = (xj - xi) * (lat - yi) / (yj - yi) + xi
+                if (lon < intersectLon) inside = !inside
+            }
+            j = i
+        }
+        return inside
+    }
+
     /** 距离格式化：<1km 显示米，否则显示千米。 */
     fun formatDistance(meters: Double): String =
         if (meters < 1000.0) "%.1f m".format(Locale.getDefault(), meters)

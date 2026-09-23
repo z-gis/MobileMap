@@ -39,7 +39,8 @@ class FeatureDetailDialog(
     private val featureName: String?,
     private val layerName: String?,
     private val featureId: Long,
-    private val attributes: Map<String, String>?,
+    // 属性表：宿主可先弹层后异步回填（见 [pushAttributes]），故为可变
+    private var attributes: Map<String, String>?,
     private val initialStyle: VectorStyle?,
     private val styleEditable: Boolean,
     /** 要素当前实际渲染色（无文档样式覆盖时色块回显所见即所得） */
@@ -52,8 +53,8 @@ class FeatureDetailDialog(
     private val labelSectionVisible: Boolean = true,
     /** 要素几何量算信息（面：面积+周长，线：长度），代替原图层行展示；为空时隐藏该行 */
     private val geometryText: String? = null,
-    /** KML/KMZ 要素 <description> HTML：非空时属性页以 WebView 渲染（对齐 2.5.3），否则显示键值属性表 */
-    private val description: String? = null,
+    /** KML/KMZ 要素 <description> HTML：非空时属性页以 WebView 渲染（对齐 2.5.3），否则显示键值属性表；随属性异步回填可变 */
+    private var description: String? = null,
     private val onSave: ((VectorStyle) -> Unit)?,
     /** 调查模式：属性值可点击编辑，保存写回矢量源文件（仅 shp/dxf/gpkg/geojson/kml/kmz 可写） */
     private val attrsEditable: Boolean = false,
@@ -62,8 +63,17 @@ class FeatureDetailDialog(
     /** 样地调查入口可见性：调查模式下 shp 面要素为 true */
     private val surveyEntryVisible: Boolean = false,
     /** 样地调查入口点击回调：由宿主弹出样地列表/新建样地对话框 */
-    private val onSurveyEntry: (() -> Unit)? = null
+    private val onSurveyEntry: (() -> Unit)? = null,
+    /** 顶部“编辑”按键门控：为 true 时属性编辑与样地入口初始隐藏，点顶部“编辑”后才开放（取代原全局调查模式按键） */
+    private val editButtonVisible: Boolean = false,
+    /** 样地调查绕过编辑门控：为 true 时样地按钮始终可见（不受“编辑”按键与标签页切换影响），供 MainActivity 直接开始样地调查 */
+    private val surveyBypassEdit: Boolean = false,
+    /** 属性回取挂起：属性未就绪时先行弹出（属性页显示加载提示），宿主后台读完后经 [pushAttributes] 就地回填 */
+    attrsPending: Boolean = false
 ) : BaseBottomSheetDialog(resource) {
+
+    /** 属性回填是否仍在途（初值取构造参数；[pushAttributes] 后置 false，空属性才能如实显示“暂无属性表”） */
+    private var attrsLoading = attrsPending
 
     /** 当前样式编辑状态（初始取文档已有样式，缺省用默认值） */
     private var fillColor = DEFAULT_FILL
@@ -88,6 +98,12 @@ class FeatureDetailDialog(
 
     /** 属性页保存按键引用（fillAttributePage 中初始化，编辑后刷新可见性） */
     private var btnSaveAttrs: Button? = null
+
+    /** 顶部“编辑”按键门控态：editButtonVisible 时初始 false，点“编辑”后置 true 开放属性编辑与样地入口 */
+    private var editing = false
+
+    /** 顶部“样地调查”按键引用（位于编辑旁，始终可见不受编辑门控与标签页切换影响） */
+    private var btnSurveyEntry: TextView? = null
 
     private lateinit var spLabelField: Spinner
 
@@ -122,6 +138,10 @@ class FeatureDetailDialog(
         }
         sheet.findViewById<TextView>(R.id.feature_detail_tv_close).setOnClickListener { dismiss() }
 
+        // 顶部"编辑"按键引用：仅在属性 Tab 可见时显示，切换到样式等其他 Tab 隐藏
+        val btnEdit = sheet.findViewById<TextView>(R.id.feature_detail_btn_edit)
+        val editAllowed = editButtonVisible && !layerStyleMode
+        
         // 标签页：样式 / 属性
         val pageStyle = sheet.findViewById<View>(R.id.feature_detail_page_style)
         val pageAttrs = sheet.findViewById<View>(R.id.feature_detail_page_attrs)
@@ -135,11 +155,15 @@ class FeatureDetailDialog(
                 val isStyle = tab.text == TAB_STYLE
                 pageStyle.visibility = if (isStyle) View.VISIBLE else View.GONE
                 pageAttrs.visibility = if (isStyle) View.GONE else View.VISIBLE
+                // 编辑按钮仅属性页可见（且未进入编辑态）
+                if (editAllowed && !editing) {
+                    btnEdit.visibility = if (!isStyle) View.VISIBLE else View.GONE
+                }
             }
             override fun onTabUnselected(tab: TabLayout.Tab) {}
             override fun onTabReselected(tab: TabLayout.Tab) {}
         })
-
+        
         if (layerStyleMode) {
             // 图层样式模式：仅样式页，移除属性页签（无单要素属性概念）
             tabLayout.removeTabAt(1)
@@ -154,9 +178,64 @@ class FeatureDetailDialog(
             pageStyle.visibility = View.GONE
             pageAttrs.visibility = View.VISIBLE
         }
-
+        
         if (!layerStyleMode) fillAttributePage(sheet)
+        
+        // 编辑按钮点击：进入可编辑态后隐藏自身，开放属性编辑
+        if (editAllowed) {
+            // 初始可见性：若无样式页（styleEditable=false）则属性页已展示，编辑按钮可见
+            if (!styleEditable || layerStyleMode) {
+                btnEdit.visibility = if (editAllowed && !layerStyleMode) View.VISIBLE else View.GONE
+            } else {
+                // 有样式页时初始选中样式页，编辑按钮隐藏（等切到属性页再显示）
+                btnEdit.visibility = View.GONE
+            }
+            btnEdit.setOnClickListener {
+                editing = true
+                btnEdit.visibility = View.GONE
+            }
+        } else {
+            btnEdit.visibility = View.GONE
+        }
+
+        // 顶部“样地调查”按键：位于编辑旁（左侧），始终可见不受标签页切换与编辑门控影响。
+        btnSurveyEntry = sheet.findViewById<TextView>(R.id.feature_detail_btn_survey_entry)
+        if (surveyEntryVisible) {
+            btnSurveyEntry?.setOnClickListener {
+                onSurveyEntry?.invoke()
+                dismiss()
+            }
+            btnSurveyEntry?.visibility = View.VISIBLE
+        }
         return dialog
+    }
+
+    /**
+     * 属性异步回填：KML/DXF 等格式经 [com.zys.mobilemap.vector.GdalVectorReader.getFeatureAttributes]
+     * 回取需重开文件解析（首次可达秒级），宿主先弹层（attributes=null + attrsPending，属性页显示加载提示），
+     * 读取完成后调本方法就地重建属性页。属性页为固定高度内滚，重建行不改变弹层高度（无跳动）；
+     * 样式页标注字段下拉同步按新属性字段刷新。弹层已关闭时调用安全（直接忽略）。
+     */
+    fun pushAttributes(attrs: Map<String, String>?, desc: String?) {
+        attributes = attrs
+        description = desc
+        attrsLoading = false
+        val sheet = sheetView ?: return
+        refreshLabelFieldOptions()
+        sheet.findViewById<LinearLayout>(R.id.feature_detail_ll_attr_rows).removeAllViews()
+        fillAttributePage(sheet)
+    }
+
+    /** 属性回填后刷新样式页标注字段下拉（单要素模式候选取属性字段；图层模式/外部注入字段清单时不刷新） */
+    private fun refreshLabelFieldOptions() {
+        if (layerStyleMode || labelFieldOptions != null || !::spLabelField.isInitialized) return
+        val options = listOf(LABEL_FIELD_NONE) + (attributes?.keys?.toList() ?: emptyList())
+        spLabelField.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, options)
+        val initField = initialStyle?.labelField
+        if (initField != null) {
+            val idx = options.indexOf(initField)
+            if (idx >= 0) spLabelField.setSelection(idx)
+        }
     }
 
     /**
@@ -337,15 +416,7 @@ class FeatureDetailDialog(
         val header = sheet.findViewById<View>(R.id.feature_detail_ll_attr_header)
         val container = sheet.findViewById<LinearLayout>(R.id.feature_detail_ll_attr_rows)
 
-        // 样地调查入口按键：调查模式下 shp 面要素可见
-        val btnSurvey = sheet.findViewById<Button>(R.id.feature_detail_btn_survey_entry)
-        if (surveyEntryVisible) {
-            btnSurvey.visibility = View.VISIBLE
-            btnSurvey.setOnClickListener {
-                onSurveyEntry?.invoke()
-                dismiss()
-            }
-        }
+        // 样地调查入口按键已移至 onCreateDialog（在布局中位于 TabLayout 之下，不受属性页 early return 影响）
 
         // 保存修改按键：调查模式下属性有改动时可见
         btnSaveAttrs = sheet.findViewById<Button>(R.id.feature_detail_btn_save_attrs).also { btn ->
@@ -357,26 +428,31 @@ class FeatureDetailDialog(
             }
         }
 
-        // KML/KMZ 描述优先：WebView 渲染 HTML（隐藏键值表头）
-        if (!description.isNullOrBlank()) {
+        // KML/KMZ 描述优先：WebView 渲染 HTML（隐藏键值表头）；局部 val 捕获：var 属性无法智能转换
+        val desc = description
+        if (!desc.isNullOrBlank()) {
             hint.visibility = View.GONE
             header.visibility = View.GONE
-            addDescriptionWebView(container, description)
+            addDescriptionWebView(container, desc)
             return
         }
 
-        if (attributes.isNullOrEmpty()) {
-            hint.text = "该要素暂无属性表"
+        // 局部 val 捕获后判空：var 属性无法智能转换，非空结果直接供下方遍历
+        val attrs = attributes
+        if (attrs.isNullOrEmpty()) {
+            hint.text = if (attrsLoading) "正在读取属性…" else "该要素暂无属性表"
             hint.visibility = View.VISIBLE
             header.visibility = View.GONE
             return
         }
+        hint.visibility = View.GONE
+        header.visibility = View.VISIBLE // 回填路径：pending 时曾被隐藏，重建行前恢复
         val density = resources.displayMetrics.density
         // 内边距与分隔线高度在循环外算一次，避免每个属性行重复换算
         val rowPadH = (ATTR_ROW_PADDING_H_DP * density).toInt()
         val rowPadV = (ATTR_ROW_PADDING_V_DP * density).toInt()
         val dividerHeight = (ATTR_DIVIDER_HEIGHT_DP * density).toInt()
-        for ((k, v) in attributes) {
+        for ((k, v) in attrs) {
             val row = LinearLayout(requireContext()).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(rowPadH, rowPadV, rowPadH, rowPadV)
@@ -393,9 +469,11 @@ class FeatureDetailDialog(
                 setTextColor(ATTR_VALUE_COLOR)
                 textSize = ATTR_TEXT_SIZE_SP
             }
-            // 调查模式：值列可点击弹出编辑框，保存后更新本地状态并标脏
+            // 属性可编辑：值列可点击弹出编辑框，保存后更新本地状态并标脏。
+            // 门控态（editButtonVisible）下需先点顶部“编辑”（editing=true）才响应，否则忽略点击。
             if (attrsEditable) {
                 tvVal.setOnClickListener {
+                    if (editButtonVisible && !editing) return@setOnClickListener
                     val current = pendingAttrs[k] ?: v
                     AttributeEditDialog.show(requireActivity(), k, current) { newValue ->
                         pendingAttrs[k] = newValue

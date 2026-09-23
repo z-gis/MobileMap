@@ -5,6 +5,9 @@
     <string name="splash_loading">正在加载地图资源...</string>
     <string name="open_file_permission_required">请先授予"所有文件访问权限"后再加载 Shapefile</string>
 
+    <!-- 大数据矢量加载提示胶囊（MapLayerManager 轮询 native hasVectorLoading 显隐） -->
+    <string name="vector_loading_hint">矢量数据加载中，请稍候…</string>
+
 
 
 
@@ -108,7 +111,7 @@
     <string name="color_picker_new_color">新颜色</string>
     <string name="color_picker_hex_invalid">颜色值无效</string>
 
-    <!-- MainActivity -->
+    <!-- map main screen (MainActivity) -->
     <string name="main_annotation_toggle">切换注记图层显示</string>
     <string name="main_north">北朝向（点击纠正到正北）</string>
     <string name="main_survey">调查</string>
@@ -117,6 +120,17 @@
     <string name="main_survey_edit_success">属性已保存</string>
     <string name="main_survey_edit_failed">属性写回失败（该格式可能不支持编辑）</string>
     <string name="main_survey_location_required">定位未就绪，无法开始样地调查</string>
+
+    <!-- MainActivity（程序主入口） -->
+    <string name="jni_map_back">返回</string>
+    <string name="jni_map_no_source">未找到可见底图图源，显示占位网格</string>
+    <string name="jni_map_zoom_in">放大</string>
+    <string name="jni_map_zoom_out">缩小</string>
+    <string name="jni_map_locate">回到当前位置</string>
+    <string name="jni_map_waiting_location">等待定位...</string>
+    <string name="jni_map_located">已定位到当前位置</string>
+    <string name="jni_map_setting">设置</string>
+    <string name="jni_map_layer_manage">图层管理</string>
 
     <!-- OpenFileActivity -->
     <string name="open_file_title">选择文件</string>

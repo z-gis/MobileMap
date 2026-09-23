@@ -17,7 +17,7 @@ import java.util.zip.ZipOutputStream
 /**
  * 拍照数据包（自定义扩展名 [.EXT]，本质是 zip 压缩包）：把拍照点位的坐标、名称与其下全部照片
  * 打包成一个文件，经系统分享面板发出（可发到微信/文件管理器等）；接收方用本 app 打开该文件即导入
- * （与矢量数据外部加载同一入口 [com.zys.mobilemap.ui.activity.MainActivity.handleViewIntent]），
+ * （与矢量数据外部加载同一入口 MainActivity.handleViewIntent），
  * 解包后按包内坐标/名称新建拍照点位。
  *
  * 包内结构：

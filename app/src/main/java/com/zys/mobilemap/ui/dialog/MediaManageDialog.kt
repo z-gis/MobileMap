@@ -31,7 +31,7 @@ import java.util.Locale
  *
  * 分组可见性开关直接批量写入组内各点位的 visible（渲染层只看点位自身 visible）。
  *
- * 回调经构造参数传入（同 [FeatureDetailDialog]）：MainActivity 已声明 configChanges，
+ * 回调经构造参数传入（同 [FeatureDetailDialog]）：宿主界面（MainActivity）已声明 configChanges，
  * 旋转不重建，故回调不会因配置变更丢失。
  */
 class MediaManageDialog(

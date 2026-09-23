@@ -42,10 +42,33 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MobileMap"
         tools:replace="android:allowBackup">
-        <!-- 启动页与主界面已合并：MainActivity 同时作为 LAUNCHER 入口与外部 ACTION_VIEW 承接者，
-             启动加载遮罩盖住初始化阶段（native/proj/文档加载）。
-             singleTask 保证外部拉起时复用已运行实例（走 onNewIntent）；
-             configChanges 使横竖屏切换不重建 Activity，避免重新触发启动加载遮罩（WorldWindow 自行处理 GL surface 尺寸变化） -->
+        <!-- 原 wwd 主界面 MainActivity 及其链路（BaseMapActivity/MapWorldWindow/各 Model）已整体删除：
+             启动入口与外部 ACTION_VIEW 承接均由下方 MainActivity 承担。 -->
+        <activity
+            android:name=".ui.activity.OpenFileActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.SettingsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.AboutActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.HelpActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.PhotoViewerActivity"
+            android:exported="false" />
+        <activity
+            android:name=".survey.SampleSurveyActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MobileMap" />
+
+        <!-- wwd→jni 迁移完成：MainActivity 为程序主入口，承载 worldwindjni 的 NativeMapView，
+             作为 LAUNCHER 与外部 ACTION_VIEW 承接者。
+             启动加载遮罩盖住初始化阶段（native/proj/文档加载）；singleTask 保证外部拉起复用已运行实例（走 onNewIntent）；
+             configChanges 使横竖屏切换不重建 Activity（NativeMapView 自行处理 GL surface 尺寸变化）；
+             theme 沿用主界面 Theme.MobileMap.Main，保证启动窗口一致。 -->
         <activity
             android:name=".ui.activity.MainActivity"
             android:exported="true"
@@ -84,26 +107,6 @@
                 <data android:pathPattern=".*\\.mphoto" />
             </intent-filter>
         </activity>
-
-        <activity
-            android:name=".ui.activity.OpenFileActivity"
-            android:exported="false" />
-        <activity
-            android:name=".ui.activity.SettingsActivity"
-            android:exported="false" />
-        <activity
-            android:name=".ui.activity.AboutActivity"
-            android:exported="false" />
-        <activity
-            android:name=".ui.activity.HelpActivity"
-            android:exported="false" />
-        <activity
-            android:name=".ui.activity.PhotoViewerActivity"
-            android:exported="false" />
-        <activity
-            android:name=".survey.SampleSurveyActivity"
-            android:exported="false"
-            android:theme="@style/Theme.MobileMap" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

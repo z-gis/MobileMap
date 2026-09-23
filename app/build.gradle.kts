@@ -5,15 +5,15 @@ plugins {
 android {
     namespace = "com.zys.mobilemap"
     compileSdk {
-        version = release(37) // 与earth.worldwind:worldwind:2.0.9保持一致
+        version = release(37)
     }
 
     defaultConfig {
         applicationId = "com.zys.mobilemap"
         minSdk = 24
         targetSdk = 36
-        versionCode = 26091801
-        versionName = "0.2.8.0"
+        versionCode = 26092301
+        versionName = "0.2.9.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -34,16 +34,10 @@ android {
         }
     }
     compileOptions {
-        isCoreLibraryDesugaringEnabled = true //添加implementation("earth.worldwind:worldwind:2.0.9")后添加
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-        }
-    }
+    // app 自身不再有 native 源码：原 cpp（GDAL/PROJ JNI）已整体迁入 worldwindjni 模块统一编译
     buildFeatures {
         viewBinding = true
         buildConfig = true
@@ -62,8 +56,8 @@ androidComponents {
 }
 
 dependencies {
+    implementation(project(":worldwindjni"))
     implementation(libs.androidx.activity.ktx)
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5") //添加implementation("earth.worldwind:worldwind:2.0.9")后添加
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.core.ktx)
@@ -72,6 +66,4 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
-
-    implementation("earth.worldwind:worldwind:2.0.9")
 }

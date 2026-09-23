@@ -10,6 +10,8 @@ import android.view.View
 import com.zys.mobilemap.databinding.ActivityAboutBinding
 import com.zys.mobilemap.update.APKVersionUtil
 import com.zys.mobilemap.update.AppUpdateManager
+import com.zys.worldwindjni.NativeLayerInfo
+import com.zys.worldwindjni.NativeSrs
 
 /**
  * 关于页：展示 GDAL / PROJ 版本与本机版本号，提供检查更新与项目主页入口。
@@ -38,7 +40,7 @@ class AboutActivity : AppSourcesActivity() {
         updateManager = AppUpdateManager(this)
 
         // GDAL 版本经 JNI 获取，只取一次；折叠箭头随展开态切换
-        val gdalVersion = getGDALVersion()
+        val gdalVersion = NativeLayerInfo.getGdalVersion()
         binding.gdalText.text = "gdal Version: $gdalVersion  \u25B8"
 
         // gdal 版本行点击折叠/展开支持的矢量驱动列表（首次展开时惰性加载）
@@ -48,13 +50,13 @@ class AboutActivity : AppSourcesActivity() {
                 drivers.visibility = View.GONE
                 binding.gdalText.text = "gdal Version: $gdalVersion  \u25B8"
             } else {
-                if (drivers.text.isEmpty()) drivers.text = getVectorDrivers() ?: ""
+                if (drivers.text.isEmpty()) drivers.text = NativeLayerInfo.getVectorDrivers() ?: ""
                 drivers.visibility = View.VISIBLE
                 binding.gdalText.text = "gdal Version: $gdalVersion  \u25BE"
             }
         }
 
-        binding.projText.text = "proj Version: ${getProjVersionString()}"
+        binding.projText.text = "proj Version: ${NativeSrs.getProjVersion()}"
 
         binding.VersionCode.text = "VersionCode: ${APKVersionUtil.getVersionCode(this)}"
 
@@ -78,19 +80,6 @@ class AboutActivity : AppSourcesActivity() {
             startActivity(intent)
         }
     }
-
-    private fun getProjVersionString(): String {
-        return getProjVersion().toString()
-    }
-
-    // 保持与 JNI 函数名 Java_com_zys_mobilemap_ui_activity_AboutActivity_getProjVersion 一致，
-    // 因此声明为类成员 external 函数（不能放入 companion object，否则符号名会变化）
-    external fun getProjVersion(): Int
-
-    external fun getGDALVersion(): String?
-
-    /** 枚举 GDAL 支持的矢量驱动（含读/写能力标注），每行一个 */
-    external fun getVectorDrivers(): String?
 
     override fun onResume() {
         super.onResume()

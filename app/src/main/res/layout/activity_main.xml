@@ -1,104 +1,56 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- MainActivity 布局：全屏承载 worldwindjni 的 NativeMapView，叠加「地图导航」类控件。
+     按键放置位置对齐主界面 activity_main.xml：改用 ConstraintLayout，左侧 bias 0.7 放测量入口、
+     右侧 bias 0.7 放拍照、右上放图层管理、左下放设置/定位/轨迹、右下放注记/缩放面板；
+     测量采集子控件（撤销/中心点/结束）单独放到屏幕下方居中。
+     2D 墨卡托恒正北，故不含指北针。 -->
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    tools:context=".ui.activity.MainActivity">
+    android:layout_height="match_parent">
 
-    <!--WorldWindow Globe panel-->
-    <FrameLayout
-        android:id="@+id/globe"
+    <com.zys.worldwindjni.NativeMapView
+        android:id="@+id/jni_map_view"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:layout_alignParentStart="true"
-        android:layout_alignParentEnd="true"
-        android:layout_alignParentTop="true"
-        />
+        android:layout_height="match_parent" />
 
+    <!-- 地图中心十字准星（复用主界面 CrossView，指示当前地图中心点） -->
     <com.zys.mobilemap.control.CrossView
-        android:id="@+id/main_cross"
+        android:id="@+id/jni_map_cross"
         android:layout_width="30px"
         android:layout_height="30px"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"/>
+        app:layout_constraintEnd_toEndOf="parent" />
 
-
+    <!-- 左侧中部（对齐主界面 lay_lm，vertical_bias 0.7）：测量工具入口。
+         采集子控件（撤销/中心点/结束）已移至屏幕下方居中容器。 -->
     <LinearLayout
-        android:id="@+id/lay_lm"
+        android:id="@+id/jni_lay_lm"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
         android:gravity="center"
         android:orientation="vertical"
-        android:layout_marginStart="10dp"
-        app:layout_constraintBottom_toTopOf="@id/lay_lb"
+        app:layout_constraintBottom_toTopOf="@id/jni_lay_lb"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintVertical_bias="0.7">
 
         <ImageView
-            android:id="@+id/main_iv_measure"
-            android:layout_width="36.0dip"
-            android:layout_height="36.0dip"
+            android:id="@+id/jni_map_measure"
+            android:layout_width="@dimen/main_icon_size"
+            android:layout_height="@dimen/main_icon_size"
             android:background="#a0dddddd"
             android:padding="5.0dp"
             android:src="@drawable/nav_measure" />
-
-        <Button
-            android:id="@+id/main_iv_measure_undo"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:layout_marginTop="6dp"
-            android:gravity="center"
-            android:textAlignment="center"
-            android:padding="0dp"
-            android:text="撤销"
-            android:textSize="12sp"
-            android:visibility="gone" />
-
-        <Button
-            android:id="@+id/main_iv_measure_center"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:layout_marginTop="6dp"
-            android:gravity="center"
-            android:textAlignment="center"
-            android:padding="0dp"
-            android:text="中心点"
-            android:textSize="12sp"
-            android:visibility="gone" />
-
-        <Button
-            android:id="@+id/main_iv_measure_finish"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:layout_marginTop="6dp"
-            android:gravity="center"
-            android:textAlignment="center"
-            android:padding="0dp"
-            android:text="结束"
-            android:textSize="12sp"
-            android:visibility="gone" />
     </LinearLayout>
 
-    <!-- 左上：北朝向按键（图标随航向旋转指向真北，点击动画纠正到正北） -->
-    <ImageView
-        android:id="@+id/main_iv_north"
-        android:layout_width="36.0dip"
-        android:layout_height="36.0dip"
-        android:layout_marginStart="10dp"
-        android:layout_marginTop="50dp"
-        android:padding="5.0dp"
-        android:contentDescription="@string/main_north"
-        android:src="@drawable/ic_north"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
-
-    <!-- 右上：图层按钮 -->
+    <!-- 右上（对齐主界面 lay_top）：图层管理。
+         图层管理对话框的「地图源」页签用于切换底图（可见性驱动，即时生效）。 -->
     <LinearLayout
-        android:id="@+id/lay_top"
+        android:id="@+id/jni_lay_top"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="50dp"
@@ -109,41 +61,31 @@
         app:layout_constraintTop_toTopOf="parent">
 
         <ImageView
-            android:id="@+id/main_iv_layer_manage"
+            android:id="@+id/jni_map_layer_manage"
             android:layout_width="@dimen/main_icon_size"
             android:layout_height="@dimen/main_icon_size"
             android:background="@color/main_icon_bg"
             android:padding="5.0dp"
+            android:contentDescription="@string/jni_map_layer_manage"
             android:src="@drawable/nav_overlay_manager" />
-
-        <!-- 调查模式切换按键：点击进入/退出调查模式；调查模式下测量/拍照/轨迹按键隐藏 -->
-        <ImageView
-            android:id="@+id/main_iv_survey"
-            android:layout_width="@dimen/main_icon_size"
-            android:layout_height="@dimen/main_icon_size"
-            android:layout_marginTop="6dp"
-            android:background="@color/main_icon_bg"
-            android:padding="5.0dp"
-            android:contentDescription="@string/main_survey"
-            android:src="@drawable/nav_survey" />
-
     </LinearLayout>
 
-    <!--拍照-->
+    <!-- 右侧中部（对齐主界面 linearLayout2，vertical_bias 0.7）：拍照入口。
+         拍照复用 MediaCaptureHelper（不依赖 wwd）。 -->
     <LinearLayout
-        android:id="@+id/linearLayout2"
+        android:id="@+id/jni_lay_photo"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginEnd="10dp"
         android:gravity="center"
         android:orientation="vertical"
-        app:layout_constraintBottom_toTopOf="@id/lay_rb"
+        app:layout_constraintBottom_toTopOf="@id/jni_lay_rb"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintVertical_bias="0.7">
 
         <ImageView
-            android:id="@+id/main_iv_poto"
+            android:id="@+id/jni_map_photo"
             android:layout_width="@dimen/main_icon_size"
             android:layout_height="@dimen/main_icon_size"
             android:background="@color/main_icon_bg"
@@ -151,9 +93,10 @@
             android:src="@drawable/nav_quick_pic" />
     </LinearLayout>
 
-    <!-- 左下：功能按钮 -->
+    <!-- 左下（对齐主界面 lay_lb）：设置 + 回到当前位置 + 轨迹工具栏（采集子控件开始/暂停/停止默认隐藏）。
+         轨迹采集经定位监听追加点、实时走 overlay live 层渲染。 -->
     <LinearLayout
-        android:id="@+id/lay_lb"
+        android:id="@+id/jni_lay_lb"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="10dp"
@@ -164,70 +107,67 @@
         app:layout_constraintStart_toStartOf="parent">
 
         <ImageView
-            android:id="@+id/main_iv_setting"
-            android:layout_width="36.0dip"
-            android:layout_height="36.0dip"
-            android:background="#a0dddddd"
+            android:id="@+id/jni_map_setting"
+            android:layout_width="@dimen/main_icon_size"
+            android:layout_height="@dimen/main_icon_size"
+            android:background="@color/main_icon_bg"
             android:padding="5.0dp"
+            android:contentDescription="@string/jni_map_setting"
             android:src="@drawable/nav_settings" />
 
-
         <ImageView
-            android:id="@+id/main_iv_goto_location"
-            android:layout_width="36.0dip"
-            android:layout_height="36.0dip"
+            android:id="@+id/jni_map_locate"
+            android:layout_width="@dimen/main_icon_size"
+            android:layout_height="@dimen/main_icon_size"
             android:layout_marginTop="5.0dip"
-            android:padding="5.0dp"
-            android:background="#a0dddddd"
+            android:background="@color/main_icon_bg"
+            android:padding="6dp"
+            android:contentDescription="@string/jni_map_locate"
             android:src="@drawable/nav_location" />
 
         <ImageView
-            android:id="@+id/main_iv_trk_start"
-            android:layout_width="36.0dip"
-            android:layout_height="36.0dip"
+            android:id="@+id/jni_map_track_start"
+            android:layout_width="@dimen/main_icon_size"
+            android:layout_height="@dimen/main_icon_size"
             android:layout_marginTop="10.0dip"
-            android:padding="5.0dp"
             android:background="#a0dddddd"
+            android:padding="5.0dp"
             android:src="@drawable/nav_ic_start"
-            android:visibility="gone"/>
+            android:visibility="gone" />
 
         <ImageView
-            android:id="@+id/main_iv_trk_pause"
-            android:layout_width="36.0dip"
-            android:layout_height="36.0dip"
+            android:id="@+id/jni_map_track_pause"
+            android:layout_width="@dimen/main_icon_size"
+            android:layout_height="@dimen/main_icon_size"
             android:layout_marginTop="5.0dip"
-            android:padding="5.0dp"
             android:background="#a0dddddd"
+            android:padding="5.0dp"
             android:src="@drawable/nav_ic_pause"
-            android:visibility="gone"/>
-
-
+            android:visibility="gone" />
 
         <ImageView
-            android:id="@+id/main_iv_trk_stop"
-            android:layout_width="36.0dip"
-            android:layout_height="36.0dip"
+            android:id="@+id/jni_map_track_stop"
+            android:layout_width="@dimen/main_icon_size"
+            android:layout_height="@dimen/main_icon_size"
             android:layout_marginTop="5.0dip"
-            android:padding="5.0dp"
             android:background="#a0dddddd"
+            android:padding="5.0dp"
             android:src="@drawable/nav_ic_stop"
-            android:visibility="gone"/>
-
+            android:visibility="gone" />
 
         <ImageView
-            android:id="@+id/main_iv_trk"
-            android:layout_width="36.0dip"
-            android:layout_height="36.0dip"
+            android:id="@+id/jni_map_track"
+            android:layout_width="@dimen/main_icon_size"
+            android:layout_height="@dimen/main_icon_size"
             android:layout_marginTop="10.0dip"
-            android:padding="5.0dp"
             android:background="#a0dddddd"
+            android:padding="5.0dp"
             android:src="@drawable/nav_routes" />
-
     </LinearLayout>
 
-    <!-- 右下：缩放面板 -->
+    <!-- 右下（对齐主界面 lay_rb）：注记显隐开关 + 缩放面板（放大 / 级别数字 / 缩小） -->
     <LinearLayout
-        android:id="@+id/lay_rb"
+        android:id="@+id/jni_lay_rb"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginEnd="10dp"
@@ -237,42 +177,96 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
+        <!-- 注记图层显隐开关（图标随可见性切换，对齐主界面 main_iv_isCIA） -->
         <ImageView
-            android:id="@+id/main_iv_isCIA"
+            android:id="@+id/jni_map_annotation"
             android:layout_width="@dimen/main_icon_size"
             android:layout_height="@dimen/main_icon_size"
-            android:background="@color/main_icon_bg"
             android:layout_marginBottom="32dp"
+            android:background="@color/main_icon_bg"
             android:contentDescription="@string/main_annotation_toggle"
             android:src="@drawable/nav_ic_cia_open" />
 
+        <!-- 放大按键：图标资源沿用主界面映射（nav_zoom_out 为「+」字形），保证视觉一致 -->
         <ImageView
-            android:id="@+id/main_iv_zoom_in"
+            android:id="@+id/jni_map_zoom_in"
             android:layout_width="@dimen/main_icon_size"
             android:layout_height="@dimen/main_icon_size"
             android:background="@color/main_icon_bg"
             android:padding="5.0dp"
+            android:contentDescription="@string/jni_map_zoom_in"
             android:src="@drawable/nav_zoom_out" />
 
+        <!-- 当前级别数字（由相机高度换算，与主界面同源 MercatorZoom.altitudeToLevel） -->
         <TextView
-            android:id="@+id/main_tv_level"
+            android:id="@+id/jni_map_level"
+            android:layout_width="36dp"
+            android:layout_height="10dp"
             android:gravity="center"
             android:textColor="@color/white"
-            android:textSize="8dip"
-            android:layout_width="36dp"
-            android:layout_height="10dp"/>
+            android:textSize="8dip" />
 
+        <!-- 缩小按键：图标资源沿用主界面映射（nav_zoom_in 为「-」字形） -->
         <ImageView
-            android:id="@+id/main_iv_zoom_out"
+            android:id="@+id/jni_map_zoom_out"
             android:layout_width="@dimen/main_icon_size"
             android:layout_height="@dimen/main_icon_size"
             android:background="@color/main_icon_bg"
             android:padding="5.0dp"
+            android:contentDescription="@string/jni_map_zoom_out"
             android:src="@drawable/nav_zoom_in" />
     </LinearLayout>
 
+    <!-- 屏幕下方居中：测量采集子控件（撤销 / 中心点 / 结束），默认隐藏，进入测量模式时显示。
+         由 setMeasureControlsVisible 按 ID 逐个切换可见性，横向排列于状态栏上方居中。 -->
+    <LinearLayout
+        android:id="@+id/jni_lay_measure_controls"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="32dp"
+        android:gravity="center"
+        android:orientation="horizontal"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
 
-    <!-- 状态栏 -->
+        <Button
+            android:id="@+id/jni_map_measure_undo"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:gravity="center"
+            android:textAlignment="center"
+            android:padding="0dp"
+            android:text="撤销"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/jni_map_measure_center"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="8dp"
+            android:gravity="center"
+            android:textAlignment="center"
+            android:padding="0dp"
+            android:text="中心点"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/jni_map_measure_finish"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="8dp"
+            android:gravity="center"
+            android:textAlignment="center"
+            android:padding="0dp"
+            android:text="结束"
+            android:textSize="12sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- 底部状态栏：左为定位经纬度、右为地图中心经纬度（对齐主界面底部状态栏） -->
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="24dp"
@@ -282,53 +276,75 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent">
 
-
         <TextView
-            android:id="@+id/main_tv_location"
-            android:layout_width="wrap_content"
+            android:id="@+id/jni_map_location"
+            android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:gravity="center_vertical"
+            android:layout_weight="1"
+            android:gravity="start|center_vertical"
             android:paddingStart="8.0dip"
             android:singleLine="true"
-            android:text="正在定位......"
             android:textColor="#ffffffff"
-            android:textSize="12.0sp"/>
+            android:textSize="12.0sp" />
 
         <TextView
-            android:id="@+id/main_tv_scale"
-            android:layout_width="wrap_content"
+            android:id="@+id/jni_map_center"
+            android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:gravity="center_vertical"
-            android:paddingLeft="8.0dip"
-            android:singleLine="true"
-            android:text=""
-            android:textColor="#ffffffff"
-            android:textSize="12.0sp"/>
-
-        <TextView
-            android:id="@+id/main_tv_center"
-            android:layout_width="fill_parent"
-            android:layout_height="match_parent"
+            android:layout_weight="1"
             android:gravity="end|center_vertical"
             android:paddingEnd="8.0dip"
             android:singleLine="true"
-            android:text=""
             android:textColor="#ffffffff"
-            android:textSize="12.0sp"/>
+            android:textSize="12.0sp" />
     </LinearLayout>
 
-    <!-- 启动加载遮罩：盖住底图瓦片异步加载期间的白屏，视觉与启动页一致；
-         首屏底图就绪后由 MainActivity 淡出（含安全超时兜底），期间拦截触摸避免误操作地图 -->
+    <!-- 大数据矢量加载提示胶囊（顶部居中）：仅在巨层首载/相机静止重载工作超过延迟阈值时显示
+         （防快速加载闪烁），MapLayerManager 轮询 native hasVectorLoading 完成后隐藏；不拦截手势。 -->
     <LinearLayout
-        android:id="@+id/main_loading_overlay"
+        android:id="@+id/jni_map_vector_loading"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="50dp"
+        android:background="#B3111111"
+        android:clickable="false"
+        android:focusable="false"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="5dp"
+        android:paddingBottom="5dp"
+        android:visibility="gone"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <ProgressBar
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:indeterminateOnly="true" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="@string/vector_loading_hint"
+            android:textColor="#ffffffff"
+            android:textSize="12.0sp" />
+    </LinearLayout>
+
+    <!-- 启动加载遮罩：盖住 native/proj/文档初始化与首屏瓦片异步加载的白屏，
+         初始化完成（或安全超时）后淡出。MainActivity 升为主入口后自行承担启动初始化，故需自带遮罩。 -->
+    <LinearLayout
+        android:id="@+id/jni_map_loading_overlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@color/activity_background"
+        android:background="#FFFFFFFF"
         android:clickable="true"
         android:focusable="true"
         android:gravity="center"
-        android:orientation="vertical"
-        android:padding="24dp">
+        android:orientation="vertical">
 
         <ImageView
             android:layout_width="88dp"
@@ -341,6 +357,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:text="@string/app_name"
+            android:gravity="center"
             android:textColor="#131313"
             android:textSize="24sp"
             android:textStyle="bold" />

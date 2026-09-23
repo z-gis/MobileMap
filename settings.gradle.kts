@@ -24,4 +24,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "MobileMap"
 include(":app")
+include(":worldwindjni")
  
