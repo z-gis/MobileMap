@@ -76,6 +76,12 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
     private lateinit var locationText: TextView
     private lateinit var annotationButton: ImageView
     private lateinit var locateButton: ImageView
+
+    /** 左上 2D/3D 视图模式切换按键（文字显示当前模式） */
+    private lateinit var viewModeButton: TextView
+
+    /** 图层管理按钮上的可见层数徽标（矢量/栅格/地图源可见层计数，随文档显隐变更同步） */
+    private lateinit var layerCountText: TextView
     private lateinit var loadingOverlay: View
     private lateinit var measureUndoButton: Button
     private lateinit var measureCenterButton: Button
@@ -156,6 +162,8 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         locationText = findViewById(R.id.jni_map_location)
         annotationButton = findViewById(R.id.jni_map_annotation)
         locateButton = findViewById(R.id.jni_map_locate)
+        viewModeButton = findViewById(R.id.jni_map_view_mode)
+        layerCountText = findViewById(R.id.jni_map_layer_count)
         loadingOverlay = findViewById(R.id.jni_map_loading_overlay)
         measureUndoButton = findViewById(R.id.jni_map_measure_undo)
         measureCenterButton = findViewById(R.id.jni_map_measure_center)
@@ -217,6 +225,10 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
 
         // 系统外部打开数据（文件管理器/微信分享）：初始化完成后立即处理
         importHandler.handleViewIntent(intent)
+
+        // 恢复上次退出时的 2D/3D 视图模式（随相机状态一同持久化，默认 2D；左上按键可切换）
+        mapView.setViewMode(navigator.savedViewMode())
+        updateViewModeButton()
 
         // 加载遮罩淡出由 onCreate 挂的安全超时（LOADING_OVERLAY_TIMEOUT_MS）兜底（首帧回调路径当前未接入，见 StartupInitializer）
     }
@@ -299,6 +311,7 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         findViewById<ImageView>(R.id.jni_map_zoom_out).setOnClickListener { navigator.zoomOut() }
         annotationButton.setOnClickListener { layerManager.toggleAnnotation() }
         locateButton.setOnClickListener { locationController.toggleFollow() }
+        viewModeButton.setOnClickListener { toggleViewMode() }
 
         // 交互入口（对齐原主界面）：设置页、图层管理（地图源页签切换底图）、点定位文本「移动到」
         findViewById<ImageView>(R.id.jni_map_setting).setOnClickListener {
@@ -322,6 +335,7 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         mapView.setOnTapListener { x, y -> pickController.onMapTap(x, y) }
 
         navigator.updateStatusText()
+        updateLayerCountBadge(doc)
 
         // 监听文档变更：底图切换 / 注记显隐 / 图源增删改经此即时同步（对齐原主界面文档驱动）
         DocumentManager.getInstance().registerDocumentChangeListener(this)
@@ -354,6 +368,41 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
             onSqlQuery = { path, sql -> queryController.runSqlQuery(path, sql) },
             onClearSqlQuery = { queryController.clearSqlQuery() }
         ).show(supportFragmentManager, TAG_LAYER_MANAGE_DIALOG)
+    }
+
+    /**
+     * 切换 2D/3D 视图模式：native 两模式共用同一相机状态，即时互换无需重建；
+     * 模式本身由 [CameraNavigator.saveCameraState] 在 onPause 随相机一同持久化，下次进入恢复。
+     */
+    private fun toggleViewMode() {
+        val next = if (mapView.getViewMode() == NativeMapView.ViewMode.THREE_D)
+            NativeMapView.ViewMode.TWO_D else NativeMapView.ViewMode.THREE_D
+        mapView.setViewMode(next)
+        updateViewModeButton()
+    }
+
+    /** 刷新左上模式按键文字：显示当前模式（按钮文字即所见模式） */
+    private fun updateViewModeButton() {
+        viewModeButton.text =
+            if (mapView.getViewMode() == NativeMapView.ViewMode.THREE_D) "3D" else "2D"
+    }
+
+    /**
+     * 刷新图层管理按钮徽标：统计文档中全部可见层（矢量 + 栅格 + 地图源含注记），
+     * 装配时初显、显隐/增删经文档变更即时同步；计数为 0 时隐藏徽标。
+     */
+    private fun updateLayerCountBadge(doc: MapDocument?) {
+        val count = doc?.let {
+            it.vectorLayers.count { l -> l.visible } +
+                    it.rasterLayers.count { l -> l.visible } +
+                    it.mapSources.count { s -> s.visible }
+        } ?: 0
+        if (count <= 0) {
+            layerCountText.visibility = View.GONE
+        } else {
+            layerCountText.text = count.toString()
+            layerCountText.visibility = View.VISIBLE
+        }
     }
 
     /**
@@ -401,6 +450,7 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
      * 非结构变化则由 layerManager 就地同步可见性/矢量/栅格层并刷新叠加层。
      */
     override fun onDocumentChanged(document: MapDocument) {
+        updateLayerCountBadge(document)
         if (!layerManager.onDocumentChanged(document)) return
         if (supportFragmentManager.findFragmentByTag(TAG_LAYER_MANAGE_DIALOG) != null) {
             AppLog.i(TAG, "文档图源/栅格结构变化，图层管理对话框打开中，挂起重建至对话框关闭")

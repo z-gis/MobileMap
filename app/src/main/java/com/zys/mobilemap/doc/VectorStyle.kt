@@ -17,6 +17,9 @@ class VectorStyle {
     /** 填充透明度 0..1（面） */
     var fillOpacity: Float? = null
 
+    /** 是否填充（面）：null/true = 填充，false = 不填充（面仅描边不填充） */
+    var fillEnabled: Boolean? = null
+
     /** 外框/线条颜色（面、线） */
     var outlineColor: String? = null
 
@@ -45,7 +48,7 @@ class VectorStyle {
     val featureStyles = mutableMapOf<Long, VectorStyle>()
 
     /** 无任何样式设置 */
-    fun isEmpty(): Boolean = fillColor == null && fillOpacity == null &&
+    fun isEmpty(): Boolean = fillColor == null && fillOpacity == null && fillEnabled == null &&
             outlineColor == null && outlineWidth == null &&
             labelField == null && labelColor == null && labelSize == null &&
             labelOutline == null && labelOutlineColor == null &&
@@ -56,6 +59,7 @@ class VectorStyle {
         val o = JSONObject()
         fillColor?.let { o.put("fillColor", it) }
         fillOpacity?.let { o.put("fillOpacity", it.toDouble()) }
+        fillEnabled?.let { o.put("fillEnabled", it) }
         outlineColor?.let { o.put("outlineColor", it) }
         outlineWidth?.let { o.put("outlineWidth", it.toDouble()) }
         labelField?.let { o.put("labelField", it) }
@@ -80,6 +84,7 @@ class VectorStyle {
             val s = VectorStyle()
             if (o.has("fillColor") && !o.isNull("fillColor")) s.fillColor = o.getString("fillColor")
             if (o.has("fillOpacity")) s.fillOpacity = o.optDouble("fillOpacity").toFloat()
+            if (o.has("fillEnabled")) s.fillEnabled = o.getBoolean("fillEnabled")
             if (o.has("outlineColor") && !o.isNull("outlineColor")) s.outlineColor = o.getString("outlineColor")
             if (o.has("outlineWidth")) s.outlineWidth = o.optDouble("outlineWidth").toFloat()
             if (o.has("labelField") && !o.isNull("labelField")) s.labelField = o.getString("labelField")

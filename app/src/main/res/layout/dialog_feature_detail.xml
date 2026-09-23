@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
@@ -155,16 +156,16 @@
                 android:orientation="vertical"
                 android:padding="12dp">
 
-                <!-- 填充/描边左右布局，色块所见即所得 -->
+                <!-- 第一行：左半填充颜色 + 右半填充开关（关闭开关时面仅描边不填充）；固定行高，两列等高顶边对齐 -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="36dp"
                     android:baselineAligned="false"
                     android:orientation="horizontal">
 
                     <LinearLayout
                         android:layout_width="0dp"
-                        android:layout_height="wrap_content"
+                        android:layout_height="match_parent"
                         android:layout_weight="1"
                         android:gravity="center_vertical"
                         android:orientation="horizontal">
@@ -174,27 +175,52 @@
                             android:layout_height="wrap_content"
                             android:text="填充颜色："
                             android:textColor="#424242"
-                            android:textSize="14sp"
-                            tools:ignore="HardcodedText"
-                            xmlns:tools="http://schemas.android.com/tools" />
+                            android:textSize="8sp"
+                            tools:ignore="HardcodedText" />
 
                         <ImageView
                             android:id="@+id/feature_detail_iv_fill_color"
-                            android:layout_width="0dp"
+                            android:layout_width="100dp"
                             android:layout_height="24dp"
-                            android:layout_marginLeft="5dp"
-                            android:layout_marginRight="10dp"
-                            android:layout_weight="1"
+                            android:layout_marginStart="5dp"
+                            android:layout_marginEnd="8dp"
                             android:background="#4A90D9"
                             android:contentDescription="填充颜色"
                             android:src="@drawable/bg_swatch_border"
-                            tools:ignore="HardcodedText"
-                            xmlns:tools="http://schemas.android.com/tools" />
+                            tools:ignore="HardcodedText" />
                     </LinearLayout>
 
                     <LinearLayout
                         android:layout_width="0dp"
-                        android:layout_height="wrap_content"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <CheckBox
+                            android:id="@+id/feature_detail_cb_fill_enabled"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="true"
+                            android:minWidth="0dp"
+                            android:minHeight="0dp"
+                            android:text="填充"
+                            android:textSize="8sp"
+                            tools:ignore="HardcodedText" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- 第二行：左半描边颜色 + 右半线宽步进；固定行高，与上一行顶边对齐 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="36dp"
+                    android:layout_marginTop="10dp"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
                         android:layout_weight="1"
                         android:gravity="center_vertical"
                         android:orientation="horizontal">
@@ -204,68 +230,62 @@
                             android:layout_height="wrap_content"
                             android:text="描边颜色："
                             android:textColor="#424242"
-                            android:textSize="14sp"
-                            tools:ignore="HardcodedText"
-                            xmlns:tools="http://schemas.android.com/tools" />
+                            android:textSize="8sp"
+                            tools:ignore="HardcodedText" />
 
                         <ImageView
                             android:id="@+id/feature_detail_iv_outline_color"
-                            android:layout_width="0dp"
+                            android:layout_width="100dp"
                             android:layout_height="24dp"
-                            android:layout_weight="1"
-                            android:layout_marginLeft="5dp"
-                            android:layout_marginRight="10dp"
+                            android:layout_marginStart="5dp"
                             android:background="#1A4FA0"
                             android:contentDescription="描边颜色"
                             android:src="@drawable/bg_swatch_border"
-                            tools:ignore="HardcodedText"
-                            xmlns:tools="http://schemas.android.com/tools" />
+                            tools:ignore="HardcodedText" />
                     </LinearLayout>
-                </LinearLayout>
 
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="线宽："
-                        android:textColor="#424242"
-                        android:textSize="14sp"
-                        tools:ignore="HardcodedText"
-                        xmlns:tools="http://schemas.android.com/tools" />
+                        <TextView
+                            android:layout_marginStart="10dp"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="线宽："
+                            android:textColor="#424242"
+                            android:textSize="8sp"
+                            tools:ignore="HardcodedText" />
 
-                    <TextView
-                        android:id="@+id/feature_detail_btn_width_minus"
-                        android:layout_width="36dp"
-                        android:layout_height="36dp"
-                        android:text="−"
-                        android:gravity="center"
-                        android:textSize="18sp"
-                        tools:ignore="HardcodedText"
-                        xmlns:tools="http://schemas.android.com/tools" />
+                        <TextView
+                            android:id="@+id/feature_detail_btn_width_minus"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:gravity="center"
+                            android:text="−"
+                            android:textSize="18sp"
+                            tools:ignore="HardcodedText" />
 
-                    <TextView
-                        android:id="@+id/feature_detail_tv_width_value"
-                        android:layout_width="24dp"
-                        android:layout_height="wrap_content"
-                        android:gravity="center"
-                        android:textColor="#212121"
-                        android:textSize="16sp" />
+                        <TextView
+                            android:id="@+id/feature_detail_tv_width_value"
+                            android:layout_width="24dp"
+                            android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:textColor="#212121"
+                            android:textSize="16sp" />
 
-                    <TextView
-                        android:id="@+id/feature_detail_btn_width_plus"
-                        android:layout_width="36dp"
-                        android:layout_height="36dp"
-                        android:text="+"
-                        android:gravity="center"
-                        android:textSize="18sp"
-                        tools:ignore="HardcodedText"
-                        xmlns:tools="http://schemas.android.com/tools" />
+                        <TextView
+                            android:id="@+id/feature_detail_btn_width_plus"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:gravity="center"
+                            android:text="+"
+                            android:textSize="18sp"
+                            tools:ignore="HardcodedText" />
+                    </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
 
@@ -326,7 +346,7 @@
                         android:layout_height="wrap_content"
                         android:text="标注字段："
                         android:textColor="#424242"
-                        android:textSize="14sp"
+                        android:textSize="8sp"
                         tools:ignore="HardcodedText"
                         xmlns:tools="http://schemas.android.com/tools" />
 
@@ -335,68 +355,86 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="字体颜色："
-                        android:textColor="#424242"
-                        android:textSize="14sp"
-                        tools:ignore="HardcodedText"
-                        xmlns:tools="http://schemas.android.com/tools" />
-
-                    <ImageView
-                        android:id="@+id/feature_detail_iv_label_color"
-                        android:layout_width="56dp"
-                        android:layout_height="28dp"
-                        android:background="#212121"
-                        android:contentDescription="字体颜色"
-                        android:src="@drawable/bg_swatch_border"
-                        tools:ignore="HardcodedText"
-                        xmlns:tools="http://schemas.android.com/tools" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="字体轮廓："
-                        android:textColor="#424242"
-                        android:textSize="14sp"
-                        tools:ignore="HardcodedText"
-                        xmlns:tools="http://schemas.android.com/tools" />
 
                     <CheckBox
-                        android:id="@+id/feature_detail_cb_label_outline"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
-
-                    <ImageView
-                        android:id="@+id/feature_detail_iv_label_outline_color"
-                        android:layout_width="56dp"
-                        android:layout_height="28dp"
+                        android:id="@+id/feature_detail_cb_label_enabled"
+                        android:layout_width="100dp"
+                        android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
-                        android:background="#000000"
-                        android:contentDescription="字体轮廓颜色"
-                        android:src="@drawable/bg_swatch_border"
-                        tools:ignore="HardcodedText"
-                        xmlns:tools="http://schemas.android.com/tools" />
+                        android:checked="true"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:text="标注"
+                        android:textSize="8sp"
+                        tools:ignore="HardcodedText" />
+                </LinearLayout>
+
+                <!-- 字体颜色（左半）+ 字体轮廓（右半）同一行；固定行高，两列等高顶边对齐 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="36dp"
+                    android:layout_marginTop="10dp"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="字体颜色："
+                            android:textColor="#424242"
+                            android:textSize="8sp"
+                            tools:ignore="HardcodedText" />
+
+                        <ImageView
+                            android:id="@+id/feature_detail_iv_label_color"
+                            android:layout_width="100dp"
+                            android:layout_height="24dp"
+                            android:layout_marginStart="5dp"
+                            android:background="#212121"
+                            android:contentDescription="字体颜色"
+                            android:src="@drawable/bg_swatch_border"
+                            tools:ignore="HardcodedText" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="字体轮廓："
+                            android:textColor="#424242"
+                            android:textSize="8sp"
+                            tools:ignore="HardcodedText" />
+
+                        <CheckBox
+                            android:id="@+id/feature_detail_cb_label_outline"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:minWidth="0dp"
+                            android:minHeight="0dp" />
+
+                        <ImageView
+                            android:id="@+id/feature_detail_iv_label_outline_color"
+                            android:layout_width="100dp"
+                            android:layout_height="24dp"
+                            android:layout_marginStart="4dp"
+                            android:background="#000000"
+                            android:contentDescription="字体轮廓颜色"
+                            android:src="@drawable/bg_swatch_border"
+                            tools:ignore="HardcodedText" />
+                    </LinearLayout>
                 </LinearLayout>
 
                 <LinearLayout
@@ -412,7 +450,7 @@
                         android:layout_weight="1"
                         android:text="字体大小："
                         android:textColor="#424242"
-                        android:textSize="14sp"
+                        android:textSize="8sp"
                         tools:ignore="HardcodedText"
                         xmlns:tools="http://schemas.android.com/tools" />
 

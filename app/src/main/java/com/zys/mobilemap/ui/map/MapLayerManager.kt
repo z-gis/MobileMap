@@ -295,7 +295,8 @@ internal class MapLayerManager(
      */
     private fun addVectorLayerNative(info: LayerInfo, path: String): Int {
         val s = info.vectorStyle?.takeIf { !it.isEmpty() }
-        val fillColor = MapStyleColors.resolveFillColor(s)
+        // 填充开关关闭（fillEnabled=false）：填充色 alpha 置 0 → 面仅描边不填充（native 描边与填充独立成组，互不影响）
+        val fillColor = if (s?.fillEnabled == false) 0 else MapStyleColors.resolveFillColor(s)
         val outlineColor = MapStyleColors.resolveArgb(s?.outlineColor, MapStyleColors.DEFAULT_POLYGON_OUTLINE_COLOR)
         val outlineWidth = s?.outlineWidth ?: MapStyleColors.DEFAULT_OUTLINE_WIDTH
         val lineColor = MapStyleColors.resolveArgb(s?.outlineColor, MapStyleColors.DEFAULT_LINE_COLOR)

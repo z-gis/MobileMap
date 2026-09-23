@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 图层管理按钮可见层数徽标背景：红色圆形（数量少时呈圆点，多位数自动拉宽为胶囊） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#FFE53935" />
+    <corners android:radius="9dp" />
+</shape>

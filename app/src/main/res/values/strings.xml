@@ -131,6 +131,7 @@
     <string name="jni_map_located">已定位到当前位置</string>
     <string name="jni_map_setting">设置</string>
     <string name="jni_map_layer_manage">图层管理</string>
+    <string name="jni_map_view_mode">切换 2D/3D 视图</string>
 
     <!-- OpenFileActivity -->
     <string name="open_file_title">选择文件</string>

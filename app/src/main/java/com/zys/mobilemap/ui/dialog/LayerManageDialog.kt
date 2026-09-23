@@ -510,6 +510,7 @@ class LayerManageDialog(
                 // 整层字段整体替换（空样式即清除覆盖）；单要素覆盖不受影响，随渲染时优先级生效
                 vs.fillColor = style.fillColor
                 vs.fillOpacity = style.fillOpacity
+                vs.fillEnabled = style.fillEnabled
                 vs.outlineColor = style.outlineColor
                 vs.outlineWidth = style.outlineWidth
                 vs.labelField = style.labelField
@@ -551,7 +552,10 @@ class LayerManageDialog(
         val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         fillPaint.color = parseColorOr(fillHex, Color.BLACK)
         style?.fillOpacity?.let { fillPaint.alpha = (it.coerceIn(0f, 1f) * 255).toInt() }
-        canvas.drawRoundRect(rect, 4 * density, 4 * density, fillPaint)
+        // 填充开关关闭时预览只描边不填充（与渲染层同口径）
+        if (style?.fillEnabled != false) {
+            canvas.drawRoundRect(rect, 4 * density, 4 * density, fillPaint)
+        }
 
         val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             this.style = Paint.Style.STROKE

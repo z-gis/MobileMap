@@ -241,7 +241,14 @@ internal class CameraNavigator(
             .putLong(KEY_LON, cam.longitude.toRawBits())
             .putLong(KEY_LAT, cam.latitude.toRawBits())
             .putLong(KEY_ALT, cam.altitude.toRawBits())
+            .putInt(KEY_VIEW_MODE, if (mapView.getViewMode() == NativeMapView.ViewMode.THREE_D) 1 else 0)
             .apply()
+    }
+
+    /** 启动装配时读回持久化的视图模式（随相机状态一同保存）：1 → 3D 球体，否则 2D 平面墨卡托 */
+    fun savedViewMode(): NativeMapView.ViewMode {
+        val prefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return if (prefs.getInt(KEY_VIEW_MODE, 0) == 1) NativeMapView.ViewMode.THREE_D else NativeMapView.ViewMode.TWO_D
     }
 
     companion object {
@@ -270,5 +277,8 @@ internal class CameraNavigator(
         private const val KEY_LON = "lon"
         private const val KEY_LAT = "lat"
         private const val KEY_ALT = "alt"
+
+        // 视图模式（2D/3D）随相机状态一同持久化：下次进入界面恢复上次选择的模式
+        private const val KEY_VIEW_MODE = "view_mode"
     }
 }

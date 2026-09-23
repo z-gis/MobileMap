@@ -77,10 +77,12 @@ class FeatureDetailDialog(
 
     /** 当前样式编辑状态（初始取文档已有样式，缺省用默认值） */
     private var fillColor = DEFAULT_FILL
+    private var fillEnabled = true
     private var outlineColor = DEFAULT_OUTLINE
     private var outlineWidth = 1
     private var labelColor = DEFAULT_LABEL
     private var labelSizePt = LABEL_SIZE_BASE
+    private var labelEnabled = false
     private var labelOutlineEnabled = false
     private var labelOutlineColor = DEFAULT_LABEL_OUTLINE
 
@@ -249,9 +251,11 @@ class FeatureDetailDialog(
         // 渲染色可能带透明度（如默认填充 0.4），色块如实展示；
         // 选色器按不透明 RGB 交互，避免拾取值与预览透明度不一致。
         fillColor = initialStyle?.fillColor ?: fallbackFill ?: DEFAULT_FILL
+        fillEnabled = initialStyle?.fillEnabled ?: true
         outlineColor = initialStyle?.outlineColor ?: fallbackOutline ?: DEFAULT_OUTLINE
         initialStyle?.outlineWidth?.let { outlineWidth = it.toInt().coerceIn(WIDTH_MIN, WIDTH_MAX) }
-        initialStyle?.labelColor?.let { labelColor = it }
+        labelColor = initialStyle?.labelColor ?: labelColor
+        labelEnabled = initialStyle?.labelField != null
         initialStyle?.labelSize?.let {
             labelSizePt = (it * LABEL_SIZE_BASE).roundToInt().coerceIn(SIZE_MIN, SIZE_MAX)
         }
@@ -262,9 +266,19 @@ class FeatureDetailDialog(
         val ivOutline = sheet.findViewById<ImageView>(R.id.feature_detail_iv_outline_color)
         updateSwatch(ivFill, fillColor)
         updateSwatch(ivOutline, outlineColor)
+        // 不填充时色块淡出提示（开关可回）
+        ivFill.alpha = if (fillEnabled) 1f else 0.3f
 
         ivFill.setOnClickListener { pickColor(ivFill, fillColor) { fillColor = it } }
         ivOutline.setOnClickListener { pickColor(ivOutline, outlineColor) { outlineColor = it } }
+
+        // 填充开关：关闭时面仅描边不填充（渲染层将填充色 alpha 置 0）；先设状态再挂监听避免回显误触
+        val cbFill = sheet.findViewById<CheckBox>(R.id.feature_detail_cb_fill_enabled)
+        cbFill.isChecked = fillEnabled
+        cbFill.setOnCheckedChangeListener { _, checked ->
+            fillEnabled = checked
+            ivFill.alpha = if (checked) 1f else 0.3f
+        }
 
         // 点要素：隐藏面样式（填充/描边/线宽），改为标识图标切换（标注设置区保留）
         if (isPointFeature) {
@@ -337,6 +351,11 @@ class FeatureDetailDialog(
             if (idx >= 0) spLabelField.setSelection(idx)
         }
 
+        // 标注开关：关闭时整层不标注（不写 labelField）；先设状态再挂监听
+        val cbLabel = sheet.findViewById<CheckBox>(R.id.feature_detail_cb_label_enabled)
+        cbLabel.isChecked = labelEnabled
+        cbLabel.setOnCheckedChangeListener { _, checked -> labelEnabled = checked }
+
         // 字体轮廓开关（字号步进控件已在样式页主体绑定）
         // 先设状态再挂监听：回显已有值时不触发监听，与列表项开关的处理一致
         val cbLabelOutline = sheet.findViewById<CheckBox>(R.id.feature_detail_cb_label_outline)
@@ -392,12 +411,14 @@ class FeatureDetailDialog(
             s.iconKey = selectedIconKey
         } else {
             s.fillColor = fillColor
+            // 仅在关闭时落盘（null 默认即填充，避免无谓改动样式版本）
+            if (!fillEnabled) s.fillEnabled = false
             s.outlineColor = outlineColor
             s.outlineWidth = outlineWidth.toFloat()
         }
         if (labelSectionVisible) {
             val field = spLabelField.selectedItem?.toString()
-            s.labelField = field?.takeIf { it != LABEL_FIELD_NONE }
+            s.labelField = if (labelEnabled) field?.takeIf { it != LABEL_FIELD_NONE } else null
             s.labelColor = labelColor
             s.labelSize = labelSizePt.toFloat() / LABEL_SIZE_BASE
             s.labelOutline = labelOutlineEnabled

@@ -219,6 +219,7 @@ internal class FeaturePickController(
         val merged = VectorStyle().apply {
             fillColor = featureStyle?.fillColor ?: layerStyle?.fillColor
             fillOpacity = featureStyle?.fillOpacity ?: layerStyle?.fillOpacity
+            fillEnabled = featureStyle?.fillEnabled ?: layerStyle?.fillEnabled
             outlineColor = featureStyle?.outlineColor ?: layerStyle?.outlineColor
             outlineWidth = featureStyle?.outlineWidth ?: layerStyle?.outlineWidth
             labelField = featureStyle?.labelField ?: layerStyle?.labelField
