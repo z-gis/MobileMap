@@ -13,6 +13,7 @@ import com.zys.mobilemap.util.AppDirectories
 import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.vector.FeatureIcons
 import com.zys.mobilemap.vector.GdalVectorReader
+import com.zys.worldwindjni.NativeLayerInfo
 import com.zys.worldwindjni.NativeMapView
 import com.zys.worldwindjni.VectorExtent
 import com.zys.worldwindjni.VectorStyle as NativeVectorStyle
@@ -72,6 +73,16 @@ internal class MapLayerManager(
 
     /** 各重载层上次成功应用的屏幕范围（相机静止时 extent 无实质变化则去重，不重复触发 native 重载）。 */
     private val lastExtentByKey = mutableMapOf<String, VectorExtent>()
+
+    /**
+     * 屏外挂起的大数据矢量层键集合：可见但图层四至与屏幕范围不相交的非 direct 层暂不加入 native
+     * （免无谓的 GDAL 读取与加载胶囊误亮，整层跳过判定 native 虽廉价但开文件仍有成本），
+     * 相机静止后若屏幕范围与之相交再补加入（见 [onCameraSettled]）。
+     */
+    private val pendingViewportKeys = mutableSetOf<String>()
+
+    /** 各矢量层数据四至缓存（WGS84）：加入/挂起判定时读取一次避免重复开文件；null=读取失败（不缓存，下次重试），四至未知时不挂起。 */
+    private val dataExtentByKey = mutableMapOf<String, VectorExtent?>()
 
     // ── 矢量加载提示胶囊（大图首载/慢重载体感优化）：延迟显示 + 轮询隐藏，均经 View.postDelayed 挂在主线程 ──
 
@@ -224,6 +235,8 @@ internal class MapLayerManager(
             mapView.removeVectorLayer(entry.value)
             directVectorKeys.remove(entry.key)
             lastExtentByKey.remove(entry.key)
+            pendingViewportKeys.remove(entry.key)
+            dataExtentByKey.remove(entry.key)
             staleIter.remove()
         }
         // 新增：可见且尚未加入的矢量层（懒加入，隐层不触发 GDAL 读取）
@@ -232,6 +245,7 @@ internal class MapLayerManager(
             if (path.isNullOrEmpty() || !info.visible) continue
             val key = vectorKey(info)
             if (vectorLayerIndices.containsKey(key)) continue
+            if (key in pendingViewportKeys) continue // 屏外挂起层：待相机静止补加入（onCameraSettled）
             if (!File(path).exists()) {
                 AppLog.w(TAG, "矢量文件不存在，跳过[${info.name}]: $path")
                 continue
@@ -320,6 +334,16 @@ internal class MapLayerManager(
         val count = GdalVectorReader.countFeatures(path)
         val direct = count < 0 || count < DIRECT_RENDER_LIMIT
         val extent = if (direct) null else extentProvider?.invoke()
+        // 屏外预判：大数据层若四至与屏幕范围确定不相交 → 挂起不加入（免无谓 GDAL 读取与加载胶囊误亮）；
+        // 四至/屏幕范围任一未知则照常加入，交 native 防线1 整层跳过兜底（行为与旧版一致）。
+        if (!direct && extent != null) {
+            val bbox = dataExtentByKey.getOrPut(key) { vectorDataBBox(path) }
+            if (bbox != null && !extentIntersects(bbox, extent)) {
+                pendingViewportKeys.add(key)
+                AppLog.i(TAG, "矢量层[${info.name}]四至与屏幕范围不相交，挂起待进入视口再加入")
+                return -1
+            }
+        }
         val idx = mapView.addVectorLayer(
             path,
             NativeVectorStyle(
@@ -361,6 +385,26 @@ internal class MapLayerManager(
         AppLog.i(TAG, "[VecReload] onCameraSettled: extent=[%.6f,%.6f,%.6f,%.6f]".format(
             extent.minLon, extent.minLat, extent.maxLon, extent.maxLat))
         val camLevel = mapView.cameraZoomLevel()
+        // 补加入：先前因屏外挂起的大数据层，现屏幕范围与四至相交（或四至未知）则正常懒加入；
+        // 刚加入者 lastExtent 已被本 extent 命中 → 下方重载判定 extentChanged=false 不重复加载。
+        if (pendingViewportKeys.isNotEmpty()) {
+            for (key in pendingViewportKeys.toList()) {
+                val info = doc.vectorLayers.firstOrNull { vectorKey(it) == key } ?: run {
+                    pendingViewportKeys.remove(key) // 已从文档移除
+                    continue
+                }
+                val path = info.path
+                if (path.isNullOrEmpty() || !info.visible || !File(path).exists() ||
+                    info.effectiveMinDisplayLevel > camLevel
+                ) continue // 保持挂起：转可见/级别达标后再试
+                val bbox = dataExtentByKey.getOrPut(key) { vectorDataBBox(path) }
+                if (bbox != null && !extentIntersects(bbox, extent)) continue // 仍屏外，继续挂起
+                pendingViewportKeys.remove(key)
+                val idx = addVectorLayerNative(info, path)
+                if (idx >= 0) vectorLayerIndices[key] = idx
+                AppLog.i(TAG, "[VecReload] 屏外挂起层补加入[${info.name}] idx=$idx")
+            }
+        }
         for (info in doc.vectorLayers) {
             val path = info.path
             if (path.isNullOrEmpty() || !info.visible) continue
@@ -395,6 +439,19 @@ internal class MapLayerManager(
         pill.removeCallbacks(vectorLoadingShowRunnable)
         pill.removeCallbacks(vectorLoadingPollRunnable)
         pill.visibility = View.GONE
+    }
+
+    /** 读矢量数据四至（WGS84，kmz 走 /vsizip/ 虚拟文件）；失败返回 null（四至未知时不挂起，交 native 兜底）。 */
+    private fun vectorDataBBox(path: String): VectorExtent? {
+        val openPath = if (path.lowercase().endsWith(".kmz")) "/vsizip/$path" else path
+        val e = NativeLayerInfo.getLayerExtent(openPath) ?: return null
+        if (e.size < 4) return null
+        return VectorExtent(e[0], e[1], e[2], e[3])
+    }
+
+    /** 两 WGS84 矩形是否相交（边界接触算相交，与 native 防线1「整层跳过」判定同口径）。 */
+    private fun extentIntersects(a: VectorExtent, b: VectorExtent): Boolean {
+        return !(a.maxLon < b.minLon || a.minLon > b.maxLon || a.maxLat < b.minLat || a.minLat > b.maxLat)
     }
 
     /** 屏幕范围是否相对上次有实质变化：任一边界位移超过跨度 [EXTENT_CHANGE_RATIO] 视为变化（需重载）。上次为 null 视为变化。 */
