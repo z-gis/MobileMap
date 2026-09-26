@@ -36,7 +36,7 @@
             android:singleLine="true"
             android:ellipsize="end" />
 
-        <!-- 右侧下层：SQL 查询（仅 shp）/ 缩放到 / 可见性切换 / 图层信息 / 移除图层 -->
+        <!-- 右侧下层：SQL 查询（仅 shp）/ 级别可见性（图标+生效级别数字徽标）/ 缩放到 / 可见性切换 / 图层信息 / 移除图层 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -54,15 +54,36 @@
                 app:tint="#757575"
                 android:contentDescription="@string/layer_sql_query" />
 
-            <ImageView
-                android:id="@+id/item_layer_iv_level"
+            <!-- 级别可见性：矢量层显隐由代码切到外层容器；右下角徽标显示当前生效级别（未限制时隐藏） -->
+            <FrameLayout
+                android:id="@+id/item_layer_fl_level"
                 android:layout_width="22dp"
                 android:layout_height="22dp"
                 android:layout_marginEnd="16dp"
-                android:src="@drawable/ic_display_level"
-                android:visibility="gone"
-                app:tint="#757575"
-                android:contentDescription="@string/layer_level_visibility" />
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/item_layer_iv_level"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:src="@drawable/ic_display_level"
+                    app:tint="#757575"
+                    android:contentDescription="@string/layer_level_visibility" />
+
+                <TextView
+                    android:id="@+id/item_layer_tv_level_badge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="bottom|end"
+                    android:background="@drawable/bg_level_badge"
+                    android:gravity="center"
+                    android:minWidth="13dp"
+                    android:paddingStart="2dp"
+                    android:paddingEnd="2dp"
+                    android:textColor="#E53935"
+                    android:textSize="8sp"
+                    android:textStyle="bold" />
+            </FrameLayout>
 
             <ImageView
                 android:id="@+id/item_layer_iv_zoom_to"

@@ -91,14 +91,6 @@ class SettingsActivity : BaseStyledActivity() {
             config.backgroundLocation = isChecked
         }
 
-        // shp 读取引擎：开启走 GDAL/OGR（默认），关闭走 WorldWind 原生字节入口；
-        // 退出设置页落盘后经文档变更通知重载 shp 图层（引擎已纳入图层缓存键）
-        val shpGdalSwitch: SwitchCompat = findViewById(R.id.set_switch_shp_gdal)
-        shpGdalSwitch.isChecked = config.shpUseGdal
-        shpGdalSwitch.setOnCheckedChangeListener { _, isChecked ->
-            config.shpUseGdal = isChecked
-        }
-
         // 帮助按键：进入使用说明页（三段可折叠说明）
         findViewById<android.view.View>(R.id.set_row_help).setOnClickListener {
             startActivity(Intent(this, HelpActivity::class.java))

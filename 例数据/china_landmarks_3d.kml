@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  中国名筑 3D 演示集 (China Landmarks 3D Demo)
+  ────────────────────────────────────────────────────────────────
+  目标：贴合本项目 worldwindjni 引擎已落地的 3D 能力（Phase 1 逐顶点高程 + Phase 2 extrude 立体 +
+        Phase 3 逐要素配色），一次演示 5 座中国地标。均为「示意图级」近似，非精确外形：
+    1) CCTV 中央电视台总部大楼 (北京 CBD)     —— 两腿竖直盒体 + 顶部带方孔悬浮板，示意门形闭合环
+    2) 中国尊 CITIC Tower      (北京 CBD)     —— 5 段方形阶梯收分塔，高 528m
+    3) 金茂大厦 Jin Mao Tower  (上海陆家嘴)   —— 6 段方形阶梯收分塔，高 420m
+    4) 东方明珠 Oriental Pearl (上海浦东)     —— 4 段八角鼓交替宽窄堆叠，模拟球体串与天线，高 468m
+    5) 鸟巢 国家体育场 Bird's Nest (北京奥运) —— 八角椭圆环 + 内孔 extrude=1，高 69m
+  已知失真：真实结构里的斜腿、球体、扭转为不可能任务（引擎不支持 Collada/glTF/曲面），已按形态尽量近似。
+  坐标为 WGS84 经纬度，高程单位米，relativeToGround（本环境无 DEM 约等于离椭球）。位置与尺度为近似演示值。
+-->
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>中国名筑 3D 演示集</name>
+    <open>1</open>
+
+    <LookAt>
+      <longitude>116.4614</longitude>
+      <latitude>39.9100</latitude>
+      <altitude>800</altitude>
+      <heading>0</heading>
+      <tilt>50</tilt>
+      <range>3000</range>
+      <altitudeMode>relativeToGround</altitudeMode>
+    </LookAt>
+
+    <!-- ============= 样式（Phase 3：按要素 name 关联） ============= -->
+    <Style id="cctvBody">
+      <LineStyle><color>ff4060a0</color><width>1.5</width></LineStyle>
+      <PolyStyle><color>cc8c6e5a</color></PolyStyle>
+    </Style>
+    <Style id="zun">
+      <LineStyle><color>ff0000a0</color><width>1.5</width></LineStyle>
+      <PolyStyle><color>ffd4af37</color></PolyStyle>
+    </Style>
+    <Style id="jinmao">
+      <LineStyle><color>ff000080</color><width>1.5</width></LineStyle>
+      <PolyStyle><color>ff3373b8</color></PolyStyle>
+    </Style>
+    <Style id="pearl">
+      <LineStyle><color>ff8000c0</color><width>1.5</width></LineStyle>
+      <PolyStyle><color>ff7e5bc2</color></PolyStyle>
+    </Style>
+    <Style id="nest">
+      <LineStyle><color>ff0000cc</color><width>1.5</width></LineStyle>
+      <PolyStyle><color>ff2222cc</color></PolyStyle>
+    </Style>
+
+    <!-- ============= 1. CCTV 央视大楼（沿用已验证几何） ============= -->
+    <Placemark>
+      <name>CCTV Tower A</name>
+      <styleUrl>#cctvBody</styleUrl>
+      <Polygon>
+        <extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode>
+        <outerBoundaryIs><LinearRing><coordinates>
+          116.487400,39.915850,163 116.487900,39.915850,163
+          116.487900,39.916250,163 116.487400,39.916250,163
+          116.487400,39.915850,163
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+    <Placemark>
+      <name>CCTV Tower B</name>
+      <styleUrl>#cctvBody</styleUrl>
+      <Polygon>
+        <extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode>
+        <outerBoundaryIs><LinearRing><coordinates>
+          116.488300,39.916450,163 116.488800,39.916450,163
+          116.488800,39.916850,163 116.488300,39.916850,163
+          116.488300,39.916450,163
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+    <Placemark>
+      <name>CCTV Sky Bridge</name>
+      <styleUrl>#cctvBody</styleUrl>
+      <Polygon>
+        <extrude>0</extrude><altitudeMode>relativeToGround</altitudeMode>
+        <outerBoundaryIs><LinearRing><coordinates>
+          116.487400,39.915850,163 116.488800,39.915850,163
+          116.488800,39.916850,163 116.487400,39.916850,163
+          116.487400,39.915850,163
+        </coordinates></LinearRing></outerBoundaryIs>
+        <innerBoundaryIs><LinearRing><coordinates>
+          116.487900,39.916250,163 116.488300,39.916250,163
+          116.488300,39.916450,163 116.487900,39.916450,163
+          116.487900,39.916250,163
+        </coordinates></LinearRing></innerBoundaryIs>
+      </Polygon>
+    </Placemark>
+
+    <!-- ============= 2. 中国尊 CITIC Tower（5 级方形阶梯收分） ============= -->
+    <Placemark><name>中国尊 T1</name><styleUrl>#zun</styleUrl>
+      <Polygon><extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode>
+      <outerBoundaryIs><LinearRing><coordinates>
+        116.460990,39.908486,120 116.461810,39.908486,120
+        116.461810,39.909114,120 116.460990,39.909114,120
+        116.460990,39.908486,120
+      </coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+    <Placemark><name>中国尊 T2</name><styleUrl>#zun</styleUrl>
+      <Polygon><extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode>
+      <outerBoundaryIs><LinearRing><coordinates>
+        116.461084,39.908558,240 116.461716,39.908558,240
+        116.461716,39.909042,240 116.461084,39.909042,240
+        116.461084,39.908558,240
+      </coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+    <Placemark><name>中国尊 T3</name><styleUrl>#zun</styleUrl>
+      <Polygon><extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode>
+      <outerBoundaryIs><LinearRing><coordinates>
+        116.461166,39.908620,360 116.461634,39.908620,360
+        116.461634,39.908980,360 116.461166,39.908980,360
+        116.461166,39.908620,360
+      </coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+    <Placemark><name>中国尊 T4</name><styleUrl>#zun</styleUrl>
+      <Polygon><extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode>
+      <outerBoundaryIs><LinearRing><coordinates>
+        116.461236,39.908674,460 116.461564,39.908674,460
+        116.461564,39.908926,460 116.461236,39.908926,460
+        116.461236,39.908674,460
+      </coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+    <Placemark><name>中国尊 T5</name><styleUrl>#zun</styleUrl>
+      <Polygon><extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode>
+      <outerBoundaryIs><LinearRing><coordinates>
+        116.461283,39.908710,528 116.461517,39.908710,528
+        116.461517,39.908890,528 116.461283,39.908890,528
+        116.461283,39.908710,528
+      </coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+
+    <!-- ============= 3. 金茂大厦（6 级阶梯收分，形似宝塔） ============= -->
+    <Placemark><name>金茂 T1</name><styleUrl>#jinmao</styleUrl>
+      <Polygon><extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode>
+      <outerBoundaryIs><LinearRing><coordinates>
+        121.505158,31.235321,90 121.506042,31.235321,90
+        121.506042,31.236079,90 121.505158,31.236079,90
+        121.505158,31.235321,90
+      </coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+    <Placemark><name>金茂 T2</name><styleUrl>#jinmao</styleUrl>
+      <Polygon><extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode>
+      <outerBoundaryIs><LinearRing><coordinates>
+        121.505242,31.235393,180 121.505958,31.235393,180
+        121.505958,31.236007,180 121.505242,31.236007,180
+        121.505242,31.235393,180
+      </coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+    <Placemark><name>金茂 T3</name><styleUrl>#jinmao</styleUrl>
+      <Polygon><extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode>
+      <outerBoundaryIs><LinearRing><coordinates>
+        121.505326,31.235465,260 121.505874,31.235465,260
+        121.505874,31.235935,260 121.505326,31.235935,260
+        121.505326,31.235465,260
+      </coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+    <Placemark><name>金茂 T4</name><styleUrl>#jinmao</styleUrl>
+      <Polygon><extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode>
+      <outerBoundaryIs><LinearRing><coordinates>
+        121.505390,31.235519,330 121.505810,31.235519,330
+        121.505810,31.235881,330 121.505390,31.235881,330
+        121.505390,31.235519,330
+      </coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+    <Placemark><name>金茂 T5</name><styleUrl>#jinmao</styleUrl>
+      <Polygon><extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode>
+      <outerBoundaryIs><LinearRing><coordinates>
+        121.505453,31.235574,390 121.505747,31.235574,390
+        121.505747,31.235826,390 121.505453,31.235826,390
+        121.505453,31.235574,390
+      </coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+    <Placemark><name>金茂 T6</name><styleUrl>#jinmao</styleUrl>
+      <Polygon><extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode>
+      <outerBoundaryIs><LinearRing><coordinates>
+        121.505516,31.235628,420 121.505684,31.235628,420
+        121.505684,31.235772,420 121.505516,31.235772,420
+        121.505516,31.235628,420
+      </coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+
+    <!-- ============= 4. 东方明珠（4 段八角鼓，宽窄交替模拟球体串） ============= -->
+    <Placemark><name>东方明珠 底座球</name><styleUrl>#pearl</styleUrl>
+      <Polygon><extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode>
+      <outerBoundaryIs><LinearRing><coordinates>
+        121.500752,31.239700,100 121.500444,31.240338,100
+        121.499700,31.240603,100 121.498956,31.240338,100
+        121.498648,31.239700,100 121.498956,31.239062,100
+        121.499700,31.238797,100 121.500444,31.239062,100
+        121.500752,31.239700,100
+      </coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+    <Placemark><name>东方明珠 中段塔身</name><styleUrl>#pearl</styleUrl>
+      <Polygon><extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode>
+      <outerBoundaryIs><LinearRing><coordinates>
+        121.499858,31.239700,263 121.499812,31.239795,263
+        121.499700,31.239835,263 121.499588,31.239795,263
+        121.499542,31.239700,263 121.499588,31.239605,263
+        121.499700,31.239565,263 121.499812,31.239605,263
+        121.499858,31.239700,263
+      </coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+    <Placemark><name>东方明珠 上球体</name><styleUrl>#pearl</styleUrl>
+      <Polygon><extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode>
+      <outerBoundaryIs><LinearRing><coordinates>
+        121.500121,31.239700,300 121.499998,31.239955,300
+        121.499700,31.240061,300 121.499402,31.239955,300
+        121.499279,31.239700,300 121.499402,31.239445,300
+        121.499700,31.239339,300 121.499998,31.239445,300
+        121.500121,31.239700,300
+      </coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+    <Placemark><name>东方明珠 天线</name><styleUrl>#pearl</styleUrl>
+      <Polygon><extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode>
+      <outerBoundaryIs><LinearRing><coordinates>
+        121.499763,31.239700,468 121.499745,31.239738,468
+        121.499700,31.239754,468 121.499655,31.239738,468
+        121.499637,31.239700,468 121.499655,31.239662,468
+        121.499700,31.239646,468 121.499745,31.239662,468
+        121.499763,31.239700,468
+      </coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+
+    <!-- ============= 5. 鸟巢 国家体育场（八角椭圆环 + 内孔 extrude） ============= -->
+    <Placemark>
+      <name>鸟巢 Bird Nest</name>
+      <description>国家体育场 3D 示意：椭圆环 extrude 69m</description>
+      <styleUrl>#nest</styleUrl>
+      <Polygon>
+        <extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode>
+        <outerBoundaryIs><LinearRing><coordinates>
+          116.397534,39.992900,69 116.396967,39.993833,69
+          116.395600,39.994220,69 116.394233,39.993833,69
+          116.393666,39.992900,69 116.394233,39.991967,69
+          116.395600,39.991580,69 116.396967,39.991967,69
+          116.397534,39.992900,69
+        </coordinates></LinearRing></outerBoundaryIs>
+        <innerBoundaryIs><LinearRing><coordinates>
+          116.396479,39.992900,69 116.396221,39.993281,69
+          116.395600,39.993439,69 116.394979,39.993281,69
+          116.394721,39.992900,69 116.394979,39.992519,69
+          116.395600,39.992361,69 116.396221,39.992519,69
+          116.396479,39.992900,69
+        </coordinates></LinearRing></innerBoundaryIs>
+      </Polygon>
+    </Placemark>
+
+  </Document>
+</kml>

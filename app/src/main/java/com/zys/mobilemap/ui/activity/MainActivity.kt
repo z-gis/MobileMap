@@ -10,6 +10,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.DialogFragment
 import androidx.fragment.app.Fragment
@@ -80,8 +81,9 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
     /** 左上 2D/3D 视图模式切换按键（文字显示当前模式） */
     private lateinit var viewModeButton: TextView
 
-    /** 图层管理按钮上的可见层数徽标（矢量/栅格/地图源可见层计数，随文档显隐变更同步） */
-    private lateinit var layerCountText: TextView
+    /** 指北针复位按键（3D 双指旋转后 heading 非零时显示，点击回正北） */
+    private lateinit var compassButton: TextView
+
     private lateinit var loadingOverlay: View
     private lateinit var measureUndoButton: Button
     private lateinit var measureCenterButton: Button
@@ -147,6 +149,12 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
     /** 启动初始化是否完成：native/proj/文档加载与地图 UI 装配均完成后为 true；onResume/onPause/onDestroy 据此守卫 */
     private var initialized = false
 
+    /** 冷启动首装遮罩已显示标记：仅此时才在装配完成后挂图层加载门控驱动淡出（recreate/恢复场景不启动） */
+    private var coldStartOverlay = false
+
+    /** 冷启动图层加载轮询任务（主线程 postDelayed）：onDestroy 据移除去抖，界面销毁后不再触碰 View */
+    private var startupLoadPoll: Runnable? = null
+
     /** 等待系统“所有文件访问”授权返回：跳系统页时置 true，onResume 复检并续跑初始化 */
     private var waitingForAllFilesPermission = false
 
@@ -163,7 +171,7 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         annotationButton = findViewById(R.id.jni_map_annotation)
         locateButton = findViewById(R.id.jni_map_locate)
         viewModeButton = findViewById(R.id.jni_map_view_mode)
-        layerCountText = findViewById(R.id.jni_map_layer_count)
+        compassButton = findViewById(R.id.jni_map_compass)
         loadingOverlay = findViewById(R.id.jni_map_loading_overlay)
         measureUndoButton = findViewById(R.id.jni_map_measure_undo)
         measureCenterButton = findViewById(R.id.jni_map_measure_center)
@@ -175,11 +183,17 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
 
         startup = StartupInitializer(this)
 
+        // 退出确认：拦截返回键弹确认框，需再点「退出」二次操作才退出（对齐 OpenFileActivity 的 dispatcher 惯例）
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() = confirmExit()
+        })
+
         // 启动加载遮罩：盖住 native/proj/文档初始化与首屏瓦片异步加载的白屏，初始化完成（或安全超时）后淡出。
         // recreate（图源/栅格结构变更触发）时跳过遮罩：避免重建闪动（新实例瓦片多已在磁盘缓存）。
         // savedInstanceState != null 视为重建/恢复场景。
         if (savedInstanceState == null) {
             startup.beginLoadingOverlay(loadingOverlay)
+            coldStartOverlay = true
         } else {
             startup.skipLoadingOverlay(loadingOverlay)
         }
@@ -230,7 +244,40 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         mapView.setViewMode(navigator.savedViewMode())
         updateViewModeButton()
 
-        // 加载遮罩淡出由 onCreate 挂的安全超时（LOADING_OVERLAY_TIMEOUT_MS）兜底（首帧回调路径当前未接入，见 StartupInitializer）
+        // 加载遮罩淡出：装配完成后启动冷启动图层加载门控，异步轮询 native 矢量加载状态，加载完成即淡出；
+        // onCreate 挂的安全超时（LOADING_OVERLAY_TIMEOUT_MS）仅作兼底（长时间未就绪时强制淡出）。
+        if (coldStartOverlay) {
+            coldStartOverlay = false
+            beginStartupLayerLoadGate()
+        }
+    }
+
+    /**
+     * 冷启动图层加载门控：异步轮询 [NativeMapView.hasVectorLoading]；遮罩底部文案为固定模式（布局静态指定，不随加载图层动态变化）。
+     * **遮罩最少展示 [STARTUP_MIN_DISPLAY_MS] 毫秒**：未加载完成继续等待；加载完成但未达最少时长继续等待；
+     * 两者均满足（加载完成且已够 3 秒）才淡出。
+     *
+     * 完成判定仅覆盖矢量层（现成聚合信号，无 native 改动）；瓦片底图/栅格层不纳入门控（首帧即视为就绪）。
+     * 走 `postDelayed` 异步轮询而非末尾同步淡出，规避首帧未绘完时遮罩提前淡出而从不显示的时序问题。
+     */
+    private fun beginStartupLayerLoadGate() {
+        // 计时起点：门控启动即近似遮罩实际上屏时刻（首帧在 onCreate 返回后数帧内绘出）
+        val startAt = SystemClock.elapsedRealtime()
+        val poll = object : Runnable {
+            override fun run() {
+                if (isFinishing || isDestroyed) return
+                val elapsed = SystemClock.elapsedRealtime() - startAt
+                // 仍在加载，或已加载完但未达最少展示时长：继续等待
+                if (mapView.hasVectorLoading() || elapsed < STARTUP_MIN_DISPLAY_MS) {
+                    loadingOverlay.postDelayed(this, STARTUP_LOAD_POLL_MS)
+                } else {
+                    startupLoadPoll = null
+                    startup.hideLoadingOverlay()
+                }
+            }
+        }
+        startupLoadPoll = poll
+        loadingOverlay.postDelayed(poll, STARTUP_LOAD_POLL_MS)
     }
 
     /**
@@ -313,6 +360,16 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         locateButton.setOnClickListener { locationController.toggleFollow() }
         viewModeButton.setOnClickListener { toggleViewMode() }
 
+        // 指北针复位：heading 非零且 3D（旋转唯一消费模式）时显示，点击经既有 setCamera 通道归零。
+        // 显隐由 CameraNavigator 的 ~250ms 状态轮询回调驱动，本处无需主动刷
+        compassButton.setOnClickListener { navigator.resetHeading() }
+        navigator.onHeadingChanged = { deg ->
+            compassButton.visibility =
+                if (kotlin.math.abs(deg) > HEADING_SHOW_THRESHOLD_DEG &&
+                    mapView.getViewMode() == NativeMapView.ViewMode.THREE_D
+                ) View.VISIBLE else View.GONE
+        }
+
         // 交互入口（对齐原主界面）：设置页、图层管理（地图源页签切换底图）、点定位文本「移动到」
         findViewById<ImageView>(R.id.jni_map_setting).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
@@ -335,7 +392,6 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         mapView.setOnTapListener { x, y -> pickController.onMapTap(x, y) }
 
         navigator.updateStatusText()
-        updateLayerCountBadge(doc)
 
         // 监听文档变更：底图切换 / 注记显隐 / 图源增删改经此即时同步（对齐原主界面文档驱动）
         DocumentManager.getInstance().registerDocumentChangeListener(this)
@@ -379,30 +435,14 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
             NativeMapView.ViewMode.TWO_D else NativeMapView.ViewMode.THREE_D
         mapView.setViewMode(next)
         updateViewModeButton()
+        // 指北针显隐即时跟进模式（2D 恒正北不显示，免等下轮轮询）
+        navigator.updateStatusText()
     }
 
     /** 刷新左上模式按键文字：显示当前模式（按钮文字即所见模式） */
     private fun updateViewModeButton() {
         viewModeButton.text =
             if (mapView.getViewMode() == NativeMapView.ViewMode.THREE_D) "3D" else "2D"
-    }
-
-    /**
-     * 刷新图层管理按钮徽标：统计文档中全部可见层（矢量 + 栅格 + 地图源含注记），
-     * 装配时初显、显隐/增删经文档变更即时同步；计数为 0 时隐藏徽标。
-     */
-    private fun updateLayerCountBadge(doc: MapDocument?) {
-        val count = doc?.let {
-            it.vectorLayers.count { l -> l.visible } +
-                    it.rasterLayers.count { l -> l.visible } +
-                    it.mapSources.count { s -> s.visible }
-        } ?: 0
-        if (count <= 0) {
-            layerCountText.visibility = View.GONE
-        } else {
-            layerCountText.text = count.toString()
-            layerCountText.visibility = View.VISIBLE
-        }
     }
 
     /**
@@ -442,6 +482,25 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
             .show()
     }
 
+    /** 当前显示的退出确认对话框（非空且展示中时不重复弹） */
+    private var exitConfirmDialog: androidx.appcompat.app.AlertDialog? = null
+
+    /**
+     * 退出确认对话框：首次返回键弹出，需再点「退出」（二次操作）才退出应用。
+     * 点「取消」/点击外部/再按一次返回（对话框自行 cancel）均留在应用——不拦截对话框内返回键
+     * （predictive-back 规范），故退出动作唯一入口为「退出」按钮。
+     */
+    private fun confirmExit() {
+        if (exitConfirmDialog?.isShowing == true) return
+        exitConfirmDialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("退出确认")
+            .setMessage("是否退出应用？")
+            .setPositiveButton("退出") { _, _ -> finish() }
+            .setNegativeButton("取消", null)
+            .create()
+        exitConfirmDialog?.show()
+    }
+
     // ── 文档变更驱动（结构变化判定交 layerManager，recreate 编排留本类）─────────────────────
 
     /**
@@ -450,7 +509,6 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
      * 非结构变化则由 layerManager 就地同步可见性/矢量/栅格层并刷新叠加层。
      */
     override fun onDocumentChanged(document: MapDocument) {
-        updateLayerCountBadge(document)
         if (!layerManager.onDocumentChanged(document)) return
         if (supportFragmentManager.findFragmentByTag(TAG_LAYER_MANAGE_DIALOG) != null) {
             AppLog.i(TAG, "文档图源/栅格结构变化，图层管理对话框打开中，挂起重建至对话框关闭")
@@ -542,6 +600,9 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
     override fun onDestroy() {
         if (::navigator.isInitialized) navigator.stopPolling()
         if (::startup.isInitialized) startup.cancelLoadingOverlayTimeout()
+        // 移除冷启动图层加载轮询的挂起任务（主线程 postDelayed，界面销毁后不可再触碰 View/native）
+        if (::loadingOverlay.isInitialized) startupLoadPoll?.let { loadingOverlay.removeCallbacks(it) }
+        startupLoadPoll = null
         // 取消矢量加载提示胶囊的挂起任务（延迟显示/轮询均为主线程 postDelayed，界面销毁后不可再触碰 View）
         if (::layerManager.isInitialized) layerManager.cancelVectorLoadingPill()
         // 注销图层管理对话框生命周期观察（避免界面销毁后仍被回调）
@@ -560,7 +621,16 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
     companion object {
         private const val TAG = "MainActivity"
 
+        /** 指北针复位按键显示阈值（度）：|heading| 超过此值才显示（手势旋转归零的尾差不足半度视为正北） */
+        private const val HEADING_SHOW_THRESHOLD_DEG = 0.5
+
         /** 图层管理对话框 FragmentManager tag（判定当前是否处于打开态、挂起 recreate 用） */
         private const val TAG_LAYER_MANAGE_DIALOG = "LayerManageDialog"
+
+        /** 冷启动图层加载轮询间隔（毫秒）：首帧后按此间隔查 native 矢量加载状态，完成且达最少展示时长即淡出遮罩 */
+        private const val STARTUP_LOAD_POLL_MS = 200L
+
+        /** 冷启动遮罩最少展示时长（毫秒）：即使图层秒级加载完成，也至少停留此秒数再淡出，避免启动画面一闪而过 */
+        private const val STARTUP_MIN_DISPLAY_MS = 3000L
     }
 }

@@ -50,20 +50,27 @@ internal class CameraNavigator(
     }
 
     /**
-     * 相机静止回调：位姿（经度/纬度/高度）连续≥[SETTLE_MS] 不变后触发一次，供宿主按新屏幕范围
+     * 相机静止回调：位姿（经度/纬度/高度/方位角）连续≥[SETTLE_MS] 不变后触发一次，供宿主按新屏幕范围
      * 重载可见的大数据矢量层（见 MapLayerManager）。仅在位姿实际变化后的稳定沿触发，同一视角不重复。
+     * heading 计入签名：3D 旋转后视口四角的地理反算（computeVisibleExtent）随之改变，需触发重加载。
      */
     var onCameraSettled: ((Camera) -> Unit)? = null
 
+    /**
+     * 相机方位角变化回调（随 ~250ms 状态轮询驱动）：供宿主指北针复位按键显隐
+     * （heading 非零且 3D 时显示，见 MainActivity 接线）。
+     */
+    var onHeadingChanged: ((Double) -> Unit)? = null
+
     // 静止检测态：上次位姿签名 + 该签名首次观测时刻 + 本签名是否已触发（防抖动/重复）
-    private var lastPoseSig: Triple<Double, Double, Double>? = null
+    private var lastPoseSig: List<Double>? = null
     private var stableSinceMs = 0L
     private var settledFiredForCurrentPose = false
 
     /** 每轮询比对相机签名：变化则重置稳定计时并清除已触发标志；连续不变累计≥[SETTLE_MS] 且未触发→回调一次。 */
     private fun detectCameraSettled() {
         val cam = mapView.getCamera() ?: return
-        val sig = Triple(cam.longitude, cam.latitude, cam.altitude)
+        val sig = listOf(cam.longitude, cam.latitude, cam.altitude, cam.heading)
         val now = SystemClock.elapsedRealtime()
         if (sig != lastPoseSig) {
             lastPoseSig = sig
@@ -123,17 +130,23 @@ internal class CameraNavigator(
         var lon = DEFAULT_LON
         var lat = DEFAULT_LAT
         var alt = DEFAULT_ALTITUDE
+        var heading = 0.0
+        var tilt = 0.0
         val prefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         if (prefs.contains(KEY_LON)) {
             lon = Double.fromBits(prefs.getLong(KEY_LON, 0L))
             lat = Double.fromBits(prefs.getLong(KEY_LAT, 0L))
             alt = Double.fromBits(prefs.getLong(KEY_ALT, 0L))
+            // heading 为 3D 旋转手势后新增键：旧版 prefs 无此键时保持正北（不影响存量视角）
+            if (prefs.contains(KEY_HEADING)) heading = Double.fromBits(prefs.getLong(KEY_HEADING, 0L))
+            // tilt（仰角）为 3D 俯仰后新增键：旧版 prefs 无此键时保持 0（不影响存量视角）
+            if (prefs.contains(KEY_TILT)) tilt = Double.fromBits(prefs.getLong(KEY_TILT, 0L))
         } else if (doc != null && !doc.camLongitude.isNaN() && !doc.camLatitude.isNaN() && !doc.camAltitude.isNaN()) {
             lon = doc.camLongitude
             lat = doc.camLatitude
             alt = doc.camAltitude
         }
-        return Camera(latitude = lat, longitude = lon, altitude = alt)
+        return Camera(latitude = lat, longitude = lon, altitude = alt, heading = heading, tilt = tilt)
     }
 
     fun zoomIn() = zoomBy(ZOOM_IN_FACTOR)
@@ -209,6 +222,16 @@ internal class CameraNavigator(
     }
 
     /**
+     * 指北针复位：相机 heading 归零（回正北）。走既有 getCamera/setCamera 通道，3D 即时生效；
+     * 2D 恒正北不受影响（heading 留存值一并归零，两模式视角状态保持整齐）。
+     */
+    fun resetHeading() {
+        val cam = mapView.getCamera() ?: return
+        if (cam.heading == 0.0) return
+        mapView.setCamera(cam.copy(heading = 0.0))
+    }
+
+    /**
      * 读回 native 相机刷新级别数字与中心经纬度文本：级别换算与坐标格式均与原主界面同源
      * （[MercatorZoom.altitudeToLevel] / [CoordFormatter]），保证升级前后显示一致。
      */
@@ -216,6 +239,8 @@ internal class CameraNavigator(
         val cam = mapView.getCamera() ?: return
         levelText.text = MercatorZoom.altitudeToLevel(cam.altitude).toString()
         centerText.text = CoordFormatter.format("中心", cam.longitude, cam.latitude)
+        // 方位角随轮询同步宿主（指北针按键显隐），免另设回调通道
+        onHeadingChanged?.invoke(cam.heading)
     }
 
     /** 启动级别/中心文本轮询刷新（onResume） */
@@ -230,7 +255,7 @@ internal class CameraNavigator(
     }
 
     /**
-     * 把本界面当前相机（经纬度 + 高度米）存到独立的 SharedPreferences，下次进入本界面恢复。
+     * 把本界面当前相机（经纬度 + 高度米 + 方位角）存到独立的 SharedPreferences，下次进入本界面恢复。
      * 不写共享文档相机：原 wwd 主界面（已删除）每次 onPause 都会用 wwd 相机覆盖文档相机，
      * 共用会互相冲掉；独立存储让本界面记住自己的视角。
      * double 以 [Double.toRawBits] 存为 Long 保精度（SharedPreferences 无 double 类型）。
@@ -241,6 +266,8 @@ internal class CameraNavigator(
             .putLong(KEY_LON, cam.longitude.toRawBits())
             .putLong(KEY_LAT, cam.latitude.toRawBits())
             .putLong(KEY_ALT, cam.altitude.toRawBits())
+            .putLong(KEY_HEADING, cam.heading.toRawBits())
+            .putLong(KEY_TILT, cam.tilt.toRawBits())
             .putInt(KEY_VIEW_MODE, if (mapView.getViewMode() == NativeMapView.ViewMode.THREE_D) 1 else 0)
             .apply()
     }
@@ -277,6 +304,12 @@ internal class CameraNavigator(
         private const val KEY_LON = "lon"
         private const val KEY_LAT = "lat"
         private const val KEY_ALT = "alt"
+
+        // 相机方位角（度）：3D 双指旋转手势后随相机状态一同持久化，下次进入恢复旋转视角
+        private const val KEY_HEADING = "heading"
+
+        // 相机倾斜角/仰角（度，对应 wwd tilt）：3D 俯仰后随相机状态一同持久化，下次进入恢复仰角视角
+        private const val KEY_TILT = "tilt"
 
         // 视图模式（2D/3D）随相机状态一同持久化：下次进入界面恢复上次选择的模式
         private const val KEY_VIEW_MODE = "view_mode"

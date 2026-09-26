@@ -1,19 +1,19 @@
 package com.zys.mobilemap.ui.map
 
 import android.os.Build
-import android.util.Log
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.util.PermissionUtil
 import com.zys.mobilemap.util.UiUtil
 import com.zys.worldwindjni.NativeSrs
-import java.io.File
-import java.io.FileOutputStream
 
 /**
- * 启动初始化器（自 MainActivity 拆出）：外部文件权限门、proj 数据解压、assets 递归复制，
+ * 启动初始化器（自 MainActivity 拆出）：外部文件权限门、proj 数据初始化，
  * 以及启动加载遮罩的显示/淡出/安全超时（复刻原主界面启动链路，行为零变化）。
+ *
+ * proj 解压实现已下沉 worldwindjni（assets/proj 随模块分发，见 [NativeSrs.initProjData]），
+ * 本类仅保留启动链路接线。
  *
  * `waitingForAllFilesPermission` / `initialized` 两个跨生命周期状态仍由 Activity 持有（编排职责），
  * 本类只提供无副作用判定与遮罩/解压的具体动作。遮罩 View 由 Activity 在装配期传入。
@@ -31,57 +31,12 @@ internal class StartupInitializer(private val activity: AppCompatActivity) {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.R || PermissionUtil.isExternalStorageManager()
     }
 
-    /** 解压 assets/proj 到应用私有目录并设置 PROJ 搜索路径（proj.db 与格网改正数文件，坐标转换依赖） */
+    /** 初始化 proj 数据（worldwindjni 内置 assets/proj 解压到应用私有目录并设置 PROJ 搜索路径） */
     fun extractProjData() {
         try {
-            val projDir = File(activity.filesDir, "proj")
-            if (!projDir.exists()) {
-                projDir.mkdirs()
-            }
-            copyAssetFolder("proj", projDir)
-            NativeSrs.initProjDataPath(projDir.absolutePath)
+            NativeSrs.initProjData(activity)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to extract proj data", e)
             AppLog.e(TAG, "解压 proj 数据失败", e)
-        }
-    }
-
-    /**
-     * 递归复制 assets 目录到 [destDir]：子目录建同名目录后递归（保持层级），
-     * 文件已存在时跳过，避免每次启动重复解压。
-     */
-    private fun copyAssetFolder(assetPath: String, destDir: File) {
-        try {
-            val children = activity.assets.list(assetPath)
-            // 空清单即叶子节点（assets 对文件返回空数组），按文件复制
-            if (children.isNullOrEmpty()) {
-                val leaf = File(destDir, assetPath.substringAfterLast('/'))
-                if (!leaf.exists()) copyAssetFile(assetPath, leaf)
-                return
-            }
-            if (!destDir.exists()) destDir.mkdirs()
-            for (child in children) {
-                val subPath = "$assetPath/$child"
-                val subChildren = activity.assets.list(subPath)
-                if (subChildren.isNullOrEmpty()) {
-                    val destFile = File(destDir, child)
-                    if (!destFile.exists()) copyAssetFile(subPath, destFile)
-                } else {
-                    copyAssetFolder(subPath, File(destDir, child))
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to copy asset: $assetPath", e)
-        }
-    }
-
-    private fun copyAssetFile(assetPath: String, destFile: File) {
-        try {
-            activity.assets.open(assetPath).use { input ->
-                FileOutputStream(destFile).use { out -> input.copyTo(out) }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to copy: $assetPath", e)
         }
     }
 

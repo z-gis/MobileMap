@@ -68,7 +68,8 @@ internal class FeaturePickController(
 ) {
 
     // 点击选中高亮：选中要素的黄色高亮 overlay 层索引 + 源文件路径/FID
-    // （高亮层盖在原要素上会被 pickVector 优先命中，故缓存源 path/FID 供命中时穿透回详情）
+    // （高亮层置 noPick 不参与 native 拾取，命中直接落源要素层；缓存源 path/FID 仅作防护兜底：
+    // 异常情形（如 native 旧版未支持 noPick）高亮层被命中时穿透回详情）
     private var selectedHighlightIndex = -1
     private var selectedPath: String? = null
     private var selectedFid: Long = -1
@@ -102,9 +103,10 @@ internal class FeaturePickController(
     }
 
     /**
-     * 业务叠加命中分流：pickVector 逆序遍历使后加入的叠加层优先命中（对齐原主界面「测量/轨迹/拍照优先于文件矢量」）。
-     * 按 overlay 索引映射判定命中类型：测量→路由弹测量详情、轨迹→路由弹轨迹详情、拍照（合一层，fid=点位主键）→路由弹
-     * [PhotoSheetDialog]、样地→路由启动调查编辑；SQL 查询高亮/选中高亮层命中则穿透回源要素详情。
+     * 业务叠加命中分流：native pickVector 分两阶段（先叠加层后文件矢量层，见 [NativeMapView.pickVector]），
+     * 测量/轨迹/拍照/样地叠加恒优先于矢量要素命中。按 overlay 索引映射判定命中类型：测量→路由弹测量详情、
+     * 轨迹→路由弹轨迹详情、拍照（合一层，fid=点位主键）→路由弹 [PhotoSheetDialog]、样地→路由启动调查编辑；
+     * SQL 查询高亮/选中高亮层已置 noPick 不参与 native 拾取（命中直接落源层），下方穿透分支仅作防护兜底。
      * @return 是否命中并消费了该点击
      */
     private fun handleOverlayHit(layerIndex: Int, fid: Long): Boolean {
@@ -128,12 +130,12 @@ internal class FeaturePickController(
             }
             OverlayHit.None -> Unit
         }
-        // SQL 查询高亮层命中：点击穿透到源要素（对齐原主界面 buildQueryResultLayer 关闭拾取的穿透语义），弹源数据只读详情
+        // SQL 查询高亮层命中：点击穿透到源要素（该层已置 noPick，正常不会命中于此；本分支仅作防护兜底），弹源数据只读详情
         queryController.sourcePathIfHit(layerIndex)?.let {
             showVectorFeatureDetail(it, fid)
             return true
         }
-        // 点击选中高亮层命中：穿透回源要素详情（高亮层盖在原要素上，避免二次点击无响应）
+        // 点击选中高亮层命中：穿透回源要素详情（该层已置 noPick，正常不会命中于此；本分支仅作防护兜底）
         if (layerIndex == selectedHighlightIndex) {
             selectedPath?.let { showVectorFeatureDetail(it, selectedFid) }
             return true
@@ -144,7 +146,8 @@ internal class FeaturePickController(
     /**
      * 画文件矢量要素的选中高亮（对齐原主界面 VectorPickModel 的 setHighlighted 黄色选中态）：
      * 经 [NativeMapView.featureGeometry] 取该要素经纬度几何（native 反投影 pickPrims，无文件 IO），
-     * 用独立 overlay 层以黄色高亮样式覆盖渲染。切换选中先清旧高亮；缓存源 path/FID 供高亮层被命中时穿透回详情。
+     * 用独立 overlay 层以黄色高亮样式覆盖渲染。切换选中先清旧高亮；高亮层置 noPick 不参与拾取
+     * （其大面积面几何会遮蔽测量/拍照等业务叠加与源要素的点击），命中直接落到原要素层。
      */
     private fun highlightSelectedFeature(layerIndex: Int, fid: Long, path: String) {
         clearSelectedHighlight()
@@ -157,6 +160,7 @@ internal class FeaturePickController(
             )
         )
         if (idx < 0) return
+        mapView.setOverlayNoPick(idx, true) // 瞬态视觉层退出拾取竞争，命中直接落源层
         selectedHighlightIndex = idx
         selectedPath = path
         selectedFid = fid

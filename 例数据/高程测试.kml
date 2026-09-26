@@ -1,0 +1,299 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>多面体建筑高程测试</name>
+    <description>由多个带顶点高程（absolute）的多边形面拼合成一座建筑：主房为三棱柱（底面+两坡屋面+南北山墙），塔楼为四棱柱塔身+四棱锥尖顶。3D下按高程显示时应呈现立体建筑；若按平面渲染则所有面会重叠压扁。</description>
+
+    <Style id="wall">
+      <LineStyle><color>ff000000</color><width>1.5</width></LineStyle>
+      <PolyStyle><color>ccd0ccc8</color></PolyStyle>
+    </Style>
+    <Style id="roof">
+      <LineStyle><color>ff000000</color><width>1.5</width></LineStyle>
+      <PolyStyle><color>cc4060c8</color></PolyStyle>
+    </Style>
+    <Style id="gable">
+      <LineStyle><color>ff000000</color><width>1.5</width></LineStyle>
+      <PolyStyle><color>cc50a8e8</color></PolyStyle>
+    </Style>
+    <Style id="floor">
+      <LineStyle><color>af000000</color><width>1</width></LineStyle>
+      <PolyStyle><color>96808080</color></PolyStyle>
+    </Style>
+    <Style id="outline">
+      <LineStyle><color>ff2020ff</color><width>2.5</width></LineStyle>
+    </Style>
+
+    <!-- ==================== 主房：三棱柱（屋脊沿南北向） ==================== -->
+    <!-- 关键顶点海拔：勒脚/底面 100m，屋脊 160m -->
+
+    <Placemark>
+      <name>主房-底面（海拔100m）</name>
+      <styleUrl>#floor</styleUrl>
+      <Polygon>
+        <tessellate>0</tessellate>
+        <altitudeMode>absolute</altitudeMode>
+        <outerBoundaryIs><LinearRing><coordinates>
+          116.39970,39.89960,100
+          116.40030,39.89960,100
+          116.40030,39.90040,100
+          116.39970,39.90040,100
+          116.39970,39.89960,100
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+
+    <Placemark>
+      <name>主房-南墙（含山墙，顶点100→160m）</name>
+      <styleUrl>#gable</styleUrl>
+      <Polygon>
+        <tessellate>0</tessellate>
+        <altitudeMode>absolute</altitudeMode>
+        <outerBoundaryIs><LinearRing><coordinates>
+          116.39970,39.89960,100
+          116.40030,39.89960,100
+          116.40000,39.89960,160
+          116.39970,39.89960,100
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+
+    <Placemark>
+      <name>主房-北墙（含山墙，顶点100→160m）</name>
+      <styleUrl>#gable</styleUrl>
+      <Polygon>
+        <tessellate>0</tessellate>
+        <altitudeMode>absolute</altitudeMode>
+        <outerBoundaryIs><LinearRing><coordinates>
+          116.39970,39.90040,100
+          116.40000,39.90040,160
+          116.40030,39.90040,100
+          116.39970,39.90040,100
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+
+    <Placemark>
+      <name>主房-西坡屋面（底边100m→屋脊160m斜面）</name>
+      <styleUrl>#roof</styleUrl>
+      <Polygon>
+        <tessellate>0</tessellate>
+        <altitudeMode>absolute</altitudeMode>
+        <outerBoundaryIs><LinearRing><coordinates>
+          116.39970,39.89960,100
+          116.39970,39.90040,100
+          116.40000,39.90040,160
+          116.40000,39.89960,160
+          116.39970,39.89960,100
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+
+    <Placemark>
+      <name>主房-东坡屋面（底边100m→屋脊160m斜面）</name>
+      <styleUrl>#roof</styleUrl>
+      <Polygon>
+        <tessellate>0</tessellate>
+        <altitudeMode>absolute</altitudeMode>
+        <outerBoundaryIs><LinearRing><coordinates>
+          116.40030,39.89960,100
+          116.40000,39.89960,160
+          116.40000,39.90040,160
+          116.40030,39.90040,100
+          116.40030,39.89960,100
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+
+    <!-- ==================== 塔楼：四棱柱塔身 + 四棱锥尖顶 ==================== -->
+    <!-- 关键顶点海拔：塔底 100m，塔身顶 200m，锥顶 240m -->
+
+    <Placemark>
+      <name>塔楼-南墙（100→200m）</name>
+      <styleUrl>#wall</styleUrl>
+      <Polygon>
+        <tessellate>0</tessellate>
+        <altitudeMode>absolute</altitudeMode>
+        <outerBoundaryIs><LinearRing><coordinates>
+          116.40060,39.89970,100
+          116.40100,39.89970,100
+          116.40100,39.89970,200
+          116.40060,39.89970,200
+          116.40060,39.89970,100
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+
+    <Placemark>
+      <name>塔楼-东墙（100→200m）</name>
+      <styleUrl>#wall</styleUrl>
+      <Polygon>
+        <tessellate>0</tessellate>
+        <altitudeMode>absolute</altitudeMode>
+        <outerBoundaryIs><LinearRing><coordinates>
+          116.40100,39.89970,100
+          116.40100,39.90030,100
+          116.40100,39.90030,200
+          116.40100,39.89970,200
+          116.40100,39.89970,100
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+
+    <Placemark>
+      <name>塔楼-北墙（100→200m）</name>
+      <styleUrl>#wall</styleUrl>
+      <Polygon>
+        <tessellate>0</tessellate>
+        <altitudeMode>absolute</altitudeMode>
+        <outerBoundaryIs><LinearRing><coordinates>
+          116.40100,39.90030,100
+          116.40060,39.90030,100
+          116.40060,39.90030,200
+          116.40100,39.90030,200
+          116.40100,39.90030,100
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+
+    <Placemark>
+      <name>塔楼-西墙（100→200m）</name>
+      <styleUrl>#wall</styleUrl>
+      <Polygon>
+        <tessellate>0</tessellate>
+        <altitudeMode>absolute</altitudeMode>
+        <outerBoundaryIs><LinearRing><coordinates>
+          116.40060,39.90030,100
+          116.40060,39.89970,100
+          116.40060,39.89970,200
+          116.40060,39.90030,200
+          116.40060,39.90030,100
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+
+    <Placemark>
+      <name>塔楼-锥顶南面（200→240m）</name>
+      <styleUrl>#roof</styleUrl>
+      <Polygon>
+        <tessellate>0</tessellate>
+        <altitudeMode>absolute</altitudeMode>
+        <outerBoundaryIs><LinearRing><coordinates>
+          116.40060,39.89970,200
+          116.40100,39.89970,200
+          116.40080,39.90000,240
+          116.40060,39.89970,200
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+
+    <Placemark>
+      <name>塔楼-锥顶东面（200→240m）</name>
+      <styleUrl>#roof</styleUrl>
+      <Polygon>
+        <tessellate>0</tessellate>
+        <altitudeMode>absolute</altitudeMode>
+        <outerBoundaryIs><LinearRing><coordinates>
+          116.40100,39.89970,200
+          116.40100,39.90030,200
+          116.40080,39.90000,240
+          116.40100,39.89970,200
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+
+    <Placemark>
+      <name>塔楼-锥顶北面（200→240m）</name>
+      <styleUrl>#roof</styleUrl>
+      <Polygon>
+        <tessellate>0</tessellate>
+        <altitudeMode>absolute</altitudeMode>
+        <outerBoundaryIs><LinearRing><coordinates>
+          116.40100,39.90030,200
+          116.40060,39.90030,200
+          116.40080,39.90000,240
+          116.40100,39.90030,200
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+
+    <Placemark>
+      <name>塔楼-锥顶西面（200→240m）</name>
+      <styleUrl>#roof</styleUrl>
+      <Polygon>
+        <tessellate>0</tessellate>
+        <altitudeMode>absolute</altitudeMode>
+        <outerBoundaryIs><LinearRing><coordinates>
+          116.40060,39.90030,200
+          116.40060,39.89970,200
+          116.40080,39.90000,240
+          116.40060,39.90030,200
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+
+    <!-- ==================== 辅助校核要素 ==================== -->
+
+    <Placemark>
+      <name>建筑轮廓线（应沿棱线抬升）</name>
+      <description>屋脊线：两端海拔160m；若3D下贴地或压平则未按高程渲染</description>
+      <styleUrl>#outline</styleUrl>
+      <LineString>
+        <tessellate>0</tessellate>
+        <altitudeMode>absolute</altitudeMode>
+        <coordinates>
+          116.40000,39.89960,160
+          116.40000,39.90040,160
+        </coordinates>
+      </LineString>
+    </Placemark>
+
+    <Placemark>
+      <name>塔楼棱线（侧棱100→200m）</name>
+      <styleUrl>#outline</styleUrl>
+      <LineString>
+        <tessellate>0</tessellate>
+        <altitudeMode>absolute</altitudeMode>
+        <coordinates>
+          116.40060,39.89970,100
+          116.40060,39.89970,200
+          116.40080,39.90000,240
+        </coordinates>
+      </LineString>
+    </Placemark>
+
+    <Placemark>
+      <name>主房底角点（海拔100m）</name>
+      <Point>
+        <altitudeMode>absolute</altitudeMode>
+        <coordinates>116.39970,39.89960,100</coordinates>
+      </Point>
+    </Placemark>
+
+    <Placemark>
+      <name>塔尖点（海拔240m）</name>
+      <description>全楼最高点，3D下标识应悬浮于锥顶上方</description>
+      <Point>
+        <altitudeMode>absolute</altitudeMode>
+        <coordinates>116.40080,39.90000,240</coordinates>
+      </Point>
+    </Placemark>
+
+    <Placemark>
+      <name>楼底贴地轮廓（clampToGround对照组）</name>
+      <description>与主房底面同一平面位置，但贴地显示；用于对比高程是否生效</description>
+      <Polygon>
+        <tessellate>1</tessellate>
+        <altitudeMode>clampToGround</altitudeMode>
+        <outerBoundaryIs><LinearRing><coordinates>
+          116.39970,39.89960,100
+          116.40030,39.89960,100
+          116.40030,39.90040,100
+          116.39970,39.90040,100
+          116.39970,39.89960,100
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+
+  </Document>
+</kml>

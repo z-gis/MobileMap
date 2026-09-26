@@ -82,11 +82,13 @@ internal class LocationFollowController(
     }
 
     /**
-     * 定位更新：刷新底部定位经纬度文本（与中心坐标同格式）+ 计算移动方位角 + 喂 native 绘制定位蓝点（含方向箭头）。
+     * 定位更新：刷新底部定位坐标文本（经纬度/米制 + 海拔，与中心坐标同格式前缀）+ 计算移动方位角 + 喂 native 绘制定位蓝点（含方向箭头）。
      * 若处于跟随锁定，把相机平移到定位点（首点提示，其后静默跟随）。
      */
     fun onLocationChanged(location: Location) {
-        locationText.text = CoordFormatter.format("定位", location.longitude, location.latitude)
+        // hasAltitude 为 false 时 alt 不可信（部分芯片/室内定位无高程），传 NaN 由格式化侧省略海拔段
+        val alt = if (location.hasAltitude()) location.altitude else Double.NaN
+        locationText.text = CoordFormatter.formatWithAlt("定位", location.longitude, location.latitude, alt)
 
         // 移动方位角：位移超过阈值才更新，避免静止/漂移时箭头抖动；无更新时沿用上次方位
         computeHeading(location.latitude, location.longitude)?.let { lastHeading = it }

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 级别可见性按键数字徽标背景：白底描边胶囊（衬托红色数字），一位数近圆形、两位数自动拉宽 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#FFFFFFFF" />
+    <stroke android:width="1dp" android:color="#FFBDBDBD" />
+    <corners android:radius="7dp" />
+</shape>

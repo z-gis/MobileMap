@@ -12,8 +12,8 @@ android {
         applicationId = "com.zys.mobilemap"
         minSdk = 24
         targetSdk = 36
-        versionCode = 26092401
-        versionName = "0.2.9.1"
+        versionCode = 26092601
+        versionName = "0.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -37,7 +37,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-    // app 自身不再有 native 源码：原 cpp（GDAL/PROJ JNI）已整体迁入 worldwindjni 模块统一编译
+    // app 自身不再有 native 源码：渲染内核在独立仓库 WorldWindJni 编译，经 libs 下 AAR 引用
     buildFeatures {
         viewBinding = true
         buildConfig = true
@@ -56,7 +56,7 @@ androidComponents {
 }
 
 dependencies {
-    implementation(project(":worldwindjni"))
+    implementation("com.zys:worldwindjni:1.0.0")
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.constraintlayout)

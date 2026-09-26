@@ -27,10 +27,10 @@ object VectorReloadConfig {
 
     /**
      * 单图层最大可见要素数。超过时按 fid 顺序截断（保留前 N 个）。
-     * - 0：不启用（沿用 C++ MAX_VECTOR_FEATURES = 10000 兜底）
+     * - 0：不启用（沿用 C++ 渲染通路 VectorReader MAX_VECTOR_FEATURES = 200000 兜底）
      * - 5000：推荐值，超过则截断显示前 5000 个要素
      *
-     * 注：C++ 层 MAX_VECTOR_FEATURES 仍作为硬上限兜底（防 OOM），
+     * 注：C++ 层上限仍作为硬上限兜底（防 OOM），
      * 此开关在 Kotlin 层做更细粒度的截断（可小于 C++ 上限）。
      */
     const val MAX_FEATURES_PER_LAYER = 0

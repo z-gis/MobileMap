@@ -49,7 +49,7 @@ import kotlin.math.roundToInt
  * [onZoomToExtent] 点击图层名称时回调图层四至范围，由宿主 Activity 完成地图缩放。
  * [layerRenderColors] 按图层路径查询当前实际渲染色（填充/描边），
  * 整层样式对话框色块回显所见即所得，图层未加载时返回 null。
- * [onSqlQuery] shp 图层 SQL 查询按键确认语句后回调，由宿主执行查询并高亮命中要素。
+ * [onSqlQuery] shp 图层 SQL 查询按键配置查询条件（可视化子句拼装 WHERE）后回调，由宿主执行查询并高亮命中要素。
  * [onClearSqlQuery] 清除地图上已有的查询结果。
  */
 class LayerManageDialog(
@@ -190,7 +190,10 @@ class LayerManageDialog(
 
         when (currentTab) {
             TAB_VECTOR -> for (li in doc.vectorLayers) {
-                layerItems.add(LayerItem(li.name, li.path, li.type, li.visible, LayerItem.TYPE_LAYER))
+                val item = LayerItem(li.name, li.path, li.type, li.visible, LayerItem.TYPE_LAYER)
+                // 级别可见性生效值随列表同步（用户值优先、否则自动值）：驱动级别按键上的数字徽标回显
+                item.minLevel = li.effectiveMinDisplayLevel
+                layerItems.add(item)
             }
             TAB_RASTER -> for (li in doc.rasterLayers) {
                 layerItems.add(LayerItem(li.name, li.path, li.type, li.visible, LayerItem.TYPE_LAYER))
@@ -355,8 +358,8 @@ class LayerManageDialog(
     }
 
     /**
-     * 点击 shp 图层的 SQL 查询按键：弹出语句输入对话框（预填表名与字段提示），
-     * 确认后交由宿主执行查询并在地图上高亮命中要素。
+     * 点击 shp 图层的 SQL 查询按键：弹出可视化查询条件配置对话框（子句行拼装 WHERE），
+     * 应用后交由宿主执行查询并在地图上高亮命中要素。
      */
     private fun onSqlQueryClick(position: Int) {
         val item = layerItems.getOrNull(position) ?: return
@@ -386,7 +389,8 @@ class LayerManageDialog(
     /**
      * 点击矢量图层「级别」按键：弹出级别可见性设置。
      * 显示自动计算值与当前生效值，用户可用 NumberPicker 指定 userMinDisplayLevel（低于该级别隐藏图层），
-     * 或「恢复自动」将 userMinDisplayLevel 置 -1（生效回退自动值）。保存后经文档变更即时应用。
+     * 或「恢复自动」将 userMinDisplayLevel 置 -1（生效回退自动值）。保存后经文档变更刷列表，
+     * 按键上的级别数字徽标同步回显生效值。
      */
     private fun onLevelClick(position: Int) {
         val item = layerItems.getOrNull(position) ?: return
@@ -669,6 +673,9 @@ class LayerManageDialog(
     ) {
         var isSystem: Boolean = false
 
+        /** 矢量图层级别可见性生效值（[LayerInfo.effectiveMinDisplayLevel]）：≥0 时级别按键显示数字徽标，-1 不限制无徽标 */
+        var minLevel: Int = -1
+
         companion object {
             const val TYPE_LAYER = 0
             const val TYPE_MAP_SOURCE = 1
@@ -720,7 +727,9 @@ class LayerManageDialog(
         private val ivIcon: ImageView = itemView.findViewById(R.id.item_layer_iv_icon)
         private val tvName: TextView = itemView.findViewById(R.id.item_layer_tv_name)
         private val ivSql: ImageView = itemView.findViewById(R.id.item_layer_iv_sql)
+        private val flLevel: FrameLayout = itemView.findViewById(R.id.item_layer_fl_level)
         private val ivLevel: ImageView = itemView.findViewById(R.id.item_layer_iv_level)
+        private val tvLevelBadge: TextView = itemView.findViewById(R.id.item_layer_tv_level_badge)
         private val ivZoomTo: ImageView = itemView.findViewById(R.id.item_layer_iv_zoom_to)
         private val ivVisibility: ImageView = itemView.findViewById(R.id.item_layer_iv_visibility)
         private val ivInfo: ImageView = itemView.findViewById(R.id.item_layer_iv_info)
@@ -767,9 +776,16 @@ class LayerManageDialog(
             ivSql.visibility = if (sqlQueryable) View.VISIBLE else View.GONE
             ivSql.setOnClickListener { onSqlQueryClick(adapterPosition) }
 
-            // 级别可见性对所有矢量图层开放（shp/kml/kmz/dwg/dxf）；回收复用时需显式隐藏
-            ivLevel.visibility = if (isVector) View.VISIBLE else View.GONE
+            // 级别可见性对所有矢量图层开放（shp/kml/kmz/dwg/dxf），显隐切到外层容器（回收复用时需显式隐藏）；
+            // 右下角徽标显示当前生效级别：有数字即级别可见性已启用，不限制（-1）时无徽标
+            flLevel.visibility = if (isVector) View.VISIBLE else View.GONE
             ivLevel.setOnClickListener { onLevelClick(adapterPosition) }
+            if (item.minLevel >= 0) {
+                tvLevelBadge.text = item.minLevel.toString()
+                tvLevelBadge.visibility = View.VISIBLE
+            } else {
+                tvLevelBadge.visibility = View.GONE
+            }
 
             ivZoomTo.setOnClickListener { onZoomToLayer(adapterPosition) }
 

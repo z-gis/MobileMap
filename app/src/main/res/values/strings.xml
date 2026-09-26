@@ -74,7 +74,15 @@
     <string name="map_source_name_required">请输入地图源名称</string>
     <string name="map_source_url_required">请输入地图源网址</string>
     <string name="layer_info_title">图层信息</string>
-    <string name="layer_info_content">名称：%1$s\n\n类型：%2$s\n\n大小：%3$s\n\n坐标系：%4$s\n\n路径：%5$s</string>
+    <string name="layer_info_content">名称：%1$s
+
+类型：%2$s
+
+大小：%3$s
+
+坐标系：%4$s
+
+路径：%5$s</string>
     <string name="layer_info_type_vector">矢量图层</string>
     <string name="layer_info_type_raster">栅格图层</string>
     <string name="layer_info_size_unknown">未知</string>
@@ -89,21 +97,38 @@
     <string name="media_zoom_to">缩放至</string>
     <string name="layer_level_visibility">级别可见性</string>
 
-    <!-- SqlQueryDialog -->
+    <!-- SqlQueryDialog：可视化 SQL 查询配置（子句行拼装 WHERE 条件） -->
     <string name="layer_sql_query">SQL 查询</string>
     <string name="sql_query_title">SQL 查询：%1$s</string>
-    <string name="sql_query_hint">输入 SQL 语句，仅输入条件也可（自动补全为 SELECT）</string>
     <string name="sql_query_fields">可用字段：%1$s</string>
-    <string name="sql_query_fields_none">该图层无属性字段，仅可按 FID 查询</string>
-    <string name="sql_query_fields_title">选择字段</string>
-    <string name="sql_query_execute">执行查询</string>
+    <string name="sql_query_fields_none">该图层无属性字段，无法按属性查询</string>
+    <string name="sql_query_add_clause">添加子句</string>
+    <string name="sql_query_where">Where</string>
+    <string name="sql_query_value_hint">值</string>
+    <string name="sql_query_remove_clause">删除子句</string>
+    <string name="sql_query_apply">应用</string>
     <string name="sql_query_clear">清除结果</string>
-    <string name="sql_query_empty_input">请输入 SQL 语句</string>
+    <string name="sql_query_incomplete">请完整填写子句的字段与值</string>
     <string name="sql_query_running">正在查询…</string>
     <string name="sql_query_result_count">查询命中 %1$d 个要素</string>
     <string name="sql_query_result_empty">查询无命中要素</string>
     <string name="sql_query_failed">查询失败：%1$s</string>
     <string name="sql_query_cleared">已清除查询结果</string>
+
+    <!-- SQL 子句连接词（首行 Where 固定，其余行在 And/Or 间选择）与运算符 -->
+    <string-array name="sql_connectors">
+        <item>And</item>
+        <item>Or</item>
+    </string-array>
+    <string-array name="sql_operators">
+        <item>等于</item>
+        <item>不等于</item>
+        <item>大于</item>
+        <item>大于等于</item>
+        <item>小于</item>
+        <item>小于等于</item>
+        <item>包含</item>
+    </string-array>
 
     <!-- ColorPickerDialog -->
     <string name="color_picker_title">颜色选择</string>
@@ -160,18 +185,45 @@
     <string name="settings_show_measure_layer">显示测量结果</string>
     <string name="settings_coord_display_meter">坐标以米显示（2000坐标系）</string>
     <string name="settings_kml_label">显示 KML/KMZ 标注</string>
-    <string name="settings_shp_use_gdal">shp 使用 GDAL 读取（关闭则走 WorldWind 原生）</string>
     <string name="settings_personal_info_list">关于</string>
     <string name="settings_help">帮助</string>
 
     <!-- HelpActivity：使用说明三段内容，正文以 \n 分行，正文默认折叠，点击标题展开 -->
     <string name="help_title">帮助</string>
     <string name="help_section_ui">软件界面说明</string>
-    <string name="help_section_ui_body">主界面：全屏地图，四周分布功能按键。\n右侧（从上到下）：注记图层开关、放大/缩小（中间显示当前级别）、图层管理。\n左侧（从上到下）：北朝向按键、测量、设置、定位锁定、轨迹。\n左下角：坐标文本（点击弹出"移动到"）。\n右下角：拍照按键。\n地图中心：十字准星（可在设置中关闭）。\n\n图层管理界面：分矢量图层、栅格图层、地图源三个标签页。每行左侧样式图标（矢量）可打开整层样式，图层名可缩放到范围，右侧按键依次为 SQL 查询（仅 shp）、级别可见性、缩放到范围、可见性开关、图层信息、移除图层。</string>
+    <string name="help_section_ui_body">主界面：全屏地图，四周分布功能按键。
+右侧（从上到下）：注记图层开关、放大/缩小（中间显示当前级别）、图层管理。
+左侧（从上到下）：北朝向按键、测量、设置、定位锁定、轨迹。
+左下角：坐标文本（点击弹出"移动到"）。
+右下角：拍照按键。
+地图中心：十字准星（可在设置中关闭）。
+
+图层管理界面：分矢量图层、栅格图层、地图源三个标签页。每行左侧样式图标（矢量）可打开整层样式，图层名可缩放到范围，右侧按键依次为 SQL 查询（仅 shp）、级别可见性、缩放到范围、可见性开关、图层信息、移除图层。</string>
     <string name="help_section_local_layer">如何添加本地图层</string>
-    <string name="help_section_local_layer_body">支持格式：\n・矢量：shp、kml、kmz、zip（shp 压缩包）、dwg、dxf\n・栅格：tif、tiff、img\n\n添加步骤：\n1. 将数据文件拷贝到手机（建议放在 /调查宝/layer/）。\n2. 主界面右侧点击"图层管理"按键。\n3. 切到"矢量图层"或"栅格图层"标签页，点击"导入"按键。\n4. 在文件选择面板中定位到目标文件并选中，导入后自动缩放到图层范围。\n\n提示：shp 需同时存在 .shp/.shx/.dbf（建议包含 .prj 声明坐标系），dwg 仅支持 2018 及以下版本。</string>
+    <string name="help_section_local_layer_body">支持格式：
+・矢量：shp、kml、kmz、zip（shp 压缩包）、dwg、dxf
+・栅格：tif、tiff、img
+
+添加步骤：
+1. 将数据文件拷贝到手机（建议放在 /调查宝/layer/）。
+2. 主界面右侧点击"图层管理"按键。
+3. 切到"矢量图层"或"栅格图层"标签页，点击"导入"按键。
+4. 在文件选择面板中定位到目标文件并选中，导入后自动缩放到图层范围。
+
+提示：shp 需同时存在 .shp/.shx/.dbf（建议包含 .prj 声明坐标系），dwg 仅支持 2018 及以下版本。</string>
     <string name="help_section_map_source">如何添加自定义地图源</string>
-    <string name="help_section_map_source_body">适用于接入自定义 WMTS/XYZ 瓦片服务。\n\n添加步骤：\n1. 主界面右侧点击"图层管理"按键，切到"地图源"标签页。\n2. 点击"导入"按键弹出地图源编辑对话框。\n3. 填写字段：\n　・名称：自定义名称，作为图层标识。\n　・网址：瓦片服务地址，包含占位符 {z}/{x}/{y}（例：https://host/tile/{z}/{x}/{y}.png）。\n　・类型：默认 WMTS，目前支持 XYZ/WMTS 瓦片方案。\n　・Token1/Token2：选填，网址中包含 {token1}/{token2} 占位符时自动替换（天地图系列共用 Token，任一地图源中配置后自动同步）。\n4. 保存后在地图源列表中选中单选按钮，底图立即切换。\n5. 左侧设置按键可重新编辑名称/网址/Token。</string>
+    <string name="help_section_map_source_body">适用于接入自定义 WMTS/XYZ 瓦片服务。
+
+添加步骤：
+1. 主界面右侧点击"图层管理"按键，切到"地图源"标签页。
+2. 点击"导入"按键弹出地图源编辑对话框。
+3. 填写字段：
+　・名称：自定义名称，作为图层标识。
+　・网址：瓦片服务地址，包含占位符 {z}/{x}/{y}（例：https://host/tile/{z}/{x}/{y}.png）。
+　・类型：默认 WMTS，目前支持 XYZ/WMTS 瓦片方案。
+　・Token1/Token2：选填，网址中包含 {token1}/{token2} 占位符时自动替换（天地图系列共用 Token，任一地图源中配置后自动同步）。
+4. 保存后在地图源列表中选中单选按钮，底图立即切换。
+5. 左侧设置按键可重新编辑名称/网址/Token。</string>
 
     <!-- AboutActivity -->
     <string name="about_title">关于</string>

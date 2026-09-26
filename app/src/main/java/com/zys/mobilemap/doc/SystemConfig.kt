@@ -18,13 +18,6 @@ class SystemConfig {
     var coordDisplayMeter: Boolean = false
 
     /**
-     * shp 读取引擎：true = GDAL/OGR（默认，任意坐标系经重投影，与 dwg/dxf 同一条路径），
-     * false = WorldWind 原生字节入口（地理坐标/UTM/无 prj；其余投影仍自动回退 GDAL）。
-     * 两条路径并存不删除，切换后 shp 图层按新引擎重载。
-     */
-    var shpUseGdal: Boolean = true
-
-    /**
      * KML/KMZ 标注显示：true = 显示名称标注（点 Placemark 名称 + 面/线名称），
      * false = 隐藏标注（默认，地图更清爽）。同时作用于原生解析与 GDAL 回退两条路径；
      * 切换后经文档变更通知重载 KML/KMZ 图层（开关已纳入图层缓存键）。
@@ -41,7 +34,6 @@ class SystemConfig {
         o.put("showTrackLayer", showTrackLayer)
         o.put("showMeasureLayer", showMeasureLayer)
         o.put("coordDisplayMeter", coordDisplayMeter)
-        o.put("shpUseGdal", shpUseGdal)
         o.put("showKmlLabel", showKmlLabel)
         return o
     }
@@ -57,7 +49,6 @@ class SystemConfig {
             if (o.has("showTrackLayer")) c.showTrackLayer = o.getBoolean("showTrackLayer")
             if (o.has("showMeasureLayer")) c.showMeasureLayer = o.getBoolean("showMeasureLayer")
             if (o.has("coordDisplayMeter")) c.coordDisplayMeter = o.getBoolean("coordDisplayMeter")
-            if (o.has("shpUseGdal")) c.shpUseGdal = o.getBoolean("shpUseGdal")
             if (o.has("showKmlLabel")) c.showKmlLabel = o.getBoolean("showKmlLabel")
             return c
         }

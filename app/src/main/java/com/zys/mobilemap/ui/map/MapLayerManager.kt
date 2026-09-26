@@ -75,9 +75,9 @@ internal class MapLayerManager(
     private val lastExtentByKey = mutableMapOf<String, VectorExtent>()
 
     /**
-     * 屏外挂起的大数据矢量层键集合：可见但图层四至与屏幕范围不相交的非 direct 层暂不加入 native
-     * （免无谓的 GDAL 读取与加载胶囊误亮，整层跳过判定 native 虽廉价但开文件仍有成本），
-     * 相机静止后若屏幕范围与之相交再补加入（见 [onCameraSettled]）。
+     * 屏外或级别不足而挂起的大数据矢量层键集合：可见但图层四至与屏幕范围不相交、或相机显示级别低于
+     * 该层 effectiveMinDisplayLevel 的层暂不加入 native（免无谓的 GDAL 读取与加载胶囊误亮，
+     * 整层跳过判定 native 虽廉价但开文件仍有成本），相机静止后若范围相交且级别达标再补加入（见 [onCameraSettled]）。
      */
     private val pendingViewportKeys = mutableSetOf<String>()
 
@@ -210,8 +210,8 @@ internal class MapLayerManager(
 
     /**
      * 同步文档矢量图层到 native（懒加入 + 可见性驱动）：
-     * - 新增：可见、有路径、文件存在且尚未加入的矢量层，按文档顺序经 [NativeMapView.addVectorLayer] 加入并记录索引
-     *   （不可见层不加入，避免无谓的 GDAL 读取；首次转可见时再懒加入）；
+     * - 新增：可见、有路径、级别达标且尚未加入的矢量层，按文档顺序经 [NativeMapView.addVectorLayer] 加入并记录索引
+     *   （不可见/级别不足层不加入，避免无谓的 GDAL 读取与加载胶囊误亮；首次转可见且级别达标时再懒加入）；
      * - 显隐：已加入的层按 [LayerInfo.visible] 翻转 [NativeMapView.setVectorLayerVisible]（隐层不删除，与瓦片层同口径）。
      * 样式版本/增删变化：经旧键失效检测就地换层（removeVectorLayer 墓碑 + 新键重新懒加入），无需重建界面；
      * 仅图源/栅格结构变化才由 [onDocumentChanged] 触发重建（native 无删除瓦片/栅格图层能力）。
@@ -239,15 +239,27 @@ internal class MapLayerManager(
             dataExtentByKey.remove(entry.key)
             staleIter.remove()
         }
-        // 新增：可见且尚未加入的矢量层（懒加入，隐层不触发 GDAL 读取）
+        // 新增：可见、级别达标且尚未加入的矢量层（懒加入，隐层不触发 GDAL 读取；
+        // 级别不足层同口径挂起——整层隐藏中照样开文件读取+建几何就是无谓开销，还误亮加载胶囊）
+        val camLevel = mapView.cameraZoomLevel()
         for (info in infos) {
             val path = info.path
             if (path.isNullOrEmpty() || !info.visible) continue
             val key = vectorKey(info)
             if (vectorLayerIndices.containsKey(key)) continue
-            if (key in pendingViewportKeys) continue // 屏外挂起层：待相机静止补加入（onCameraSettled）
+            if (key in pendingViewportKeys) {
+                // 已挂起（屏外或级别不足）：级别仍不达标则继续等相机静止补加入（onCameraSettled）；
+                // 级别已达标则解除挂起照常加入（屏外层由 addVectorLayerNative 内四至预判自动再挂起）
+                if (info.effectiveMinDisplayLevel > camLevel) continue
+                pendingViewportKeys.remove(key)
+            }
             if (!File(path).exists()) {
                 AppLog.w(TAG, "矢量文件不存在，跳过[${info.name}]: $path")
+                continue
+            }
+            if (info.effectiveMinDisplayLevel > camLevel) {
+                // 级别不足：不加入，挂起待相机静止级别达标时补加入（与屏外挂起同一队列同一补加入通路）
+                pendingViewportKeys.add(key)
                 continue
             }
             val idx = addVectorLayerNative(info, path)
