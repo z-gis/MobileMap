@@ -1,45 +1,32 @@
 # MobileMap（调查宝）
 
 #### 介绍
-林业外业调查软件，基础功能支持在线地图浏览，支持本地矢量数据加载（kmz kml shp gpkg dxf）,支持本地栅格数据加载（tif img）。
-基础地图模块：支持地图基本浏览功能，定位、轨迹、照片、测量等。
-调查模块：林业样地调查(抚育每木调查)
-
+林业外业调查软件，基础功能支持在线地图浏览（2D 平面 / 3D 球体双模），支持本地矢量数据加载（kmz kml shp gpkg dxf dwg），支持本地栅格数据加载（tif img）。
+基础地图模块：地图浏览、定位（含海拔显示）、轨迹、照片、测量、SQL 可视化查询过滤等。
+调查模块：林业样地调查(抚育每木调查)。
+当前版本：v0.3.0
 
 #### 软件架构
 软件基础地图浏览基于自研 native 渲染模块 `worldwindjni`（C++ OpenGL ES 渲染，逻辑参照 WorldWind 的 Web Mercator 瓦片体系重写，已不再依赖 earth.worldwind 库），添加了天地图作为基本瓦片在线数据，实际坐标使用WGS84(EPSG:4326)。
-矢量/栅格读取、坐标转换等 GDAL/proj 能力同样下沉在该 native 模块（`bridge/`），Kotlin 侧仅保留 `NativeMapView`/`NativeRenderer` 等薄门面。
+矢量/栅格读取、坐标转换等 GDAL/proj 能力同样下沉在该 native 模块，Kotlin 侧仅保留 `NativeMapView`/`NativeRenderer` 等薄门面。
+
+`worldwindjni` 已拆分为**独立仓库 [WorldWindJni](https://github.com/z-gis/WorldWindJni)**，本仓库不再包含任何 C++ 源码与预编译静态库：渲染内核在其仓库内经 NDK/CMake 编译为 AAR（`libworldwindjni.so` 随包携带，GDAL/proj 等静态库已在内核仓库内预编译），本仓库通过 Maven 仓库依赖 `com.zys:worldwindjni` 直接引用。
 
 
 #### 构建说明
 
 **开发环境**
 - Android Studio（含 Android SDK）
-- NDK：28.2.13676358
-- CMake：3.22.1
 - JDK：11 及以上
 - minSdk 24 / targetSdk 36
 
-**native 预编译静态库（重要）**
-C++ 层位于 `worldwindjni/src/main/cpp/`（app 自身已无 native 源码），依赖 GDAL、proj、sqlite、expat、minizip 等第三方**预编译静态库**（`.a`），按 ABI 分别位于：
-- `worldwindjni/src/main/cpp/jniLibs/arm64-v8a/`
-- `worldwindjni/src/main/cpp/jniLibs/x86_64/`
-
-这些库单个体积很大（如 `libgdal.a` 约 315MB、`libproj.a` 约 91MB），**超过 GitHub 单文件 100MB 限制，因此未包含在本 GitHub 仓库中**。缺少它们时 native 无法编译。
-
-完整可编译的工程（含全部静态库）托管在 **Gitee**，请从 Gitee 下载获取这些库：
-
-> https://gitee.com/z-gis/MobileMap
-
-从 Gitee 克隆后，将 `worldwindjni/src/main/cpp/jniLibs/` 目录（`arm64-v8a` 与 `x86_64` 两个子目录下的全部 `.a` 文件）复制到本地 GitHub 克隆工程的相同路径即可。
-
 **编译**
-放好静态库后，用 Android Studio 打开工程，或在项目根目录执行：
+本仓库为纯 Kotlin 工程，无需 NDK/CMake 本地编译 native 代码，渲染内核 AAR 自动从 WorldWindJni 仓库发布的 Maven 仓库拉取（已在 `settings.gradle.kts` 中配置，需联网）。用 Android Studio 打开工程，或在项目根目录执行：
 
 ```
 gradlew.bat :app:assembleDebug
 ```
 
-首次编译会通过 CMake 构建 native 库（`libworldwindjni.so`，由 `worldwindjni` 模块产出并随 AAR 打入 app），耗时较长；产物 APK 位于 `app/build/outputs/apk/debug/`。
+产物 APK 位于 `app/build/outputs/apk/debug/`（命名 `mobilemap-v{版本号}-debug.apk`）。
 
-
+如需修改渲染内核（C++ 层），请克隆 [WorldWindJni](https://github.com/z-gis/WorldWindJni) 仓库，其内含完整 native 源码与预编译静态库（`libgdal.a` 等大体积 `.a` 文件托管于 **Gitee**：https://gitee.com/z-gis/MobileMap ，GitHub 单文件 100MB 限制无法容纳）。

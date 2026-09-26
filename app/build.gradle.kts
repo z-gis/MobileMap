@@ -37,7 +37,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-    // app 自身不再有 native 源码：渲染内核在独立仓库 WorldWindJni 编译，经 libs 下 AAR 引用
+    // app 自身不再有 native 源码：渲染内核在独立仓库 WorldWindJni 编译，经其发布的 Maven 仓库以 AAR 引用
     buildFeatures {
         viewBinding = true
         buildConfig = true

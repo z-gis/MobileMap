@@ -1,41 +1,31 @@
 # MobileMap
 
 #### Introduction
-Forestry field survey software. Basic features support online map browsing, local vector data loading (kmz kml shp dwg dxf), and local raster data loading (tif img).
-Basic map module: supports fundamental map browsing, positioning, tracking, photos, measurement, etc.
+Forestry field survey software. Supports online map browsing (2D plane / 3D globe modes), local vector data loading (kmz kml shp gpkg dxf dwg), and local raster data loading (tif img).
+Basic map module: map browsing, positioning (with altitude display), tracking, photos, measurement, visual SQL query filtering, etc.
 Survey module: sample plot survey.
+Current version: v0.3.0
 
 #### Software Architecture
 The software is built around map browsing on top of the in-house native rendering module `worldwindjni` (C++ OpenGL ES rendering, re-implemented with reference to WorldWind's Web Mercator tile scheme; the earth.worldwind library is no longer used), with Tianditu added as the base online tile data. Actual coordinates use WGS84 (EPSG:4326).
-Vector/raster reading and coordinate transformation (GDAL/proj) are also provided by the same native module (`bridge/`); the Kotlin side keeps only thin facades (`NativeMapView`/`NativeRenderer`).
+Vector/raster reading and coordinate transformation (GDAL/proj) are also provided by the same native module; the Kotlin side keeps only thin facades (`NativeMapView`/`NativeRenderer`).
+
+`worldwindjni` has been split into a **separate repository [WorldWindJni](https://github.com/z-gis/WorldWindJni)**. This repository no longer contains any C++ sources or prebuilt static libraries: the rendering kernel is compiled into an AAR in that repository via NDK/CMake (`libworldwindjni.so` bundled in, with GDAL/proj etc. statically prebuilt inside the kernel repo), and is consumed here as the Maven dependency `com.zys:worldwindjni`.
 
 #### Build Instructions
 
 **Development Environment**
 - Android Studio (with Android SDK)
-- NDK: 28.2.13676358
-- CMake: 3.22.1
 - JDK: 11 or above
 - minSdk 24 / targetSdk 36
 
-**Native Prebuilt Static Libraries (Important)**
-The C++ layer lives in `worldwindjni/src/main/cpp/` (the app module itself no longer has native sources) and depends on third-party **prebuilt static libraries** (`.a`) such as GDAL, proj, sqlite, expat and minizip, located per ABI at:
-- `worldwindjni/src/main/cpp/jniLibs/arm64-v8a/`
-- `worldwindjni/src/main/cpp/jniLibs/x86_64/`
-
-These libraries are individually very large (e.g. `libgdal.a` ~315MB, `libproj.a` ~91MB), **exceeding GitHub's 100MB per-file limit, and are therefore NOT included in this GitHub repository**. Without them the native build will fail.
-
-The complete buildable project (with all static libraries) is hosted on **Gitee**. Please download these libraries from Gitee:
-
-> https://gitee.com/z-gis/MobileMap
-
-After cloning from Gitee, copy the `worldwindjni/src/main/cpp/jniLibs/` directory (all `.a` files under both the `arm64-v8a` and `x86_64` subdirectories) into the same path of your local GitHub clone.
-
 **Compile**
-Once the static libraries are in place, open the project with Android Studio, or run in the project root:
+This repository is a pure Kotlin project — no local NDK/CMake native build is required. The rendering kernel AAR is fetched automatically from the Maven repository published by WorldWindJni (already configured in `settings.gradle.kts`; network access required). Open the project with Android Studio, or run in the project root:
 
 ```
 gradlew.bat :app:assembleDebug
 ```
 
-The first build compiles the native library (`libworldwindjni.so`, produced by the `worldwindjni` module and packaged into the app) via CMake and takes a while; the output APK is located at `app/build/outputs/apk/debug/`.
+The output APK is located at `app/build/outputs/apk/debug/` (named `mobilemap-v{version}-debug.apk`).
+
+To modify the rendering kernel (C++ layer), clone the [WorldWindJni](https://github.com/z-gis/WorldWindJni) repository, which contains the full native sources and prebuilt static libraries (the very large `.a` files such as `libgdal.a` exceed GitHub's 100MB per-file limit and are hosted on **Gitee**: https://gitee.com/z-gis/MobileMap).
