@@ -27,6 +27,5 @@
 gradlew.bat :app:assembleDebug
 ```
 
-产物 APK 位于 `app/build/outputs/apk/debug/`（命名 `mobilemap-v{版本号}-debug.apk`）。
 
-如需修改渲染内核（C++ 层），请克隆 [WorldWindJni](https://github.com/z-gis/WorldWindJni) 仓库，其内含完整 native 源码与预编译静态库（`libgdal.a` 等大体积 `.a` 文件托管于 **Gitee**：https://gitee.com/z-gis/MobileMap ，GitHub 单文件 100MB 限制无法容纳）。
+如需修改渲染内核（C++ 层），请克隆 [WorldWindJni](https://github.com/z-gis/WorldWindJni) 仓库，其内含完整 native 源码与预编译静态库。

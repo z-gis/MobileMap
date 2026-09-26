@@ -28,4 +28,4 @@ gradlew.bat :app:assembleDebug
 
 The output APK is located at `app/build/outputs/apk/debug/` (named `mobilemap-v{version}-debug.apk`).
 
-To modify the rendering kernel (C++ layer), clone the [WorldWindJni](https://github.com/z-gis/WorldWindJni) repository, which contains the full native sources and prebuilt static libraries (the very large `.a` files such as `libgdal.a` exceed GitHub's 100MB per-file limit and are hosted on **Gitee**: https://gitee.com/z-gis/MobileMap).
+To modify the rendering kernel (C++ layer), clone the [WorldWindJni](https://github.com/z-gis/WorldWindJni) repository, which contains the full native sources and prebuilt static libraries.
