@@ -1,6 +1,6 @@
 {
-  "versionCode": 26091801,
-  "versionName": "0.2.8.0",
+  "versionCode": 26092601,
+  "versionName": "0.3.0.0",
   "apkUrl": "https://gitee.com/z-gis/MobileMap/releases/download/0.3.0/mobilemap-v0.3.0.apk",
   "apkSizeBytes": 47917986,
   "changelog": "1. 3D 球体渲染全面升级：矢量/标注/定位标识 3D 显示与点击拾取，支持 KML 高程要素按真实海拔立起\n2. 底部定位坐标新增海拔显示\n3. 新增 SQL 可视化查询构建器，按条件过滤矢量要素\n4. 图层管理与矢量加载优化，大数据层按屏幕范围懒加载\n5. 渲染引擎拆分为独立 JNI 库（worldwindjni AAR），包体更精简",
