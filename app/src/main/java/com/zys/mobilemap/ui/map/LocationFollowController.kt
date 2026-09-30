@@ -13,8 +13,8 @@ import com.zys.mobilemap.doc.DocumentManager
 import com.zys.mobilemap.location.LocationManager
 import com.zys.mobilemap.util.CoordFormatter
 import com.zys.mobilemap.util.GeoCalc
-import com.zys.worldwindjni.NativeMapView
-import com.zys.worldwindjni.Position
+import com.zys.globecore.NativeMapView
+import com.zys.globecore.Position
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -88,7 +88,7 @@ internal class LocationFollowController(
     fun onLocationChanged(location: Location) {
         // hasAltitude 为 false 时 alt 不可信（部分芯片/室内定位无高程），传 NaN 由格式化侧省略海拔段
         val alt = if (location.hasAltitude()) location.altitude else Double.NaN
-        locationText.text = CoordFormatter.formatWithAlt("定位", location.longitude, location.latitude, alt)
+        locationText.text = CoordFormatter.formatWithAlt("GPS", location.longitude, location.latitude, alt)
 
         // 移动方位角：位移超过阈值才更新，避免静止/漂移时箭头抖动；无更新时沿用上次方位
         computeHeading(location.latitude, location.longitude)?.let { lastHeading = it }
@@ -111,18 +111,10 @@ internal class LocationFollowController(
     }
 
     /**
-     * 切换定位跟随锁定：未锁定则锁定（换锁定图标 + 移到定位点，无定位点时等待首点），
-     * 已锁定则解锁（换回普通图标，停止相机跟随）。参照原主界面 LocationModel.toggleLocationLock。
+     * 定位键：单次把相机平移到当前定位点（保留缩放级别），不进入持续跟随锁定。
+     * 无定位点时挂 [pendingLocate]，待首个定位到达时对齐并提示。
      */
-    fun toggleFollow() {
-        if (followEnabled) {
-            followEnabled = false
-            pendingLocate = false
-            locateButton.setImageResource(R.drawable.nav_location)
-            return
-        }
-        followEnabled = true
-        locateButton.setImageResource(R.drawable.nav_lock_location)
+    fun focusOnce() {
         val last = LocationManager.getInstance().getLastLocation()
         if (last != null) {
             navigator.moveToLocation(last.latitude, last.longitude, notify = true)
@@ -130,6 +122,18 @@ internal class LocationFollowController(
             pendingLocate = true
             Toast.makeText(activity, R.string.jni_map_waiting_location, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /**
+     * 设置持续跟随锁定：由轨迹记录态驱动（记录中锁定、地图中心随定位移动；停止记录解锁）。
+     * 锁定时定位图标切换为锁定样式，解锁时还原。见 [onLocationChanged] 的 followEnabled 分支。
+     */
+    fun setFollowEnabled(enabled: Boolean) {
+        if (followEnabled == enabled) return
+        followEnabled = enabled
+        locateButton.setImageResource(
+            if (enabled) R.drawable.nav_lock_location else R.drawable.nav_location
+        )
     }
 
     /**

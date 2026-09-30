@@ -5,8 +5,8 @@ import android.widget.Toast
 import com.zys.mobilemap.R
 import com.zys.mobilemap.vector.GdalVectorReader
 import com.zys.mobilemap.vector.VectorFeature
-import com.zys.worldwindjni.NativeMapView
-import com.zys.worldwindjni.VectorStyle as NativeVectorStyle
+import com.zys.globecore.NativeMapView
+import com.zys.globecore.VectorStyle as NativeVectorStyle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

@@ -42,7 +42,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MobileMap"
         tools:replace="android:allowBackup">
-        <!-- 原 wwd 主界面 MainActivity 及其链路（BaseMapActivity/MapWorldWindow/各 Model）已整体删除：
+        <!-- 原底层库主界面 MainActivity 及其链路（BaseMapActivity / 原底层库主窗口类 / 各 Model）已整体删除：
              启动入口与外部 ACTION_VIEW 承接均由下方 MainActivity 承担。 -->
         <activity
             android:name=".ui.activity.OpenFileActivity"
@@ -64,7 +64,7 @@
             android:exported="false"
             android:theme="@style/Theme.MobileMap" />
 
-        <!-- wwd→jni 迁移完成：MainActivity 为程序主入口，承载 worldwindjni 的 NativeMapView，
+        <!-- 原底层库→jni 迁移完成：MainActivity 为程序主入口，承载 globecore 的 NativeMapView，
              作为 LAUNCHER 与外部 ACTION_VIEW 承接者。
              启动加载遮罩盖住初始化阶段（native/proj/文档加载）；singleTask 保证外部拉起复用已运行实例（走 onNewIntent）；
              configChanges 使横竖屏切换不重建 Activity（NativeMapView 自行处理 GL surface 尺寸变化）；

@@ -12,8 +12,8 @@ import com.zys.mobilemap.location.LocationManager
 import com.zys.mobilemap.ui.dialog.MeasureDetailDialog
 import com.zys.mobilemap.ui.dialog.TrackManageDialog
 import com.zys.mobilemap.util.GeoCalc
-import com.zys.worldwindjni.NativeMapView
-import com.zys.worldwindjni.VectorStyle as NativeVectorStyle
+import com.zys.globecore.NativeMapView
+import com.zys.globecore.VectorStyle as NativeVectorStyle
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -50,6 +50,12 @@ internal class TrackCaptureController(
     /** 轨迹记录进行中：宿主据此组合 capturing，保护 live 红线层不被 rebuild 清除 */
     val capturing: Boolean
         get() = trackRecording
+
+    /**
+     * 轨迹记录态变化回调（true=开始记录/恢复草稿，false=停止记录）：宿主据此驱动定位跟随——
+     * 轨迹模式下地图中心随定位移动、定位图标切为锁定样式（接线到 LocationFollowController.setFollowEnabled）。
+     */
+    var onRecordingStateChanged: ((Boolean) -> Unit)? = null
 
     /** 轨迹按键入口：记录中提示；无历史轨迹直接开始；有历史轨迹弹菜单（开始轨迹 / 管理） */
     fun onTrackButtonClick() {
@@ -257,6 +263,8 @@ internal class TrackCaptureController(
 
     /** 轨迹控件状态：非记录态只显示「轨迹」键；记录态显示停止键并按暂停态切换暂停/继续键 */
     private fun updateTrackControlButtons() {
+        // 记录态变化通知宿主（幂等：宿主 setFollowEnabled 内部按值判重）
+        onRecordingStateChanged?.invoke(trackRecording)
         if (!trackRecording) {
             trackButton.visibility = View.VISIBLE
             startButton.visibility = View.GONE

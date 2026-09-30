@@ -9,7 +9,7 @@ pluginManagement {
         }
         mavenCentral()
         gradlePluginPortal()
-        maven { url = uri("https://z-gis.github.io/WorldWindJni/maven") }
+        maven { url = uri("https://z-gis.github.io/GlobeCore/maven") }
     }
 }
 plugins {
@@ -20,7 +20,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url = uri("https://z-gis.github.io/WorldWindJni/maven") } // worldwindjni 等自建 Maven 仓产物
+        maven { url = uri("https://z-gis.github.io/GlobeCore/maven") } // globecore 等自建 Maven 仓产物
     }
 }
 

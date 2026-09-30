@@ -24,6 +24,13 @@ class SystemConfig {
      */
     var showKmlLabel: Boolean = false
 
+    /**
+     * 视图模式：false = 2D 平面墨卡托（默认），true = 3D 球体。
+     * 原由主界面左上按键切换、随相机独立持久化；现改由设置页控制、随系统配置持久化，
+     * 主界面 onResume 读回此值即时生效。
+     */
+    var viewMode3d: Boolean = false
+
     fun toJson(): JSONObject {
         val o = JSONObject()
         o.put("showCenterCross", showCenterCross)
@@ -35,6 +42,7 @@ class SystemConfig {
         o.put("showMeasureLayer", showMeasureLayer)
         o.put("coordDisplayMeter", coordDisplayMeter)
         o.put("showKmlLabel", showKmlLabel)
+        o.put("viewMode3d", viewMode3d)
         return o
     }
 
@@ -50,6 +58,7 @@ class SystemConfig {
             if (o.has("showMeasureLayer")) c.showMeasureLayer = o.getBoolean("showMeasureLayer")
             if (o.has("coordDisplayMeter")) c.coordDisplayMeter = o.getBoolean("coordDisplayMeter")
             if (o.has("showKmlLabel")) c.showKmlLabel = o.getBoolean("showKmlLabel")
+            if (o.has("viewMode3d")) c.viewMode3d = o.getBoolean("viewMode3d")
             return c
         }
     }

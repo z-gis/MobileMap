@@ -10,8 +10,8 @@ import android.view.View
 import com.zys.mobilemap.databinding.ActivityAboutBinding
 import com.zys.mobilemap.update.APKVersionUtil
 import com.zys.mobilemap.update.AppUpdateManager
-import com.zys.worldwindjni.NativeLayerInfo
-import com.zys.worldwindjni.NativeSrs
+import com.zys.globecore.NativeLayerInfo
+import com.zys.globecore.NativeSrs
 
 /**
  * 关于页：展示 GDAL / PROJ 版本与本机版本号，提供检查更新与项目主页入口。

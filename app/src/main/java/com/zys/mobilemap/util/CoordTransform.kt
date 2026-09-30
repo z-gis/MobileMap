@@ -1,13 +1,13 @@
 package com.zys.mobilemap.util
 
 import android.util.Log
-import com.zys.worldwindjni.NativeSrs
+import com.zys.globecore.NativeSrs
 import kotlin.math.roundToInt
 
 /**
  * 坐标转换（PROJ）：WGS84 经纬度与 CGCS2000 3 度带高斯-克吕格平面坐标（米）互转。
  *
- * C++ 侧按 "源坐标系|目标坐标系" 缓存 PJ 转换管道（经 worldwindjni [NativeSrs.convert]），
+ * C++ 侧按 "源坐标系|目标坐标系" 缓存 PJ 转换管道（经 globecore [NativeSrs.convert]），
  * 因此可承受主界面坐标文本随导航事件逐帧刷新的高频调用。
  * 转换不可用（native 库未加载 / proj.db 未就绪 / 超出带号范围）时返回 null，
  * 调用方需回退到十进制度显示，不得抛异常中断渲染。

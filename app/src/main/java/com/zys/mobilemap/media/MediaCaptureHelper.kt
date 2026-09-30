@@ -237,7 +237,7 @@ class MediaCaptureHelper(
     companion object {
         private const val TAG = "MediaCaptureHelper"
 
-        /** 会话点位默认时间名（自原 wwd 主界面 MediaOverlayModel 抽入，该类已随主界面移除） */
+        /** 会话点位默认时间名（自原底层库主界面 MediaOverlayModel 抽入，该类已随主界面移除） */
         fun formatPlacemarkName(time: Long): String =
             "拍照 " + SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(time))
     }

@@ -19,9 +19,6 @@ local.properties
 *.keystore
 # 构建产物与临时脚本
 /app/release/
-grep.ps1
-# 一次性调试脚本（下划线前缀）
-/_*.ps1
 
 # 项目文档：仅本地维护，不推送远程
 /doc/
@@ -29,5 +26,5 @@ grep.ps1
 # 示例数据：仅本地测试用，不推送远程
 /例数据/
 
-# 真机导出的运行时配置快照（实际读写位置为设备上的 /调查宝/config/document.json，改仓库根副本无效）
-/document.json
+
+

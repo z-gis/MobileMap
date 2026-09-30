@@ -6,13 +6,13 @@ import androidx.appcompat.app.AppCompatActivity
 import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.util.PermissionUtil
 import com.zys.mobilemap.util.UiUtil
-import com.zys.worldwindjni.NativeSrs
+import com.zys.globecore.NativeSrs
 
 /**
  * 启动初始化器（自 MainActivity 拆出）：外部文件权限门、proj 数据初始化，
  * 以及启动加载遮罩的显示/淡出/安全超时（复刻原主界面启动链路，行为零变化）。
  *
- * proj 解压实现已下沉 worldwindjni（assets/proj 随模块分发，见 [NativeSrs.initProjData]），
+ * proj 解压实现已下沉 globecore（assets/proj 随模块分发，见 [NativeSrs.initProjData]），
  * 本类仅保留启动链路接线。
  *
  * `waitingForAllFilesPermission` / `initialized` 两个跨生命周期状态仍由 Activity 持有（编排职责），
@@ -31,7 +31,7 @@ internal class StartupInitializer(private val activity: AppCompatActivity) {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.R || PermissionUtil.isExternalStorageManager()
     }
 
-    /** 初始化 proj 数据（worldwindjni 内置 assets/proj 解压到应用私有目录并设置 PROJ 搜索路径） */
+    /** 初始化 proj 数据（globecore 内置 assets/proj 解压到应用私有目录并设置 PROJ 搜索路径） */
     fun extractProjData() {
         try {
             NativeSrs.initProjData(activity)

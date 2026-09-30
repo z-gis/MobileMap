@@ -6,7 +6,7 @@ import com.zys.mobilemap.R
  * 点要素内置标识图标集。
  *
  * 图标 key 持久化于 [com.zys.mobilemap.doc.VectorStyle.iconKey]（写入 document.json），
- * 加载时经 `ImageSource.fromResource` 应用到点 Placemark。WorldWind 支持矢量 drawable：
+ * 加载时经 `ImageSource.fromResource` 应用到点 Placemark。原底层库支持矢量 drawable：
  * 其 ImageDecoder.decodeResource 先用 BitmapFactory 解码（矢量 XML 返回 null），
  * 再回退 AppCompatResources.getDrawable + Canvas 渲染为位图，故矢量图标可正常显示。
  */

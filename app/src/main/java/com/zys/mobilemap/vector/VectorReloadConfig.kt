@@ -64,7 +64,7 @@ object VectorReloadConfig {
     /**
      * 图层几何简化开关（C++ 端 OGRGeometry::Simplify）。
      * - true：重投影到 WGS84 后按 [SIMPLIFY_TOLERANCE_DEGREES] 简化顶点，
-     *        减少 JSON 体积与 Kotlin 解析/WorldWind 渲染开销（视觉细节轻微损失）
+     *        减少 JSON 体积与 Kotlin 解析/原底层库渲染开销（视觉细节轻微损失）
      * - false：不简化，保留原始几何精度（默认）
      *
      * 注：与 C++ 已有的亚像素预简化（g_vertexTolerance 同点去重）正交：

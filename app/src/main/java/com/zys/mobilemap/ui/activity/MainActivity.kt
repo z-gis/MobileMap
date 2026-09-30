@@ -26,6 +26,7 @@ import com.zys.mobilemap.survey.SampleSurveyActivity
 import com.zys.mobilemap.survey.SampleSurveyStore
 import com.zys.mobilemap.ui.dialog.LayerManageDialog
 import com.zys.mobilemap.ui.dialog.MediaManageDialog
+import com.zys.mobilemap.ui.dialog.LocationDetailDialog
 import com.zys.mobilemap.ui.dialog.MoveToDialog
 import com.zys.mobilemap.ui.dialog.PhotoSheetDialog
 import com.zys.mobilemap.ui.map.BusinessOverlayManager
@@ -44,10 +45,10 @@ import com.zys.mobilemap.util.AppDirectories
 import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.util.PermissionUtil
 import com.zys.mobilemap.util.UiUtil
-import com.zys.worldwindjni.NativeMapView
+import com.zys.globecore.NativeMapView
 
 /**
- * MainActivity：程序主页（LAUNCHER）宿主装配层（worldwindjni [NativeMapView] 渲染 2D 墨卡托瓦片）。
+ * MainActivity：程序主页（LAUNCHER）宿主装配层（globecore [NativeMapView] 渲染 2D 墨卡托瓦片）。
  *
  * 本类现仅承担「宿主」职责：View 装配与生命周期编排、对话框/Fragment 专属逻辑、各功能域协作类的创建与接线。
  * 具体功能已按域拆出至 `com.zys.mobilemap.ui.map` 十个协作类（行为零变化，函数体原样搬移）：
@@ -64,8 +65,8 @@ import com.zys.worldwindjni.NativeMapView
  * 依赖单向：本类创建并接线各控制器；控制器之间只经回调或引用协作类，不反向引用本类私有成员
  * （对话框/Fragment 生命周期、挂起 recreate、权限申请器、拍照菜单留在本类）。
  *
- * 迁移史：原 wwd 主界面（同名 MainActivity）及其渲染链路已删除（wwd→jni 迁移终点），权限门与启动初始化由本界面
- * 自行承担；相机独立保存为迁移期历史成因（原 wwd 界面 onPause 会覆盖共享文档相机），独立 prefs 保留以兼容既有视角。
+ * 迁移史：原底层库主界面（同名 MainActivity）及其渲染链路已删除（原底层库→jni 迁移终点），权限门与启动初始化由本界面
+ * 自行承担；相机独立保存为迁移期历史成因（原底层库界面 onPause 会覆盖共享文档相机），独立 prefs 保留以兼容既有视角。
  */
 class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener, PickHitRouter {
 
@@ -77,9 +78,6 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
     private lateinit var locationText: TextView
     private lateinit var annotationButton: ImageView
     private lateinit var locateButton: ImageView
-
-    /** 左上 2D/3D 视图模式切换按键（文字显示当前模式） */
-    private lateinit var viewModeButton: TextView
 
     /** 指北针复位按键（3D 双指旋转后 heading 非零时显示，点击回正北） */
     private lateinit var compassButton: TextView
@@ -93,6 +91,9 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
     private lateinit var trackPauseButton: ImageView
     private lateinit var trackStopButton: ImageView
 
+    /** 左下「GO」按键：移动到指定坐标（原定位文本「移动到」入口迁移至此） */
+    private lateinit var goButton: TextView
+
     // ── 功能域协作类（setupMapUi 中创建并接线）────────────────────────────────────────
     private lateinit var startup: StartupInitializer
     private lateinit var navigator: CameraNavigator
@@ -105,7 +106,7 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
     private lateinit var locationController: LocationFollowController
     private lateinit var importHandler: ExternalImportHandler
 
-    /** 拍照会话（复用原主界面 [MediaCaptureHelper]，不依赖 wwd）：拍照/连拍/水印/入库/编辑全由其处理，变更回调刷新叠加层 */
+    /** 拍照会话（复用原主界面 [MediaCaptureHelper]，不依赖原底层库）：拍照/连拍/水印/入库/编辑全由其处理，变更回调刷新叠加层 */
     private var mediaCaptureHelper: MediaCaptureHelper? = null
 
     /**
@@ -170,7 +171,6 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         locationText = findViewById(R.id.jni_map_location)
         annotationButton = findViewById(R.id.jni_map_annotation)
         locateButton = findViewById(R.id.jni_map_locate)
-        viewModeButton = findViewById(R.id.jni_map_view_mode)
         compassButton = findViewById(R.id.jni_map_compass)
         loadingOverlay = findViewById(R.id.jni_map_loading_overlay)
         measureUndoButton = findViewById(R.id.jni_map_measure_undo)
@@ -180,6 +180,7 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         trackStartButton = findViewById(R.id.jni_map_track_start)
         trackPauseButton = findViewById(R.id.jni_map_track_pause)
         trackStopButton = findViewById(R.id.jni_map_track_stop)
+        goButton = findViewById(R.id.jni_map_go)
 
         startup = StartupInitializer(this)
 
@@ -219,7 +220,7 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         initialized = true
 
         // 启动链耗时打点：主线程串行初始化各阶段逐项记录，便于真机核对卡顿分解
-        // native 库由 worldwindjni 门面类（NativeSrs/NativeLayerInfo/NativeVector）首次触达时自动加载
+        // native 库由 globecore 门面类（NativeSrs/NativeLayerInfo/NativeVector）首次触达时自动加载
         var t = SystemClock.elapsedRealtime()
         AppDirectories.ensureAll(this)
         // 全文件访问权限已就绪，将日志目录切到外部 调查宝/log，便于用户取出反馈
@@ -240,9 +241,8 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         // 系统外部打开数据（文件管理器/微信分享）：初始化完成后立即处理
         importHandler.handleViewIntent(intent)
 
-        // 恢复上次退出时的 2D/3D 视图模式（随相机状态一同持久化，默认 2D；左上按键可切换）
-        mapView.setViewMode(navigator.savedViewMode())
-        updateViewModeButton()
+        // 应用 2D/3D 视图模式（改由设置页控制系统配置 viewMode3d，默认 2D）
+        applyViewMode()
 
         // 加载遮罩淡出：装配完成后启动冷启动图层加载门控，异步轮询 native 矢量加载状态，加载完成即淡出；
         // onCreate 挂的安全超时（LOADING_OVERLAY_TIMEOUT_MS）仅作兼底（长时间未就绪时强制淡出）。
@@ -330,6 +330,8 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         )
         locationController = LocationFollowController(this, mapView, locationText, locateButton, navigator)
         locationController.onTrackLocation = { lat, lon, alt -> trackController.onLocation(lat, lon, alt) }
+        // 轨迹记录态驱动定位跟随：开始/恢复记录→锁定跟随并换锁定图标，停止记录→解锁（对齐需求：轨迹模式下地图中心随定位移动）
+        trackController.onRecordingStateChanged = { recording -> locationController.setFollowEnabled(recording) }
         importHandler = ExternalImportHandler(this, navigator, lifecycleScope) { overlayManager.rebuild() }
 
         // 装配瓦片图层栈 + 栅格层 + 矢量层（懒加入、可见性驱动）+ 业务叠加层
@@ -357,8 +359,7 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         findViewById<ImageView>(R.id.jni_map_zoom_in).setOnClickListener { navigator.zoomIn() }
         findViewById<ImageView>(R.id.jni_map_zoom_out).setOnClickListener { navigator.zoomOut() }
         annotationButton.setOnClickListener { layerManager.toggleAnnotation() }
-        locateButton.setOnClickListener { locationController.toggleFollow() }
-        viewModeButton.setOnClickListener { toggleViewMode() }
+        locateButton.setOnClickListener { locationController.focusOnce() }
 
         // 指北针复位：heading 非零且 3D（旋转唯一消费模式）时显示，点击经既有 setCamera 通道归零。
         // 显隐由 CameraNavigator 的 ~250ms 状态轮询回调驱动，本处无需主动刷
@@ -375,7 +376,7 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
             startActivity(Intent(this, SettingsActivity::class.java))
         }
         findViewById<ImageView>(R.id.jni_map_layer_manage).setOnClickListener { showLayerManageDialog() }
-        locationText.setOnClickListener { showMoveToDialog() }
+        locationText.setOnClickListener { LocationDetailDialog.show(this) }
 
         // 采集控件接线（对齐原主界面 MeasureModel/TrackModel.setup 的按钮绑定）
         findViewById<ImageView>(R.id.jni_map_measure).setOnClickListener { measureController.showMeasureMenu() }
@@ -384,6 +385,8 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         measureFinishButton.setOnClickListener { measureController.finishMeasurement() }
         findViewById<ImageView>(R.id.jni_map_photo).setOnClickListener { showPhotoMenu() }
         trackButton.setOnClickListener { trackController.onTrackButtonClick() }
+        // GO：弹出「移动到」对话框（原点击定位文本的入口迁移至此）
+        goButton.setOnClickListener { showMoveToDialog() }
         trackStartButton.setOnClickListener { trackController.resumeTrackRecording() }
         trackPauseButton.setOnClickListener { trackController.pauseTrackRecording() }
         trackStopButton.setOnClickListener { trackController.stopTrackRecording() }
@@ -427,22 +430,13 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
     }
 
     /**
-     * 切换 2D/3D 视图模式：native 两模式共用同一相机状态，即时互换无需重建；
-     * 模式本身由 [CameraNavigator.saveCameraState] 在 onPause 随相机一同持久化，下次进入恢复。
+     * 依据系统配置应用 2D/3D 视图模式（默认 2D，模式改由设置页控制，主界面不再放切换按键）。
+     * native 两模式共用同一相机状态，即时互换无需重建；切换后刷一轮询回调使指北针显隐随模式即时跟进。
      */
-    private fun toggleViewMode() {
-        val next = if (mapView.getViewMode() == NativeMapView.ViewMode.THREE_D)
-            NativeMapView.ViewMode.TWO_D else NativeMapView.ViewMode.THREE_D
-        mapView.setViewMode(next)
-        updateViewModeButton()
-        // 指北针显隐即时跟进模式（2D 恒正北不显示，免等下轮轮询）
-        navigator.updateStatusText()
-    }
-
-    /** 刷新左上模式按键文字：显示当前模式（按钮文字即所见模式） */
-    private fun updateViewModeButton() {
-        viewModeButton.text =
-            if (mapView.getViewMode() == NativeMapView.ViewMode.THREE_D) "3D" else "2D"
+    private fun applyViewMode() {
+        val threeD = DocumentManager.getInstance().getDocument()?.systemConfig?.viewMode3d == true
+        mapView.setViewMode(if (threeD) NativeMapView.ViewMode.THREE_D else NativeMapView.ViewMode.TWO_D)
+        if (::navigator.isInitialized) navigator.updateStatusText()
     }
 
     /**
@@ -585,6 +579,8 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         overlayManager.rebuild()
         // 启动级别/中心文本轮询刷新
         navigator.startPolling()
+        // 从设置页返回：读回系统配置应用 2D/3D 视图模式（开关即时生效，无需重建）
+        applyViewMode()
     }
 
     override fun onPause() {

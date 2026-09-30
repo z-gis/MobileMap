@@ -13,10 +13,10 @@ import com.zys.mobilemap.util.AppDirectories
 import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.vector.FeatureIcons
 import com.zys.mobilemap.vector.GdalVectorReader
-import com.zys.worldwindjni.NativeLayerInfo
-import com.zys.worldwindjni.NativeMapView
-import com.zys.worldwindjni.VectorExtent
-import com.zys.worldwindjni.VectorStyle as NativeVectorStyle
+import com.zys.globecore.NativeLayerInfo
+import com.zys.globecore.NativeMapView
+import com.zys.globecore.VectorExtent
+import com.zys.globecore.VectorStyle as NativeVectorStyle
 import java.io.File
 import kotlin.math.abs
 
@@ -282,7 +282,7 @@ internal class MapLayerManager(
      * - 新增：可见、有路径、文件存在且尚未加入的栅格层，经 [NativeMapView.addRasterLayer] 加入并记录索引
      *   （不可见层不加入，避免无谓的 GDAL 打开 + 重投影 VRT 构建；首次转可见时再懒加入）；
      * - 显隐：已加入的层按 [LayerInfo.visible] 翻转 [NativeMapView.setLayerVisible]（隐层不删除，与瓦片层同口径）。
-     * 瓦片缓存目录用 `raster-jni/<路径哈希>`（区别于原主界面 wwd 的 `raster/<哈希>`——两者瓦片命名格式不同，不共享）。
+     * 瓦片缓存目录用 `raster-jni/<路径哈希>`（区别于原底层库主界面的 `raster/<哈希>`——两者瓦片命名格式不同，不共享）。
      * 结构变化（增/删/改栅格层）由 [onDocumentChanged] 判定并重建界面（native 无删除图层能力）。
      */
     fun syncRasterLayers(doc: MapDocument?) {
@@ -540,7 +540,7 @@ internal class MapLayerManager(
      * 矢量图层当前实际渲染色（#AARRGGBB 填充/描边）：复用 [addVectorLayerNative] 同款解析
      * （[MapStyleColors.resolveFillColor] / [MapStyleColors.resolveArgb] + 文档 [com.zys.mobilemap.doc.VectorStyle]），即 native 实际使用的整层颜色，
      * 供图层管理样式对话框与预览图标所见即所得回显（对齐原主界面 layerRenderColorsOf）。
-     * 区别于原主界面从 wwd renderable 采样：本界面矢量层完全文档驱动（无 shp 内嵌/单要素等额外色来源），
+     * 区别于原底层库主界面从 renderable 采样：本界面矢量层完全文档驱动（无 shp 内嵌/单要素等额外色来源），
      * 故实际渲染色即“文档样式 ?: 默认色”，与 addVectorLayerNative 传入 native 的值一致。图层不存在返回 null。
      */
     fun layerRenderColorsOf(path: String): Pair<String?, String?> {
