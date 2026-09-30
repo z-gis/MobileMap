@@ -22,7 +22,7 @@ import java.io.File
  * 外部文件承接处理器（自 MainActivity 拆出）：处理系统 ACTION_VIEW 打开——拍照数据包（.mphoto）导入新建点位，
  * 其余按矢量数据（content:// 复制到本地经 [VectorFileImporter] 导入，zip/kmz 解压）写入文档并缩放到图层范围。
  *
- * 复刻原 wwd 主界面 MainActivity.handleViewIntent。协程于注入的 [scope]（宿主 lifecycleScope）执行；
+ * 复刻原底层库主界面 MainActivity.handleViewIntent。协程于注入的 [scope]（宿主 lifecycleScope）执行；
  * 导入新建点位后经 [rebuildOverlays] 回调刷新叠加层，缩放复用 [CameraNavigator]。
  */
 internal class ExternalImportHandler(
@@ -67,7 +67,7 @@ internal class ExternalImportHandler(
 
     /**
      * 导入拍照数据包：复制到应用私有临时目录 → 解包新建点位 → 刷新叠加层并缩放到首个新点位。
-     * 与矢量导入一致，IO 均在工作线程；临时副本导入后清理。（本界面以 rebuildOverlays 替代 wwd 的 mediaOverlayModel.reload）
+     * 与矢量导入一致，IO 均在工作线程；临时副本导入后清理。（本界面以 rebuildOverlays 替代原底层库的 mediaOverlayModel.reload）
      */
     private suspend fun importMediaPackage(uri: Uri) {
         val staged = withContext(Dispatchers.IO) { stagePackageFile(uri) }

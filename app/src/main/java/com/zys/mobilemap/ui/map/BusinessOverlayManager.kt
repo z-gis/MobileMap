@@ -12,8 +12,8 @@ import com.zys.mobilemap.survey.SampleSurveyStore
 import com.zys.mobilemap.survey.SurveyPlot
 import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.util.GeoCalc
-import com.zys.worldwindjni.NativeMapView
-import com.zys.worldwindjni.VectorStyle as NativeVectorStyle
+import com.zys.globecore.NativeMapView
+import com.zys.globecore.VectorStyle as NativeVectorStyle
 
 /**
  * 业务叠加层显示与命中映射（自 MainActivity 拆出）：测量/轨迹/拍照/样地数据（存于 map.db / media.db /

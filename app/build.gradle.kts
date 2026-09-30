@@ -12,12 +12,13 @@ android {
         applicationId = "com.zys.mobilemap"
         minSdk = 24
         targetSdk = 36
-        versionCode = 26092601
-        versionName = "0.3.0"
+        versionCode = 26092701
+        versionName = "0.3.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField("String", "UPDATE_METADATA_URL", "\"https://gitee.com/z-gis/MobileMap/raw/master/update.json\"")
+        buildConfigField("String", "UPDATE_METADATA_URL",
+            "\"https://gitee.com/z-gis/MobileMap/raw/master/update.json\"")
 
         ndk {
             abiFilters += listOf("x86_64", "arm64-v8a")
@@ -37,12 +38,11 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-    // app 自身不再有 native 源码：渲染内核在独立仓库 WorldWindJni 编译，经其发布的 Maven 仓库以 AAR 引用
+    // app 自身不再有 native 源码：渲染内核在独立仓库 GlobeCore 编译，经其发布的 Maven 仓库以 AAR 引用
     buildFeatures {
         viewBinding = true
         buildConfig = true
     }
-    ndkVersion = "28.2.13676358"
 }
 
 val apkVersionName = android.defaultConfig.versionName ?: "0.0"
@@ -56,7 +56,9 @@ androidComponents {
 }
 
 dependencies {
-    implementation("com.zys:worldwindjni:1.0.0")
+    // globecore 渲染内核：本地 AAR（GlobeCore 仓库 :globecore:publish 产物），或改用下方 Maven 坐标在线拉取
+    //implementation(files("libs/globecore-0.1.1.0-release.aar"))
+    implementation("com.zys:globecore:0.1.1.0")
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.constraintlayout)

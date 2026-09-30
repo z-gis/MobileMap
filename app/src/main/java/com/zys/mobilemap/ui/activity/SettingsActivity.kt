@@ -75,6 +75,13 @@ class SettingsActivity : BaseStyledActivity() {
             config.showKmlLabel = isChecked
         }
 
+        // 3D 视图（球模式）：关闭为 2D（默认），开启为 3D。退出设置页落盘，主界面 onResume 读回即时生效
+        val viewModeSwitch: SwitchCompat = findViewById(R.id.set_switch_view_mode)
+        viewModeSwitch.isChecked = config.viewMode3d
+        viewModeSwitch.setOnCheckedChangeListener { _, isChecked ->
+            config.viewMode3d = isChecked
+        }
+
         // ==================== 设置类分组 ====================
 
         // 照片坐标水印

@@ -18,9 +18,9 @@ import com.zys.mobilemap.ui.dialog.PhotoSheetDialog
 import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.util.GeoCalc
 import com.zys.mobilemap.vector.GdalVectorReader
-import com.zys.worldwindjni.FeatureGeometry
-import com.zys.worldwindjni.NativeMapView
-import com.zys.worldwindjni.VectorStyle as NativeVectorStyle
+import com.zys.globecore.FeatureGeometry
+import com.zys.globecore.NativeMapView
+import com.zys.globecore.VectorStyle as NativeVectorStyle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -288,7 +288,7 @@ internal class FeaturePickController(
 
     /**
      * 属性写回（调查编辑）：调 GDAL 写回源文件，成功后 Toast 提示。
-     * 本界面无 wwd renderable 属性缓存，故仅写回源文件（下次拾取/重载即取到新值），不做就地缓存更新。
+     * 本界面无原底层库 renderable 属性缓存，故仅写回源文件（下次拾取/重载即取到新值），不做就地缓存更新。
      * GDAL SetField+SetFeature 耗时可忽略，与原主界面一致同步写回（对话框等待结果决定是否关闭）。
      * @return 写回是否成功
      */

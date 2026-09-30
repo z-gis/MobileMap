@@ -2,7 +2,7 @@ package com.zys.mobilemap.vector
 
 import android.util.JsonReader
 import android.util.Log
-import com.zys.worldwindjni.NativeVector
+import com.zys.globecore.NativeVector
 import org.json.JSONObject
 import java.io.StringReader
 
@@ -37,7 +37,7 @@ class VectorQueryResult(val features: List<VectorFeature>?, val error: String?) 
  * GDAL/OGR 矢量读取：矢量数据的统一读取入口（shp/dwg/dxf/kml/kmz 均经此重投影到 WGS84），
  * 并提供 SQL 查询（[queryFeatures]）供属性筛选高亮。
  *
- * native 调用经 worldwindjni [NativeVector] 门面（符号实现见其 cpp/bridge/vector_io.cpp），本类只做 JSON 解析与业务包装。
+ * native 调用经 globecore [NativeVector] 门面（符号实现见其 cpp/bridge/vector_io.cpp），本类只做 JSON 解析与业务包装。
  * JNI 返回 JSON：{"features":[{"geom":"POINT|LINE|POLYGON",…,"fields":{"k":"v"}}]}，
  * 查询失败额外返回 {"error":"…"}；要素数上限在 C++ 层控制，防大文件 OOM。
  */

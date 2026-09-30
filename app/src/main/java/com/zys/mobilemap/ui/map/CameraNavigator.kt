@@ -13,10 +13,10 @@ import com.zys.mobilemap.location.MercatorZoom
 import com.zys.mobilemap.media.MediaPlacemark
 import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.util.CoordFormatter
-import com.zys.worldwindjni.Camera
-import com.zys.worldwindjni.NativeLayerInfo
-import com.zys.worldwindjni.NativeMapView
-import com.zys.worldwindjni.VectorExtent
+import com.zys.globecore.Camera
+import com.zys.globecore.NativeLayerInfo
+import com.zys.globecore.NativeMapView
+import com.zys.globecore.VectorExtent
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.cos
@@ -26,7 +26,7 @@ import kotlin.math.cos
  * 相机视角的独立持久化（[saveCameraState]/[initialCamera]）。
  *
  * 相机优先级口径不变：本界面上次保存的独立视角 > 文档相机 > 兜底默认（北京上空 20km）。
- * 独立保存为迁移期历史成因：原 wwd 主界面每次 onPause 都会用 wwd 相机覆盖共享的文档相机，两界面写文档
+ * 独立保存为迁移期历史成因：原底层库主界面每次 onPause 都会用原底层库相机覆盖共享的文档相机，两界面写文档
  * 会互相冲掉；该界面已删除，独立 prefs 保留以兼容既有已存视角。
  */
 internal class CameraNavigator(
@@ -37,7 +37,7 @@ internal class CameraNavigator(
 ) {
 
     /**
-     * 级别/中心文本轮询刷新：手势平移/缩放/fling 期间 native 相机持续变化，而 worldwindjni 暂无相机变更回调，
+     * 级别/中心文本轮询刷新：手势平移/缩放/fling 期间 native 相机持续变化，而 globecore 暂无相机变更回调，
      * 故定时读回 native 相机刷新显示（getCamera 仅读回相机快照，开销可忽略）；onResume 启动、onPause 停止。
      */
     private val handler = Handler(Looper.getMainLooper())
@@ -184,7 +184,7 @@ internal class CameraNavigator(
     }
 
     /**
-     * 缩放到图层四至范围（GDAL 读取，kmz 走 /vsizip/ 虚拟文件）：经 worldwindjni [NativeLayerInfo.getLayerExtent] 读取。
+     * 缩放到图层四至范围（GDAL 读取，kmz 走 /vsizip/ 虚拟文件）：经 globecore [NativeLayerInfo.getLayerExtent] 读取。
      * 文档新增图层后 save 会触发界面重建，故先 setCamera（本方法）；onPause 会将该视角存入 prefs，重建后跨 recreate 保留缩放。
      */
     fun zoomToLayerExtent(path: String) {
@@ -232,13 +232,14 @@ internal class CameraNavigator(
     }
 
     /**
-     * 读回 native 相机刷新级别数字与中心经纬度文本：级别换算与坐标格式均与原主界面同源
-     * （[MercatorZoom.altitudeToLevel] / [CoordFormatter]），保证升级前后显示一致。
+     * 读回 native 相机刷新级别数字与中心经纬度文本：级别换算与原主界面同源
+     * （[MercatorZoom.altitudeToLevel]）；中心坐标**恒用十进制度**（[CoordFormatter.formatDecimalDegrees]，
+     * 不随「坐标以米显示」配置切换），米制仅用于定位文本，避免米制长坐标挤压底栏。
      */
     fun updateStatusText() {
         val cam = mapView.getCamera() ?: return
         levelText.text = MercatorZoom.altitudeToLevel(cam.altitude).toString()
-        centerText.text = CoordFormatter.format("中心", cam.longitude, cam.latitude)
+        centerText.text = CoordFormatter.formatDecimalDegrees("Center", cam.longitude, cam.latitude)
         // 方位角随轮询同步宿主（指北针按键显隐），免另设回调通道
         onHeadingChanged?.invoke(cam.heading)
     }
@@ -256,7 +257,7 @@ internal class CameraNavigator(
 
     /**
      * 把本界面当前相机（经纬度 + 高度米 + 方位角）存到独立的 SharedPreferences，下次进入本界面恢复。
-     * 不写共享文档相机：原 wwd 主界面（已删除）每次 onPause 都会用 wwd 相机覆盖文档相机，
+     * 不写共享文档相机：原底层库主界面（已删除）每次 onPause 都会用原底层库相机覆盖文档相机，
      * 共用会互相冲掉；独立存储让本界面记住自己的视角。
      * double 以 [Double.toRawBits] 存为 Long 保精度（SharedPreferences 无 double 类型）。
      */
@@ -268,14 +269,7 @@ internal class CameraNavigator(
             .putLong(KEY_ALT, cam.altitude.toRawBits())
             .putLong(KEY_HEADING, cam.heading.toRawBits())
             .putLong(KEY_TILT, cam.tilt.toRawBits())
-            .putInt(KEY_VIEW_MODE, if (mapView.getViewMode() == NativeMapView.ViewMode.THREE_D) 1 else 0)
             .apply()
-    }
-
-    /** 启动装配时读回持久化的视图模式（随相机状态一同保存）：1 → 3D 球体，否则 2D 平面墨卡托 */
-    fun savedViewMode(): NativeMapView.ViewMode {
-        val prefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return if (prefs.getInt(KEY_VIEW_MODE, 0) == 1) NativeMapView.ViewMode.THREE_D else NativeMapView.ViewMode.TWO_D
     }
 
     companion object {
@@ -308,10 +302,7 @@ internal class CameraNavigator(
         // 相机方位角（度）：3D 双指旋转手势后随相机状态一同持久化，下次进入恢复旋转视角
         private const val KEY_HEADING = "heading"
 
-        // 相机倾斜角/仰角（度，对应 wwd tilt）：3D 俯仰后随相机状态一同持久化，下次进入恢复仰角视角
+        // 相机倾斜角/仰角（度，对应原底层库 tilt）：3D 俯仰后随相机状态一同持久化，下次进入恢复仰角视角
         private const val KEY_TILT = "tilt"
-
-        // 视图模式（2D/3D）随相机状态一同持久化：下次进入界面恢复上次选择的模式
-        private const val KEY_VIEW_MODE = "view_mode"
     }
 }

@@ -10,8 +10,8 @@ import com.zys.mobilemap.db.MapDataStore
 import com.zys.mobilemap.db.MeasurementRecord
 import com.zys.mobilemap.ui.dialog.MeasureDetailDialog
 import com.zys.mobilemap.util.GeoCalc
-import com.zys.worldwindjni.NativeMapView
-import com.zys.worldwindjni.VectorStyle as NativeVectorStyle
+import com.zys.globecore.NativeMapView
+import com.zys.globecore.VectorStyle as NativeVectorStyle
 import java.util.Date
 import java.util.Locale
 

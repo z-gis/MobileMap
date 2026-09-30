@@ -34,12 +34,19 @@ object CoordFormatter {
     }
 
     /**
-     * 带海拔的定位坐标文本：在 [format] 结果后追加“ 海拔N米”（米制/十进制度均适用）。
+     * 强制十进制度格式化（无视「坐标以米显示」配置）：主界面底部中心坐标恒用十进制度，
+     * 与定位文本（随配置可切米制）区分，避免米制长坐标挤压定位行显示。
+     */
+    fun formatDecimalDegrees(prefix: String, lon: Double, lat: Double): String =
+        String.format(Locale.getDefault(), "%s: %.4f %.4f", prefix, lon, lat)
+
+    /**
+     * 带海拔的定位坐标文本：在 [format] 结果后追加“ hN米”（米制/十进制度均适用，h = height 海拔）。
      * alt 为 WGS84 椭球高（米），传 [Double.NaN] 表示定位无海拔信息，此时不追加、退化为 [format]。
      */
     fun formatWithAlt(prefix: String, lon: Double, lat: Double, alt: Double): String {
         val base = format(prefix, lon, lat)
         if (alt.isNaN()) return base
-        return String.format(Locale.getDefault(), "%s 海拔%.0f米", base, alt)
+        return String.format(Locale.getDefault(), "%s h%.0f米", base, alt)
     }
 }

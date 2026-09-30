@@ -39,7 +39,7 @@ import com.zys.mobilemap.ui.activity.OpenFileActivity
 import com.zys.mobilemap.util.AppDirectories
 import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.vector.VectorFileImporter
-import com.zys.worldwindjni.NativeLayerInfo
+import com.zys.globecore.NativeLayerInfo
 import java.io.File
 import java.util.Locale
 import kotlin.math.roundToInt

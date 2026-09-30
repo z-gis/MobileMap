@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- MainActivity 布局：全屏承载 worldwindjni 的 NativeMapView，叠加「地图导航」类控件。
+<!-- MainActivity 布局：全屏承载 globecore 的 NativeMapView，叠加「地图导航」类控件。
      按键放置位置对齐主界面 activity_main.xml：改用 ConstraintLayout，左侧 bias 0.7 放测量入口、
      右侧 bias 0.7 放拍照、右上放图层管理、左上放 2D/3D 视图模式切换、左下放设置/定位/轨迹、右下放注记/缩放面板；
      测量采集子控件（撤销/中心点/结束）单独放到屏幕下方居中。
@@ -9,7 +9,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <com.zys.worldwindjni.NativeMapView
+    <com.zys.globecore.NativeMapView
         android:id="@+id/jni_map_view"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
@@ -24,7 +24,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- 左上（与右上图层管理对称）：2D/3D 视图模式切换。文字显示当前模式，点击互换。 -->
+    <!-- 左上：指北针复位键（视图模式 2D/3D 已改由设置页控制，此处不再放切换键）。heading 非零且 3D 时才显示。 -->
     <LinearLayout
         android:id="@+id/jni_lay_lt"
         android:layout_width="wrap_content"
@@ -36,28 +36,16 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
 
-        <TextView
-            android:id="@+id/jni_map_view_mode"
-            android:layout_width="@dimen/main_icon_size"
-            android:layout_height="@dimen/main_icon_size"
-            android:background="@color/main_icon_bg"
-            android:contentDescription="@string/jni_map_view_mode"
-            android:gravity="center"
-            android:textColor="@color/black"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
         <!-- 指北针复位：3D 双指旋转后 heading 非零时显示（MainActivity 轮询回调控显隐），点击回正北。
              文字硬编码避免改 strings.xml。 -->
         <TextView
             android:id="@+id/jni_map_compass"
             android:layout_width="@dimen/main_icon_size"
             android:layout_height="@dimen/main_icon_size"
-            android:layout_marginTop="5.0dip"
             android:background="@color/main_icon_bg"
             android:gravity="center"
             android:text="指北"
-            android:textColor="@color/black"
+            android:textColor="@color/white"
             android:textSize="13sp"
             android:textStyle="bold"
             android:visibility="gone" />
@@ -111,7 +99,7 @@
     </LinearLayout>
 
     <!-- 右侧中部（对齐主界面 linearLayout2，vertical_bias 0.7）：拍照入口。
-         拍照复用 MediaCaptureHelper（不依赖 wwd）。 -->
+         拍照复用 MediaCaptureHelper（不依赖原底层库）。 -->
     <LinearLayout
         android:id="@+id/jni_lay_photo"
         android:layout_width="wrap_content"
@@ -203,6 +191,20 @@
             android:background="#a0dddddd"
             android:padding="5.0dp"
             android:src="@drawable/nav_routes" />
+
+        <!-- GO：移动到指定坐标（原「点击定位文本弹出移动到」的入口迁到此键）。文字样式对齐左上 2D/3D / 指北键。 -->
+        <TextView
+            android:id="@+id/jni_map_go"
+            android:layout_width="@dimen/main_icon_size"
+            android:layout_height="@dimen/main_icon_size"
+            android:layout_marginTop="5.0dip"
+            android:background="@color/main_icon_bg"
+            android:contentDescription="@string/jni_map_go"
+            android:gravity="center"
+            android:text="@string/jni_map_go"
+            android:textColor="@color/white"
+            android:textSize="15sp"
+            android:textStyle="bold" />
     </LinearLayout>
 
     <!-- 右下（对齐主界面 lay_rb）：注记显隐开关 + 缩放面板（放大 / 级别数字 / 缩小） -->
@@ -306,23 +308,28 @@
             android:visibility="gone" />
     </LinearLayout>
 
-    <!-- 底部状态栏：左为定位经纬度、右为地图中心经纬度（对齐主界面底部状态栏） -->
+    <!-- 底部状态栏（单行）：定位文本 wrap_content 优先完整显示（含海拔段），中心文本占剩余宽度（0dp+weight）；
+         空间不足时只有中心文本尾部省略，定位文本不被截断。 -->
     <LinearLayout
         android:layout_width="0dp"
-        android:layout_height="24dp"
+        android:layout_height="wrap_content"
         android:background="#80111111"
+        android:baselineAligned="false"
         android:orientation="horizontal"
+        android:paddingTop="2dp"
+        android:paddingBottom="2dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent">
 
         <TextView
             android:id="@+id/jni_map_location"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical"
             android:gravity="start|center_vertical"
             android:paddingStart="8.0dip"
+            android:paddingEnd="8.0dip"
             android:singleLine="true"
             android:textColor="#ffffffff"
             android:textSize="12.0sp" />
@@ -330,9 +337,13 @@
         <TextView
             android:id="@+id/jni_map_center"
             android:layout_width="0dp"
-            android:layout_height="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical"
             android:layout_weight="1"
+            android:ellipsize="end"
             android:gravity="end|center_vertical"
+            android:minWidth="0dp"
+            android:paddingStart="8.0dip"
             android:paddingEnd="8.0dip"
             android:singleLine="true"
             android:textColor="#ffffffff"

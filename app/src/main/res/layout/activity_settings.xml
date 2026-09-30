@@ -247,6 +247,33 @@
                         android:layout_height="wrap_content"/>
                 </LinearLayout>
 
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#F1F1F1" />
+
+                <!-- 3D 视图（球模式）：关闭为 2D 平面墨卡托（默认），开启为 3D 球体；返回主界面即时生效 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="12dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:text="@string/settings_view_mode"
+                        android:textColor="#131313"
+                        android:textSize="@dimen/activity_item_text_size"/>
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/set_switch_view_mode"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+
             </LinearLayout>
 
             <!-- 设置类分组：照片水印与后台定位 -->

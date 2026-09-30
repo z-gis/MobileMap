@@ -156,7 +156,22 @@
     <string name="jni_map_located">已定位到当前位置</string>
     <string name="jni_map_setting">设置</string>
     <string name="jni_map_layer_manage">图层管理</string>
-    <string name="jni_map_view_mode">切换 2D/3D 视图</string>
+    <string name="jni_map_go">GO</string>
+
+    <!-- 定位详情对话框（点击底部定位坐标文本弹出） -->
+    <string name="location_detail_title">定位详情</string>
+    <string name="location_detail_no_loc">尚未获取到定位信息</string>
+    <string name="location_detail_copy">复制坐标</string>
+    <string name="location_detail_copied">坐标已复制</string>
+    <string name="ld_coord">当前位置：%1$s</string>
+    <string name="ld_alt">海拔：%1$s</string>
+    <string name="ld_acc">定位精度：%1$s</string>
+    <string name="ld_speed">速度：%1$s</string>
+    <string name="ld_bearing">方位角：%1$s</string>
+    <string name="ld_sat">卫星：%1$s</string>
+    <string name="ld_provider">数据源：%1$s</string>
+    <string name="ld_time">定位时间：%1$s</string>
+    <string name="ld_value_none">—</string>
 
     <!-- OpenFileActivity -->
     <string name="open_file_title">选择文件</string>
@@ -185,6 +200,7 @@
     <string name="settings_show_measure_layer">显示测量结果</string>
     <string name="settings_coord_display_meter">坐标以米显示（2000坐标系）</string>
     <string name="settings_kml_label">显示 KML/KMZ 标注</string>
+    <string name="settings_view_mode">3D 视图（球模式）</string>
     <string name="settings_personal_info_list">关于</string>
     <string name="settings_help">帮助</string>
 

@@ -24,7 +24,7 @@ internal object MapStyleColors {
     const val DEFAULT_LINE_WIDTH = 2.0f
     const val DEFAULT_POINT_RADIUS_DP = 5.0f
 
-    // 矢量标注默认样式（对齐原主界面 wwd Label：白字、无轮廓、基准字号）
+    // 矢量标注默认样式（对齐原底层库主界面 Label：白字、无轮廓、基准字号）
     val DEFAULT_LABEL_COLOR = 0xFFFFFFFF.toInt()
     val DEFAULT_LABEL_OUTLINE_COLOR = 0xFF000000.toInt()
     const val DEFAULT_LABEL_SIZE = 1.0f
@@ -70,7 +70,7 @@ internal object MapStyleColors {
         return (base and 0x00FFFFFF) or (alpha shl 24)
     }
 
-    /** ARGB Int → #AARRGGBB 十六进制串（对齐原主界面 colorToHex 格式，供样式对话框 Color.parseColor 解析；自实现不依赖 wwd ColorHex） */
+    /** ARGB Int → #AARRGGBB 十六进制串（对齐原主界面 colorToHex 格式，供样式对话框 Color.parseColor 解析；自实现不依赖原底层库 ColorHex） */
     fun argbToHex(argb: Int): String = String.format(Locale.US, "#%08X", argb)
 }
 
@@ -78,7 +78,7 @@ internal object MapStyleColors {
  * 解码点要素图标矢量 drawable 为 ARGB 像素（供 native 上传纹理作 billboard；自 MainActivity 拆出，
  * 图层/叠加/定位多域共用）。
  *
- * native C++ 无法解码 Android 矢量 drawable，故沿用原主界面 wwd ImageDecoder 的回退口径：用
+ * native C++ 无法解码 Android 矢量 drawable，故沿用原底层库 ImageDecoder 的回退口径：用
  * [AppCompatResources.getDrawable] 取 drawable（支持矢量 XML），按其固有尺寸（intrinsicWidth/Height，
  * 已含 density 缩放）渲染到 [Bitmap.Config.ARGB_8888] 位图，再 [Bitmap.getPixels] 取出 ARGB IntArray。
  * 返回 Triple(像素, 宽, 高)；解码失败（drawable 为空 / 尺寸非法 / 异常）返回 null → 点要素回退画屏幕固定圆。
