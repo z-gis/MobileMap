@@ -75,9 +75,15 @@ internal class MeasureCaptureController(
         measureMode = mode
         measurePoints.clear()
         val color = defaultColorForMode(mode)
+        // 面积模式 live 面填充改半透明（对齐已保存记录 BusinessOverlayManager 的 0.22 口径）：绘制中的面不再实心遮挡底图；
+        // 描边/线/点仍保持不透明色，轮廓清晰。其余模式（点/距离）无面填充，不改动。
+        val fillArgb = if (mode == MeasureMode.AREA) {
+            val a = (MapStyleColors.MEASURE_AREA_FILL_ALPHA * 255f).toInt() and 0xFF
+            (color and 0x00FFFFFF) or (a shl 24)
+        } else color
         measureLiveIndex = mapView.addOverlayLayer(
             NativeVectorStyle(
-                fillColor = color, outlineColor = color, outlineWidth = MapStyleColors.MEASURE_LIVE_WIDTH,
+                fillColor = fillArgb, outlineColor = color, outlineWidth = MapStyleColors.MEASURE_LIVE_WIDTH,
                 lineColor = color, lineWidth = MapStyleColors.MEASURE_LIVE_WIDTH, pointColor = color,
                 pointRadiusDp = MapStyleColors.MEASURE_POINT_RADIUS_DP,
                 labelColor = MapStyleColors.DEFAULT_LABEL_COLOR, labelSize = MapStyleColors.DEFAULT_LABEL_SIZE

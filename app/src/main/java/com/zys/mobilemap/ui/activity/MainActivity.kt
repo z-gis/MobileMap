@@ -91,9 +91,6 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
     private lateinit var trackPauseButton: ImageView
     private lateinit var trackStopButton: ImageView
 
-    /** 左下「GO」按键：移动到指定坐标（原定位文本「移动到」入口迁移至此） */
-    private lateinit var goButton: TextView
-
     // ── 功能域协作类（setupMapUi 中创建并接线）────────────────────────────────────────
     private lateinit var startup: StartupInitializer
     private lateinit var navigator: CameraNavigator
@@ -180,7 +177,6 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         trackStartButton = findViewById(R.id.jni_map_track_start)
         trackPauseButton = findViewById(R.id.jni_map_track_pause)
         trackStopButton = findViewById(R.id.jni_map_track_stop)
-        goButton = findViewById(R.id.jni_map_go)
 
         startup = StartupInitializer(this)
 
@@ -359,7 +355,8 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         findViewById<ImageView>(R.id.jni_map_zoom_in).setOnClickListener { navigator.zoomIn() }
         findViewById<ImageView>(R.id.jni_map_zoom_out).setOnClickListener { navigator.zoomOut() }
         annotationButton.setOnClickListener { layerManager.toggleAnnotation() }
-        locateButton.setOnClickListener { locationController.focusOnce() }
+        // 定位键：非记录中仅单次回到定位位置不锁定；记录中切换锁定/解锁（锁定中点击解锁不调位，未锁点击锁定并调位）
+        locateButton.setOnClickListener { locationController.onLocateClicked(trackController.capturing) }
 
         // 指北针复位：heading 非零且 3D（旋转唯一消费模式）时显示，点击经既有 setCamera 通道归零。
         // 显隐由 CameraNavigator 的 ~250ms 状态轮询回调驱动，本处无需主动刷
@@ -377,6 +374,8 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         }
         findViewById<ImageView>(R.id.jni_map_layer_manage).setOnClickListener { showLayerManageDialog() }
         locationText.setOnClickListener { LocationDetailDialog.show(this) }
+        // 中心坐标文本点击：弹出「移动到」对话框（原左下 GO 按键入口迁移至此）
+        centerText.setOnClickListener { showMoveToDialog() }
 
         // 采集控件接线（对齐原主界面 MeasureModel/TrackModel.setup 的按钮绑定）
         findViewById<ImageView>(R.id.jni_map_measure).setOnClickListener { measureController.showMeasureMenu() }
@@ -385,8 +384,6 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         measureFinishButton.setOnClickListener { measureController.finishMeasurement() }
         findViewById<ImageView>(R.id.jni_map_photo).setOnClickListener { showPhotoMenu() }
         trackButton.setOnClickListener { trackController.onTrackButtonClick() }
-        // GO：弹出「移动到」对话框（原点击定位文本的入口迁移至此）
-        goButton.setOnClickListener { showMoveToDialog() }
         trackStartButton.setOnClickListener { trackController.resumeTrackRecording() }
         trackPauseButton.setOnClickListener { trackController.pauseTrackRecording() }
         trackStopButton.setOnClickListener { trackController.stopTrackRecording() }

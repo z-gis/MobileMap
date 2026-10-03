@@ -191,20 +191,6 @@
             android:background="#a0dddddd"
             android:padding="5.0dp"
             android:src="@drawable/nav_routes" />
-
-        <!-- GO：移动到指定坐标（原「点击定位文本弹出移动到」的入口迁到此键）。文字样式对齐左上 2D/3D / 指北键。 -->
-        <TextView
-            android:id="@+id/jni_map_go"
-            android:layout_width="@dimen/main_icon_size"
-            android:layout_height="@dimen/main_icon_size"
-            android:layout_marginTop="5.0dip"
-            android:background="@color/main_icon_bg"
-            android:contentDescription="@string/jni_map_go"
-            android:gravity="center"
-            android:text="@string/jni_map_go"
-            android:textColor="@color/white"
-            android:textSize="15sp"
-            android:textStyle="bold" />
     </LinearLayout>
 
     <!-- 右下（对齐主界面 lay_rb）：注记显隐开关 + 缩放面板（放大 / 级别数字 / 缩小） -->
@@ -340,6 +326,8 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center_vertical"
             android:layout_weight="1"
+            android:clickable="true"
+            android:focusable="true"
             android:ellipsize="end"
             android:gravity="end|center_vertical"
             android:minWidth="0dp"

@@ -6,6 +6,7 @@ import android.widget.ImageView
 import androidx.appcompat.widget.SwitchCompat
 import com.zys.mobilemap.R
 import com.zys.mobilemap.doc.DocumentManager
+import com.zys.mobilemap.location.BackgroundLocationController
 
 class SettingsActivity : BaseStyledActivity() {
 
@@ -91,11 +92,12 @@ class SettingsActivity : BaseStyledActivity() {
             config.photoAddWatermark = isChecked
         }
 
-        // 后台定位
+        // 后台定位：与定位详情页同源；开关为「轨迹记录期后台定位」许可，切换后据当前记录态同步前台服务启停
         val bgLocationSwitch: SwitchCompat = findViewById(R.id.set_switch_background_location)
         bgLocationSwitch.isChecked = config.backgroundLocation
         bgLocationSwitch.setOnCheckedChangeListener { _, isChecked ->
             config.backgroundLocation = isChecked
+            BackgroundLocationController.onSettingChanged(this)
         }
 
         // 帮助按键：进入使用说明页（三段可折叠说明）

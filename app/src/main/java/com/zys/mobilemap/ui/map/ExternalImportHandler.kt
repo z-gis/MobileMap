@@ -140,7 +140,9 @@ internal class ExternalImportHandler(
 
     /**
      * 外部 Uri 转本地可读路径：file:// 直接使用；
-     * content:// 经 ContentResolver 复制到 /调查宝/layer/import_<时间戳>/。
+     * content:// 经 ContentResolver 按**原文件名称**（净化非法字符、保留扩展名）复制到 /调查宝/layer/。
+     * 不再用无意义的 import_<时间戳> 子目录：单文件直接落 layer 根，kmz/zip 由其自身解压到 /layer/<文件名>/，
+     * 同名冲突时在扩展名前追加短时间戳兜底，避免覆盖既有图层。
      */
     private fun resolveToLocalPath(uri: Uri): String? {
         return try {
@@ -155,12 +157,7 @@ internal class ExternalImportHandler(
                     if (name.isNullOrEmpty()) {
                         name = uri.lastPathSegment?.substringAfterLast('/') ?: "import_file"
                     }
-                    val dir = File(
-                        AppDirectories.getLayerDir(activity),
-                        "import_${System.currentTimeMillis()}"
-                    )
-                    dir.mkdirs()
-                    val target = File(dir, name)
+                    val target = uniqueLayerTarget(AppDirectories.getLayerDir(activity), name!!)
                     activity.contentResolver.openInputStream(uri)?.use { input ->
                         target.outputStream().use { output -> input.copyTo(output) }
                     } ?: return null
@@ -172,6 +169,22 @@ internal class ExternalImportHandler(
             Log.e(TAG, "外部矢量文件复制到本地失败: $uri", e)
             null
         }
+    }
+
+    /**
+     * 依据原文件显示名生成 layer 目录下的唯一目标文件：净化非法字符、保留扩展名；
+     * 若同名已存在则在扩展名前追加短时间戳（_<毫秒后6位>）兜底，避免覆盖既有图层。
+     */
+    private fun uniqueLayerTarget(layerDir: File, displayName: String): File {
+        val safe = displayName.replace("[\\\\/:*?\"<>|]".toRegex(), "_").trim().ifEmpty { "import_file" }
+        val dot = safe.lastIndexOf('.')
+        val stem = if (dot > 0) safe.substring(0, dot) else safe
+        val ext = if (dot > 0) safe.substring(dot) else ""
+        var target = File(layerDir, stem + ext)
+        if (target.exists()) {
+            target = File(layerDir, "${stem}_${System.currentTimeMillis().toString().takeLast(6)}$ext")
+        }
+        return target
     }
 
     companion object {

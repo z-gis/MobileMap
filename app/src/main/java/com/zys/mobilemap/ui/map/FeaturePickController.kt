@@ -208,8 +208,8 @@ internal class FeaturePickController(
         val ext = path.substringAfterLast('.', "").lowercase(Locale.getDefault())
         // native 矢量层索引：供 featureGeometry 取几何类型（点/线/面）与量算
         val layerIndex = layerInfo?.let { layerManager.nativeIndexOf(it) } ?: -1
-        // shp/gpkg 均为 GDAL 索引矢量，支持整层/单要素样式覆盖；kml/kmz 无 fid（待二期）、dwg/dxf 只读
-        val styleEditable = (ext == "shp" || ext == "gpkg") && fid >= 0
+        // shp/gpkg/kml/kmz 均为 GDAL 索引矢量、拾取回传稳定 FID，支持整层/单要素颜色覆盖；dwg/dxf 只读不改样式
+        val styleEditable = (ext == "shp" || ext == "gpkg" || ext == "kml" || ext == "kmz") && fid >= 0
         // 属性可编辑：可写格式 + 有效 FID（编辑权限由顶部“编辑”按键门控，此处只判定能力）
         val attrsEditable = fid >= 0 && isWritableFormat(ext) && ext != "kml" && ext != "kmz"
         // 几何类型与量算：经 native featureGeometry 取该要素经纬度几何（0 点 / 1 线 / 2 面），无文件 IO 可同步取
@@ -233,8 +233,12 @@ internal class FeaturePickController(
             labelOutlineColor = featureStyle?.labelOutlineColor ?: layerStyle?.labelOutlineColor
             iconKey = featureStyle?.iconKey ?: layerStyle?.iconKey
         }
-        // 实际渲染色兜底（无文档样式覆盖时色块所见即所得）
-        val renderColors = layerManager.layerRenderColorsOf(path)
+        // 实际渲染色兜底（无文档样式覆盖时色块所见即所得）：优先取 native 逐要素实际渲染色
+        // （含 KML 原色/单要素覆盖三级优先级算定结果，app 无从复现），取不到再回退整层解析色。
+        val eff = if (layerIndex >= 0) mapView.featureRenderColor(layerIndex, fid) else null
+        val renderColors = if (eff != null && eff.size >= 2)
+            Pair(MapStyleColors.argbToHex(eff[0]), MapStyleColors.argbToHex(eff[1]))
+        else layerManager.layerRenderColorsOf(path)
         // 弹层先行：属性回取后台进行，样地入口点击时取最新回填值（闭包捕获可变局部变量）
         var latestAttrs: Map<String, String>? = null
         val dialog = FeatureDetailDialog(
@@ -250,6 +254,7 @@ internal class FeaturePickController(
             fallbackFill = renderColors.first,
             fallbackOutline = renderColors.second,
             isPointFeature = geomType == 0,
+            labelSectionVisible = ext != "kml" && ext != "kmz",
             geometryText = featureGeometryText(fg),
             onSave = { style ->
                 val li = layerInfo

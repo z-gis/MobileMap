@@ -4,7 +4,7 @@
 GIS field survey software. Supports online map browsing (2D plane / 3D globe modes), local vector data loading (kmz kml shp gpkg dxf dwg), and local raster data loading (tif img).
 Basic map module: map browsing, positioning (with altitude display), tracking, photos, measurement, visual SQL query filtering, etc.
 Survey module: sample plot survey (per-tree inventory).
-Current version: v0.3.0.1
+Current version: v0.3.0.4
 
 #### Software Architecture
 The software is built around map browsing on top of the in-house native rendering module `globecore` (C++ OpenGL ES rendering).

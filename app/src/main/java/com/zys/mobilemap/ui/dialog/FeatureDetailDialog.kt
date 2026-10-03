@@ -231,7 +231,7 @@ class FeatureDetailDialog(
     /** 属性回填后刷新样式页标注字段下拉（单要素模式候选取属性字段；图层模式/外部注入字段清单时不刷新） */
     private fun refreshLabelFieldOptions() {
         if (layerStyleMode || labelFieldOptions != null || !::spLabelField.isInitialized) return
-        val options = listOf(LABEL_FIELD_NONE) + (attributes?.keys?.toList() ?: emptyList())
+        val options = attributes?.keys?.toList() ?: emptyList()
         spLabelField.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, options)
         val initField = initialStyle?.labelField
         if (initField != null) {
@@ -340,21 +340,26 @@ class FeatureDetailDialog(
         ivLabelColor.setOnClickListener { pickColor(ivLabelColor, labelColor) { labelColor = it } }
         ivLabelOutline.setOnClickListener { pickColor(ivLabelOutline, labelOutlineColor) { labelOutlineColor = it } }
 
-        // 标注字段：不标注 + 字段候选（单要素属性表字段或整层字段清单）
+        // 标注字段候选（单要素属性表字段或整层字段清单），不再含「不标注」项（启停改由标注开关控制）
         spLabelField = sheet.findViewById(R.id.feature_detail_sp_label_field)
         val fields = labelFieldOptions ?: attributes?.keys?.toList() ?: emptyList()
-        val options = listOf(LABEL_FIELD_NONE) + fields
-        spLabelField.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, options)
+        spLabelField.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, fields)
         val initField = initialStyle?.labelField
         if (initField != null) {
-            val idx = options.indexOf(initField)
+            val idx = fields.indexOf(initField)
             if (idx >= 0) spLabelField.setSelection(idx)
         }
 
-        // 标注开关：关闭时整层不标注（不写 labelField）；先设状态再挂监听
+        // 标注开关：关闭时隐藏标注控件（字段/颜色/大小状态保持不变，重开恢复），保存时不写 labelField
+        // 先设状态再挂监听：回显已有值时不触发监听
+        val labelFields = sheet.findViewById<View>(R.id.feature_detail_ll_label_fields)
         val cbLabel = sheet.findViewById<CheckBox>(R.id.feature_detail_cb_label_enabled)
         cbLabel.isChecked = labelEnabled
-        cbLabel.setOnCheckedChangeListener { _, checked -> labelEnabled = checked }
+        labelFields.visibility = if (labelEnabled) View.VISIBLE else View.GONE
+        cbLabel.setOnCheckedChangeListener { _, checked ->
+            labelEnabled = checked
+            labelFields.visibility = if (checked) View.VISIBLE else View.GONE
+        }
 
         // 字体轮廓开关（字号步进控件已在样式页主体绑定）
         // 先设状态再挂监听：回显已有值时不触发监听，与列表项开关的处理一致
@@ -418,7 +423,7 @@ class FeatureDetailDialog(
         }
         if (labelSectionVisible) {
             val field = spLabelField.selectedItem?.toString()
-            s.labelField = if (labelEnabled) field?.takeIf { it != LABEL_FIELD_NONE } else null
+            s.labelField = if (labelEnabled) field else null
             s.labelColor = labelColor
             s.labelSize = labelSizePt.toFloat() / LABEL_SIZE_BASE
             s.labelOutline = labelOutlineEnabled
@@ -574,7 +579,6 @@ class FeatureDetailDialog(
         private const val TAB_STYLE = "样式"
         private const val TAB_ATTRS = "属性"
 
-        private const val LABEL_FIELD_NONE = "不标注"
         /** 字号显示基准：磅值 = labelSize 缩放系数 × 14 */
         private const val LABEL_SIZE_BASE = 14
         private const val WIDTH_MIN = 1

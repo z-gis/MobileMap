@@ -78,6 +78,7 @@ internal class LocationFollowController(
         val doc = DocumentManager.getInstance().getDocument()
         val background = doc != null && doc.systemConfig.backgroundLocation
         lm.startLocation(background)
+        // 保活服务不在此处起：后台定位仅在轨迹记录期间运行，启停由 TrackCaptureController 随记录态驱动
         lm.getLastLocation()?.let { onLocationChanged(it) }
     }
 
@@ -134,6 +135,24 @@ internal class LocationFollowController(
         locateButton.setImageResource(
             if (enabled) R.drawable.nav_lock_location else R.drawable.nav_location
         )
+    }
+
+    /**
+     * 定位按键点击入口（依记录态分流）：
+     * ・非记录中：仅一次性回到定位位置，不锁定跟随；
+     * ・记录中且已锁定：取消锁定，不调整位置；
+     * ・记录中且未锁定：恢复锁定跟随并立即回到当前定位。
+     * 锁定态初始仍由记录开始/停止经 [setFollowEnabled] 驱动，本方法只做记录中的手动切换。
+     */
+    fun onLocateClicked(recording: Boolean) {
+        when {
+            !recording -> focusOnce()
+            followEnabled -> setFollowEnabled(false)
+            else -> {
+                setFollowEnabled(true)
+                focusOnce()
+            }
+        }
     }
 
     /**

@@ -8,6 +8,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.FragmentManager
 import com.zys.mobilemap.db.MapDataStore
 import com.zys.mobilemap.db.TrackRecord
+import com.zys.mobilemap.location.BackgroundLocationController
 import com.zys.mobilemap.location.LocationManager
 import com.zys.mobilemap.ui.dialog.MeasureDetailDialog
 import com.zys.mobilemap.ui.dialog.TrackManageDialog
@@ -104,6 +105,8 @@ internal class TrackCaptureController(
         trackDraftId = MapDataStore.getInstance(activity)
             .beginDraftTrack(trackNameOf(trackDraftCreatedTime), trackDraftCreatedTime)
         lm.getLastLocation()?.let { appendTrackPoint(it.latitude, it.longitude, it.altitude) }
+        // 记录开始 → 后台定位保活服务随记录态启动（仅当开关为开，由 Controller 门控）——息屏后仍持续定位不缺点
+        BackgroundLocationController.onTrackRecordingChanged(activity, true)
         updateTrackControlButtons()
         Toast.makeText(activity, "开始记录轨迹", Toast.LENGTH_SHORT).show()
     }
@@ -123,6 +126,8 @@ internal class TrackCaptureController(
         LocationManager.getInstance().getLastLocation()?.let {
             appendTrackPoint(it.latitude, it.longitude, it.altitude)
         }
+        // 恢复记录 → 幂等补保活（覆盖暂停期间用户关闭又打开开关导致服务已停的情形）
+        BackgroundLocationController.onTrackRecordingChanged(activity, true)
         updateTrackControlButtons()
         Toast.makeText(activity, "轨迹记录继续", Toast.LENGTH_SHORT).show()
     }
@@ -135,6 +140,8 @@ internal class TrackCaptureController(
         if (!trackRecording) return
         trackRecording = false
         trackPaused = false
+        // 停止记录 → 后台定位保活即刻停服务（不做记录之外的后台定位）
+        BackgroundLocationController.onTrackRecordingChanged(activity, false)
         updateTrackControlButtons()
 
         val draftId = trackDraftId
@@ -253,6 +260,8 @@ internal class TrackCaptureController(
         }
         trackRecording = true
         trackPaused = false
+        // 草稿恢复即记录会话延续 → 按「记录态 && 开关」重新拉起保活服务
+        BackgroundLocationController.onTrackRecordingChanged(activity, true)
         ensureTrackLiveLayer()
         renderLiveTrack()
         updateTrackControlButtons()
@@ -342,6 +351,9 @@ internal class TrackCaptureController(
 
     /** 关闭轨迹落库线程（onDestroy：已入队的采集点写入仍会执行完毕；采集点已实时写库，下次启动可恢复未完成记录） */
     fun onDestroy() {
+        // 界面销毁时仍在记录（退出 App 等）：停保活服务——追加链路已随监听注销而断，无点可采；
+        // 下次启动由 restoreDraftTrack 恢复记录态时再据开关拉起
+        if (trackRecording) BackgroundLocationController.onTrackRecordingChanged(activity, false)
         trackDbExecutor.shutdown()
     }
 }

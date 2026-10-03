@@ -11,6 +11,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.SwitchCompat
 import com.zys.mobilemap.R
 import com.zys.mobilemap.doc.DocumentManager
+import com.zys.mobilemap.location.BackgroundLocationController
 import com.zys.mobilemap.location.LocationManager
 import com.zys.mobilemap.util.CoordFormatter
 import java.text.SimpleDateFormat
@@ -42,13 +43,15 @@ object LocationDetailDialog {
         bindText(view, R.id.ld_tv_provider, context.getString(R.string.ld_provider, providerText(loc)))
         bindText(view, R.id.ld_tv_time, context.getString(R.string.ld_time, timeText(loc)))
 
-        // 后台定位开关：与 SystemConfig.backgroundLocation 双向绑定，改动即时落盘（非结构变更，不触发界面重建）
+        // 后台定位开关：与 SystemConfig.backgroundLocation 双向绑定，改动即时落盘（非结构变更，不触发界面重建）；
+        // 开关为「轨迹记录期后台定位」许可——保活服务仅在记录中且开关为开时运行，切换后据当前记录态同步启停
         val config = DocumentManager.getInstance().getDocument()?.systemConfig
         val bgSwitch = view.findViewById<SwitchCompat>(R.id.ld_switch_bg_location)
         bgSwitch.isChecked = config?.backgroundLocation == true
         bgSwitch.setOnCheckedChangeListener { _, isChecked ->
             config?.backgroundLocation = isChecked
             DocumentManager.getInstance().save(context)
+            BackgroundLocationController.onSettingChanged(context)
         }
 
         val dialog = AlertDialog.Builder(context)

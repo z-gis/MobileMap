@@ -175,7 +175,7 @@
                             android:layout_height="wrap_content"
                             android:text="填充颜色："
                             android:textColor="#424242"
-                            android:textSize="8sp"
+                            android:textSize="14sp"
                             tools:ignore="HardcodedText" />
 
                         <ImageView
@@ -205,7 +205,7 @@
                             android:minWidth="0dp"
                             android:minHeight="0dp"
                             android:text="填充"
-                            android:textSize="8sp"
+                            android:textSize="14sp"
                             tools:ignore="HardcodedText" />
                     </LinearLayout>
                 </LinearLayout>
@@ -230,7 +230,7 @@
                             android:layout_height="wrap_content"
                             android:text="描边颜色："
                             android:textColor="#424242"
-                            android:textSize="8sp"
+                            android:textSize="14sp"
                             tools:ignore="HardcodedText" />
 
                         <ImageView
@@ -257,7 +257,7 @@
                             android:layout_height="wrap_content"
                             android:text="线宽："
                             android:textColor="#424242"
-                            android:textSize="8sp"
+                            android:textSize="14sp"
                             tools:ignore="HardcodedText" />
 
                         <TextView
@@ -335,6 +335,25 @@
                 android:orientation="vertical"
                 android:padding="12dp">
 
+                <!-- 标注开关：关闭时隐藏下方标注控件，字段/颜色/大小状态保持不变，重新打开即恢复 -->
+                <CheckBox
+                    android:id="@+id/feature_detail_cb_label_enabled"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
+                    android:text="标注"
+                    android:textSize="14sp"
+                    tools:ignore="HardcodedText" />
+
+                <!-- 标注控件容器：随标注开关联动显隐，关闭时仅隐藏不清空状态 -->
+                <LinearLayout
+                    android:id="@+id/feature_detail_ll_label_fields"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -346,7 +365,7 @@
                         android:layout_height="wrap_content"
                         android:text="标注字段："
                         android:textColor="#424242"
-                        android:textSize="8sp"
+                        android:textSize="14sp"
                         tools:ignore="HardcodedText"
                         xmlns:tools="http://schemas.android.com/tools" />
 
@@ -355,18 +374,6 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1" />
-
-                    <CheckBox
-                        android:id="@+id/feature_detail_cb_label_enabled"
-                        android:layout_width="100dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:checked="true"
-                        android:minWidth="0dp"
-                        android:minHeight="0dp"
-                        android:text="标注"
-                        android:textSize="8sp"
-                        tools:ignore="HardcodedText" />
                 </LinearLayout>
 
                 <!-- 字体颜色（左半）+ 字体轮廓（右半）同一行；固定行高，两列等高顶边对齐 -->
@@ -389,7 +396,7 @@
                             android:layout_height="wrap_content"
                             android:text="字体颜色："
                             android:textColor="#424242"
-                            android:textSize="8sp"
+                            android:textSize="14sp"
                             tools:ignore="HardcodedText" />
 
                         <ImageView
@@ -415,7 +422,7 @@
                             android:layout_height="wrap_content"
                             android:text="字体轮廓："
                             android:textColor="#424242"
-                            android:textSize="8sp"
+                            android:textSize="14sp"
                             tools:ignore="HardcodedText" />
 
                         <CheckBox
@@ -450,7 +457,7 @@
                         android:layout_weight="1"
                         android:text="字体大小："
                         android:textColor="#424242"
-                        android:textSize="8sp"
+                        android:textSize="14sp"
                         tools:ignore="HardcodedText"
                         xmlns:tools="http://schemas.android.com/tools" />
 
@@ -481,6 +488,7 @@
                         android:textSize="18sp"
                         tools:ignore="HardcodedText"
                         xmlns:tools="http://schemas.android.com/tools" />
+                </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
 

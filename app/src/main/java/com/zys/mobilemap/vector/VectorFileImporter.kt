@@ -46,16 +46,31 @@ object VectorFileImporter {
     /**
      * 解压压缩包到 /调查宝/layer/<文件名(去扩展名)>/，并查找指定扩展名的内部文件。
      * displayName 为图层显示名（压缩包文件名）。
+     * kmz 解压出的约定入口 doc.kml 重命名为与目录同名（<displayName>.kml），便于阅读与后续定位（zip 内 shp 名不改）。
      */
     private fun extractAndFind(context: Context, archive: File, exts: List<String>, displayName: String): ImportResult? {
         val layerDir = AppDirectories.getLayerDir(context)
         val destDir = File(layerDir, archive.nameWithoutExtension)
         try {
-            if (!destDir.exists()) {
+            // 复用既有解压结果；目录缺失、或存在但无目标内部文件（历史解压失败/同名目录冲突残留）时重新解压，
+            // 避免仅凭 destDir.exists() 跳过 unzip 而误报“压缩包内无可用数据”
+            var target = if (destDir.exists()) findFirst(destDir, exts) else null
+            if (target == null) {
                 unzip(archive, destDir)
+                target = findFirst(destDir, exts)
             }
-            val target = findFirst(destDir, exts) ?: return null
-            return ImportResult(target.absolutePath, displayName)
+            if (target == null) {
+                Log.w(TAG, "压缩包内未找到 ${exts} 内部文件: ${archive.path}")
+                return null
+            }
+            // kmz 入口 doc.kml 改名为与目录同名，消除无语义的 doc.kml（仅在解压目标位于本目录、且名为 doc.kml 时处理）
+            val finalTarget = if (target.name.equals("doc.kml", ignoreCase = true) &&
+                target.parentFile?.absolutePath == destDir.absolutePath
+            ) {
+                val renamed = File(destDir, "$displayName.kml")
+                if (target.renameTo(renamed)) renamed else target
+            } else target
+            return ImportResult(finalTarget.absolutePath, displayName)
         } catch (e: Exception) {
             Log.e(TAG, "解压压缩包失败: ${archive.name}", e)
             return null

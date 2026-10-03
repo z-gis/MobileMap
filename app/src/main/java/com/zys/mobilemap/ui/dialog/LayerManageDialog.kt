@@ -640,17 +640,16 @@ class LayerManageDialog(
             ?.trim()
             ?.takeIf { it.isNotBlank() }
             ?: getString(R.string.layer_info_srs_unknown)
-        val message = getString(
-            R.string.layer_info_content,
-            displayLayerName(item),
-            typeStr,
-            sizeStr,
-            srsStr,
-            item.path ?: ""
-        )
+        val infoView = LayoutInflater.from(requireContext())
+            .inflate(R.layout.dialog_layer_info, null)
+        infoView.findViewById<TextView>(R.id.layer_info_tv_name).text = displayLayerName(item)
+        infoView.findViewById<TextView>(R.id.layer_info_tv_type).text = typeStr
+        infoView.findViewById<TextView>(R.id.layer_info_tv_size).text = sizeStr
+        infoView.findViewById<TextView>(R.id.layer_info_tv_srs).text = srsStr
+        infoView.findViewById<TextView>(R.id.layer_info_tv_path).text = item.path ?: ""
         AlertDialog.Builder(requireContext())
             .setTitle(R.string.layer_info_title)
-            .setMessage(message)
+            .setView(infoView)
             .setPositiveButton(R.string.dialog_ok, null)
             .show()
     }

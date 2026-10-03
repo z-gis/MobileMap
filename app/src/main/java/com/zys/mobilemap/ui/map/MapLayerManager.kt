@@ -327,6 +327,10 @@ internal class MapLayerManager(
         val outlineWidth = s?.outlineWidth ?: MapStyleColors.DEFAULT_OUTLINE_WIDTH
         val lineColor = MapStyleColors.resolveArgb(s?.outlineColor, MapStyleColors.DEFAULT_LINE_COLOR)
         val lineWidth = s?.outlineWidth ?: MapStyleColors.DEFAULT_LINE_WIDTH
+        // 逐要素源文件配色门控（按通道覆盖）：用户在图层管理显式设了该通道（doc 字段非空）才覆盖 KML 原色；
+        // 未设的通道保留源文件逐要素原色（fillEnabled=false 视为显式关闭填充，亦覆盖为仅描边）。
+        val fillExplicit = s?.fillColor != null || s?.fillOpacity != null || s?.fillEnabled != null
+        val lineExplicit = s?.outlineColor != null
         // 标注：对齐原主界面——门控于 VectorStyle.labelField 非空；KML/KMZ 额外受 showKmlLabel 开关控制
         // （复刻原主界面 LocalVectorLoader 的 suppressLabels 口径）。样式颜色/字号/轮廓未设时回退原主界面默认。
         val ext = path.substringAfterLast('.', "").lowercase()
@@ -340,6 +344,8 @@ internal class MapLayerManager(
         // 点要素图标：对齐原主界面——按 VectorStyle.iconKey 取内置矢量图标（FeatureIcons.resOf，默认 pin），
         // 在宿主侧解码为 ARGB 像素传入 native 作 billboard（native C++ 无法解码 Android 矢量 drawable）。
         val icon = decodeIconArgb(activity, FeatureIcons.resOf(s?.iconKey))
+        // 单要素样式覆盖串：把文档 featureStyles 逐 fid 解析为填充/描边 ARGB（仅取渲染相关子集），下传 native 逐要素命中。
+        val featureOverrideStr = buildFeatureStyleOverride(info.vectorStyle)
         // 大小数据分流：快速统计要素总数，< DIRECT_RENDER_LIMIT 走整文件全量（direct，不参与相机重载）；
         // 否则按当前屏幕范围空间相交加载（首屏即只取屏内要素）。统计失败(<0)保守按全量（等同旧行为）。
         val key = vectorKey(info)
@@ -362,8 +368,10 @@ internal class MapLayerManager(
                 fillColor = fillColor, outlineColor = outlineColor, outlineWidth = outlineWidth,
                 lineColor = lineColor, lineWidth = lineWidth, pointColor = lineColor,
                 pointRadiusDp = MapStyleColors.DEFAULT_POINT_RADIUS_DP,
+                fillExplicit = fillExplicit, lineExplicit = lineExplicit,
                 labelField = labelField, labelColor = labelColor, labelSize = labelSize,
-                labelOutline = labelOutline, labelOutlineColor = labelOutlineColor
+                labelOutline = labelOutline, labelOutlineColor = labelOutlineColor,
+                featureStyleOverride = featureOverrideStr
             ),
             icon?.first, icon?.second ?: 0, icon?.third ?: 0,
             extent, MAX_FEATURES_BUDGET
@@ -515,6 +523,59 @@ internal class MapLayerManager(
 
     /** 矢量层缓存键：路径 + 样式版本（样式改动递增 styleVersion，结构签名变化触发重建后按新样式重载） */
     private fun vectorKey(info: LayerInfo): String = (info.path ?: "") + "|" + info.styleVersion
+
+    /**
+     * 把文档层 [com.zys.mobilemap.doc.VectorStyle.featureStyles]（fid → 单要素覆盖）拼为 native 下传串：
+     * 条目以 ';' 分隔，每条目 8 字段逗号分隔：
+     *   `fid,fillArgb,lineArgb,labelFieldName,labelArgb,labelSize,labelOutline,labelOutlineArgb`
+     * - 各 ARGB 为 #AARRGGBB 无符号十进制；'-' = 该通道未显式设过（继承整层）；
+     * - labelFieldName = 该要素要标注的属性字段名（DBF/GDAL 字段名，约定不含 ','/';'，含则退回 '-' 不污染分隔）；
+     * - labelSize 为浮点串；labelOutline 为 1/0。
+     * 与整层 [addVectorLayerNative] 同口径解析：填充关闭（fillEnabled=false）→ alpha 置 0。
+     * 仅当 doc 对应字段非空才视作显式设过。无任何覆盖通道时整条跳过；空表返回空串（零回归）。
+     */
+    private fun buildFeatureStyleOverride(vs: com.zys.mobilemap.doc.VectorStyle?): String {
+        val fs = vs?.featureStyles
+        if (fs.isNullOrEmpty()) return ""
+        val sb = StringBuilder()
+        for ((fid, s) in fs) {
+            val hasFill = s.fillColor != null || s.fillOpacity != null || s.fillEnabled != null
+            val hasLine = s.outlineColor != null
+            // 标注通道：字段名非空且合法（不含分隔符）才算显式设过；样式子通道按各自非空判定
+            val labelName = s.labelField?.trim()
+            val hasLabel = !labelName.isNullOrEmpty() && !labelName.contains(',') && !labelName.contains(';')
+            val hasLabelColor = s.labelColor != null
+            val hasLabelSize = s.labelSize != null
+            val hasLabelOutline = s.labelOutline != null
+            val hasLabelOutlineColor = s.labelOutlineColor != null
+            if (!hasFill && !hasLine && !hasLabel && !hasLabelColor &&
+                !hasLabelSize && !hasLabelOutline && !hasLabelOutlineColor
+            ) continue
+            val fillArgb = if (!hasFill) null else
+                if (s.fillEnabled == false) 0 else MapStyleColors.resolveFillColor(s)
+            val lineArgb = if (hasLine)
+                MapStyleColors.resolveArgb(s.outlineColor, MapStyleColors.DEFAULT_POLYGON_OUTLINE_COLOR)
+            else null
+            val labelArgb = if (hasLabelColor)
+                MapStyleColors.resolveArgb(s.labelColor, MapStyleColors.DEFAULT_LABEL_COLOR)
+            else null
+            val labelOutlineArgb = if (hasLabelOutlineColor)
+                MapStyleColors.resolveArgb(s.labelOutlineColor, MapStyleColors.DEFAULT_LABEL_OUTLINE_COLOR)
+            else null
+            // 无符号十进制串（把 Int 按无符号处理，避免负数颜色值符号问题）
+            fun u(value: Int?): String = value?.let { (it.toLong() and 0xFFFFFFFFL).toString() } ?: "-"
+            if (sb.isNotEmpty()) sb.append(';')
+            sb.append(fid)
+                .append(',').append(u(fillArgb))
+                .append(',').append(u(lineArgb))
+                .append(',').append(if (hasLabel) labelName!! else "-")
+                .append(',').append(u(labelArgb))
+                .append(',').append(if (hasLabelSize) s.labelSize.toString() else "-")
+                .append(',').append(if (hasLabelOutline) (if (s.labelOutline == true) "1" else "0") else "-")
+                .append(',').append(u(labelOutlineArgb))
+        }
+        return sb.toString()
+    }
 
     /** 矢量层结构签名：各矢量层 path#styleVersion 有序拼接，任一矢量层增删改（路径/样式版本变化）即变 */
     private fun vectorSignature(doc: MapDocument?): String =

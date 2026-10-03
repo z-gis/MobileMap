@@ -15,6 +15,13 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
+    <!-- 后台定位保活：location 型前台服务（息屏/退后台仍持续定位，避免轨迹缺点） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+    <!-- Android 13+ 前台服务常驻通知需通知权限 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <uses-permission android:name="android.permission.CAMERA" />
 
     <!-- 存储权限 -->
@@ -117,6 +124,12 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- 后台定位保活前台服务（location 型）：轨迹记录期间息屏/退后台保持定位订阅不丢点 -->
+        <service
+            android:name=".location.BackgroundLocationService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
     </application>
 
 </manifest>
