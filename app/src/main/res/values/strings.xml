@@ -1,0 +1,228 @@
+<resources>
+    <string name="app_name">调查宝</string>
+
+    <!-- SplashActivity -->
+    <string name="splash_loading">正在加载地图资源...</string>
+    <string name="open_file_permission_required">请先授予"所有文件访问权限"后再加载 Shapefile</string>
+
+    <!-- 大数据矢量加载提示胶囊（MapLayerManager 轮询 native hasVectorLoading 显隐） -->
+    <string name="vector_loading_hint">矢量数据加载中，请稍候…</string>
+
+
+
+
+    <!-- Update module -->
+    <string name="update_config_missing">未配置更新地址，请在 BuildConfig.UPDATE_METADATA_URL 中配置</string>
+    <string name="update_checking">正在检查更新…</string>
+    <string name="update_check_failed">检查更新失败，请稍后重试</string>
+    <string name="update_latest">当前已是最新版本</string>
+    <string name="update_dialog_title">发现新版本</string>
+    <string name="update_dialog_message">版本：%1$s (%2$d)\n\n更新内容：\n%3$s</string>
+    <string name="update_no_changelog">暂无更新说明</string>
+    <string name="update_now">立即更新</string>
+    <string name="update_later">稍后再说</string>
+    <string name="update_download_title">MobileMap 更新包</string>
+    <string name="update_download_desc">正在下载更新安装包</string>
+    <string name="update_downloading_unknown">正在下载（进度未知）</string>
+    <string name="update_downloading_pending">正在准备下载…</string>
+    <string name="update_downloading_connecting">正在连接下载服务器…</string>
+    <string name="update_downloading_wait_network">等待网络（或仅 Wi-Fi 下载）…</string>
+    <string name="update_downloading_paused">下载已暂停，正在重试…</string>
+    <string name="update_downloading_stalled">下载暂未开始，请检查网络或下载地址</string>
+    <string name="update_downloading_received">正在下载：已接收 %1$s</string>
+    <string name="update_downloading_percent">正在下载：%1$d%%</string>
+    <string name="update_cancel_download">取消下载</string>
+    <string name="update_download_started">已开始下载更新包</string>
+    <string name="update_download_cancelled">已取消下载</string>
+    <string name="update_download_start_failed">更新下载启动失败</string>
+    <string name="update_download_fallback_started">系统下载排队过久，正在切换直连下载…</string>
+    <string name="update_download_status_unknown">未获取到下载状态，请重试</string>
+    <string name="update_download_query_failed">查询下载状态失败</string>
+    <string name="update_download_failed_generic">下载失败，请检查网络后重试</string>
+    <string name="update_download_failed_network">下载失败，服务器或网络异常</string>
+    <string name="update_download_failed_no_space">下载失败，存储空间不足</string>
+    <string name="update_download_failed_no_storage">下载失败，未找到可用存储</string>
+    <string name="update_download_failed_cannot_resume">下载失败，无法继续下载</string>
+    <string name="update_install_permission_required">请允许安装未知来源应用后重试</string>
+    <string name="update_install_prepare_failed">无法打开安装包，请重试</string>
+    <string name="import_layer">导入图层</string>
+
+    <!-- MoveToDialog -->
+    <string name="move_to_title">移动到</string>
+    <string name="move_to_lon_hint">经度</string>
+    <string name="move_to_lat_hint">纬度</string>
+    <string name="move_to_easting_hint">横坐标</string>
+    <string name="move_to_northing_hint">纵坐标</string>
+    <string name="move_to_confirm">确认移动</string>
+    <string name="move_to_label_lon">经度：</string>
+    <string name="move_to_label_lat">纬度：</string>
+    <string name="move_to_label_easting">横坐标：</string>
+    <string name="move_to_label_northing">纵坐标：</string>
+
+    <!-- LayerManageDialog / MapSourceEditDialog -->
+    <string name="map_source_add_title">添加自定义地图源</string>
+    <string name="map_source_edit_title">地图源设置</string>
+    <string name="map_source_label_name">名称：</string>
+    <string name="map_source_label_url">网址：</string>
+    <string name="map_source_label_type">类型：</string>
+    <string name="map_source_label_token1">Token1：</string>
+    <string name="map_source_label_token2">Token2：</string>
+    <string name="map_source_name_hint">地图源名称</string>
+    <string name="map_source_url_hint">瓦片服务地址</string>
+    <string name="map_source_token_hint">选填</string>
+    <string name="map_source_confirm">保存</string>
+    <string name="map_source_name_required">请输入地图源名称</string>
+    <string name="map_source_url_required">请输入地图源网址</string>
+    <string name="layer_info_title">图层信息</string>
+    <!-- 图层信息各项独立行（每项 label + value 控件，见 dialog_layer_info.xml） -->
+    <string name="layer_info_label_name">名称：</string>
+    <string name="layer_info_label_type">类型：</string>
+    <string name="layer_info_label_size">大小：</string>
+    <string name="layer_info_label_srs">坐标系：</string>
+    <string name="layer_info_label_path">路径：</string>
+    <string name="layer_info_type_vector">矢量图层</string>
+    <string name="layer_info_type_raster">栅格图层</string>
+    <string name="layer_info_size_unknown">未知</string>
+    <string name="layer_info_srs_unknown">未知</string>
+    <string name="layer_extent_failed">无法读取图层范围</string>
+    <string name="layer_style_not_open">图层样式设置功能暂未开放</string>
+    <string name="vector_import_failed">无法导入该矢量文件（格式不支持或压缩包内无可用数据）</string>
+    <string name="vector_open_failed">无法打开该矢量文件</string>
+    <string name="dialog_ok">确定</string>
+    <string name="dialog_cancel">取消</string>
+    <string name="layer_icon_desc">图标</string>
+    <string name="media_zoom_to">缩放至</string>
+    <string name="layer_level_visibility">级别可见性</string>
+
+    <!-- SqlQueryDialog：可视化 SQL 查询配置（子句行拼装 WHERE 条件） -->
+    <string name="layer_sql_query">SQL 查询</string>
+    <string name="sql_query_title">SQL 查询：%1$s</string>
+    <string name="sql_query_fields">可用字段：%1$s</string>
+    <string name="sql_query_fields_none">该图层无属性字段，无法按属性查询</string>
+    <string name="sql_query_add_clause">添加子句</string>
+    <string name="sql_query_where">Where</string>
+    <string name="sql_query_value_hint">值</string>
+    <string name="sql_query_remove_clause">删除子句</string>
+    <string name="sql_query_apply">应用</string>
+    <string name="sql_query_clear">清除结果</string>
+    <string name="sql_query_incomplete">请完整填写子句的字段与值</string>
+    <string name="sql_query_running">正在查询…</string>
+    <string name="sql_query_result_count">查询命中 %1$d 个要素</string>
+    <string name="sql_query_result_empty">查询无命中要素</string>
+    <string name="sql_query_failed">查询失败：%1$s</string>
+    <string name="sql_query_cleared">已清除查询结果</string>
+
+    <!-- SQL 子句连接词（首行 Where 固定，其余行在 And/Or 间选择）与运算符 -->
+    <string-array name="sql_connectors">
+        <item>And</item>
+        <item>Or</item>
+    </string-array>
+    <string-array name="sql_operators">
+        <item>等于</item>
+        <item>不等于</item>
+        <item>大于</item>
+        <item>大于等于</item>
+        <item>小于</item>
+        <item>小于等于</item>
+        <item>包含</item>
+    </string-array>
+
+    <!-- ColorPickerDialog -->
+    <string name="color_picker_title">颜色选择</string>
+    <string name="color_picker_old_color">旧颜色</string>
+    <string name="color_picker_new_color">新颜色</string>
+    <string name="color_picker_hex_invalid">颜色值无效</string>
+
+    <!-- map main screen (MainActivity) -->
+    <string name="main_annotation_toggle">切换注记图层显示</string>
+    <string name="main_north">北朝向（点击纠正到正北）</string>
+    <string name="main_survey">调查</string>
+    <string name="main_survey_enter_toast">已进入调查模式</string>
+    <string name="main_survey_exit_toast">已退出调查模式</string>
+    <string name="main_survey_edit_success">属性已保存</string>
+    <string name="main_survey_edit_failed">属性写回失败（该格式可能不支持编辑）</string>
+    <string name="main_survey_location_required">定位未就绪，无法开始样地调查</string>
+
+    <!-- MainActivity（程序主入口） -->
+    <string name="jni_map_back">返回</string>
+    <string name="jni_map_no_source">未找到可见底图图源，显示占位网格</string>
+    <string name="jni_map_zoom_in">放大</string>
+    <string name="jni_map_zoom_out">缩小</string>
+    <string name="jni_map_locate">回到当前位置</string>
+    <string name="jni_map_waiting_location">等待定位...</string>
+    <string name="jni_map_located">已定位到当前位置</string>
+    <string name="jni_map_setting">设置</string>
+    <string name="jni_map_layer_manage">图层管理</string>
+
+    <!-- 定位详情对话框（点击底部定位坐标文本弹出） -->
+    <string name="location_detail_title">定位详情</string>
+    <string name="location_detail_no_loc">尚未获取到定位信息</string>
+    <string name="location_detail_copy">复制坐标</string>
+    <string name="location_detail_copied">坐标已复制</string>
+    <string name="ld_coord">当前位置：%1$s</string>
+    <string name="ld_alt">海拔：%1$s</string>
+    <string name="ld_acc">定位精度：%1$s</string>
+    <string name="ld_speed">速度：%1$s</string>
+    <string name="ld_bearing">方位角：%1$s</string>
+    <string name="ld_sat">卫星：%1$s</string>
+    <string name="ld_provider">数据源：%1$s</string>
+    <string name="ld_time">定位时间：%1$s</string>
+    <string name="ld_value_none">—</string>
+
+    <!-- 后台定位保活前台服务（location 型）常驻通知 -->
+    <string name="bg_location_channel_name">后台定位</string>
+    <string name="bg_location_channel_desc">轨迹记录期间后台持续定位的常驻提示</string>
+    <string name="bg_location_notify_title">后台定位进行中</string>
+    <string name="bg_location_notify_text">正在持续获取定位以保证轨迹完整，点击返回地图</string>
+
+    <!-- OpenFileActivity -->
+    <string name="open_file_title">选择文件</string>
+    <string name="open_file_back">返回上级</string>
+    <string name="open_file_cancel">取消</string>
+    <string name="open_file_empty">当前目录下没有可用文件</string>
+    <string name="open_file_current_path">当前位置：%1$s</string>
+    <string name="open_file_root_tip">已经到起始目录</string>
+    <string name="open_file_item_directory">文件夹</string>
+    <string name="open_file_item_file">文件</string>
+    <string name="open_file_item_folder_meta">修改时间：%1$s</string>
+    <string name="open_file_item_file_meta">修改时间：%1$s   大小：%2$s</string>
+    <string name="open_file_internal_storage">内部存储</string>
+    <string name="open_file_breadcrumb_separator"> > </string>
+
+    <!-- SettingsActivity -->
+    <string name="settings_title">设置</string>
+    <string name="settings_group_display">显示</string>
+    <string name="settings_group_options">设置</string>
+    <string name="settings_center_cross">显示中心十字</string>
+    <string name="settings_photo_coordinate_watermark">照片添加坐标水印</string>
+    <string name="settings_background_location">后台定位</string>
+    <string name="settings_show_media_layer">显示照片标识</string>
+    <string name="settings_show_photo_name">显示照片名称</string>
+    <string name="settings_show_track_layer">显示轨迹记录</string>
+    <string name="settings_show_measure_layer">显示测量结果</string>
+    <string name="settings_coord_display_meter">坐标以米显示（2000坐标系）</string>
+    <string name="settings_kml_label">显示 KML/KMZ 标注</string>
+    <string name="settings_view_mode">3D 视图（球模式）</string>
+    <string name="settings_personal_info_list">关于</string>
+    <string name="settings_help">帮助</string>
+
+    <!-- HelpActivity：使用说明三段内容，正文以 \n 分行，正文默认折叠，点击标题展开 -->
+    <string name="help_title">帮助</string>
+    <string name="help_section_ui">软件界面说明</string>
+    <string name="help_section_ui_body">主界面：全屏地图，四周分布功能按键。\n右侧（从上到下）：注记图层开关、放大/缩小（中间显示当前级别）、图层管理。\n左侧（从上到下）：北朝向按键、测量、设置、定位锁定、轨迹。\n左下角：坐标文本（点击弹出"移动到"）。\n右下角：拍照按键。\n地图中心：十字准星（可在设置中关闭）。\n\n图层管理界面：分矢量图层、栅格图层、地图源三个标签页。每行左侧样式图标（矢量）可打开整层样式，图层名可缩放到范围，右侧按键依次为 SQL 查询（仅 shp）、级别可见性、缩放到范围、可见性开关、图层信息、移除图层。</string>
+    <string name="help_section_local_layer">如何添加本地图层</string>
+    <string name="help_section_local_layer_body">支持格式：\n・矢量：shp、kml、kmz、zip（shp 压缩包）、dwg、dxf\n・栅格：tif、tiff、img\n\n添加步骤：\n1. 将数据文件拷贝到手机（建议放在 /调查宝/layer/）。\n2. 主界面右侧点击"图层管理"按键。\n3. 切到"矢量图层"或"栅格图层"标签页，点击"导入"按键。\n4. 在文件选择面板中定位到目标文件并选中，导入后自动缩放到图层范围。\n\n提示：shp 需同时存在 .shp/.shx/.dbf（建议包含 .prj 声明坐标系），dwg 仅支持 2018 及以下版本。</string>
+    <string name="help_section_map_source">如何添加自定义地图源</string>
+    <string name="help_section_map_source_body">适用于接入自定义 WMTS/XYZ 瓦片服务。\n\n添加步骤：\n1. 主界面右侧点击"图层管理"按键，切到"地图源"标签页。\n2. 点击"导入"按键弹出地图源编辑对话框。\n3. 填写字段：\n　・名称：自定义名称，作为图层标识。\n　・网址：瓦片服务地址，包含占位符 {z}/{x}/{y}（例：https://host/tile/{z}/{x}/{y}.png）。\n　・类型：默认 WMTS，目前支持 XYZ/WMTS 瓦片方案。\n　・Token1/Token2：选填，网址中包含 {token1}/{token2} 占位符时自动替换（天地图系列共用 Token，任一地图源中配置后自动同步）。\n4. 保存后在地图源列表中选中单选按钮，底图立即切换。\n5. 左侧设置按键可重新编辑名称/网址/Token。</string>
+
+    <!-- AboutActivity -->
+    <string name="about_title">关于</string>
+    <string name="about_version_name">MobileMap</string>
+    <string name="about_gdal_version">gdal Version: </string>
+    <string name="about_proj_version">proj Version: </string>
+    <string name="about_version_code">VersionCode: </string>
+    <string name="about_check_update">检查更新</string>
+    <string name="about_app_copy">Copyright © 2026 MobileMap</string>
+    <string name="about_git_link">https://gitee.com/z-gis/MobileMap</string>
+
+</resources>

@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="#F2F2F2"
+    android:gravity="center_vertical"
+    android:minHeight="48dp"
+    android:orientation="horizontal"
+    android:paddingStart="8dp"
+    android:paddingTop="6dp"
+    android:paddingEnd="8dp"
+    android:paddingBottom="6dp">
+
+    <ImageView
+        android:id="@+id/item_group_arrow"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:contentDescription="折叠/展开"
+        android:padding="4dp"
+        android:src="@drawable/ic_left_arrow_black"/>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="4dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/item_group_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="#131313"
+            android:textSize="14sp"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:id="@+id/item_group_count"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="1dp"
+            android:textColor="#888888"
+            android:textSize="11sp"/>
+    </LinearLayout>
+
+    <androidx.appcompat.widget.SwitchCompat
+        android:id="@+id/item_group_visible"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="4dp"/>
+
+    <ImageView
+        android:id="@+id/item_group_share"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_marginStart="2dp"
+        android:background="?android:attr/selectableItemBackground"
+        android:contentDescription="分享分组"
+        android:padding="6dp"
+        android:src="@drawable/ic_share"/>
+
+    <TextView
+        android:id="@+id/item_group_rename"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:background="?android:attr/selectableItemBackground"
+        android:paddingStart="6dp"
+        android:paddingTop="4dp"
+        android:paddingEnd="6dp"
+        android:paddingBottom="4dp"
+        android:text="重命名"
+        android:textColor="#2A6FDB"
+        android:textSize="12sp"/>
+
+    <ImageView
+        android:id="@+id/item_group_delete"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_marginStart="2dp"
+        android:contentDescription="删除分组"
+        android:padding="6dp"
+        android:src="@drawable/ic_delete"/>
+
+</LinearLayout>

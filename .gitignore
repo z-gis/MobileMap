@@ -1,0 +1,30 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# 签名密钥（严禁推送到远程仓库）
+*.jks
+*.keystore
+# 构建产物与临时脚本
+/app/release/
+
+# 项目文档：仅本地维护，不推送远程
+/doc/
+
+# 示例数据：仅本地测试用，不推送远程
+/例数据/
+
+
+

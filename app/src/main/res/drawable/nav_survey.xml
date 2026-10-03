@@ -1,0 +1,38 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- 调查图标：文档 + 放大镜组合，白色描边风格对齐主界面其它按键 -->
+    <!-- 文档轮廓 -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.6"
+        android:fillColor="#00000000"
+        android:pathData="M5,3 L14,3 L18,7 L18,15 L5,15 Z" />
+    <!-- 文档折角 -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.4"
+        android:fillColor="#00000000"
+        android:pathData="M14,3 L14,7 L18,7" />
+    <!-- 文档内文本行 -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.2"
+        android:fillColor="#00000000"
+        android:pathData="M7.5,9 L13,9 M7.5,11.5 L11.5,11.5" />
+    <!-- 放大镜圆环 -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:fillColor="#00000000"
+        android:pathData="M14.5,14.5 m-3.5,0 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0" />
+    <!-- 放大镜手柄 -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M17.2,17.2 L20.5,20.5" />
+</vector>

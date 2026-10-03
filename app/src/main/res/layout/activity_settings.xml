@@ -1,0 +1,402 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/activity_background"
+    android:orientation="vertical">
+
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:background="@color/activity_background"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp">
+
+        <ImageView
+            android:id="@+id/set_iv_back"
+            android:layout_width="@dimen/activity_back_image_size"
+            android:layout_height="@dimen/activity_back_image_size"
+            android:layout_centerVertical="true"
+            android:padding="2dp"
+            android:src="@drawable/ic_left_arrow_black" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:text="@string/settings_title"
+            android:textColor="@color/black"
+            android:textSize="@dimen/activity_title_text_size"/>
+    </RelativeLayout>
+
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:padding="@dimen/activity_padding_size">
+
+
+            <!-- 显示类分组：中心十字与拍照标注/轨迹/测量图层可见性 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:paddingStart="4dp"
+                android:text="@string/settings_group_display"
+                android:textColor="#888888"
+                android:textSize="13sp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/bg_settings_group"
+                android:orientation="vertical">
+
+                <!-- 是否显示中心十字 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="12dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:text="@string/settings_center_cross"
+                        android:textColor="#131313"
+                        android:textSize="@dimen/activity_item_text_size"/>
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/set_switch_cross"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#F1F1F1" />
+
+                <!-- 是否显示拍照标注图层 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="12dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:text="@string/settings_show_media_layer"
+                        android:textColor="#131313"
+                        android:textSize="@dimen/activity_item_text_size"/>
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/set_switch_media_layer"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#F1F1F1" />
+
+                <!-- 是否显示照片名称标注 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="12dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:text="@string/settings_show_photo_name"
+                        android:textColor="#131313"
+                        android:textSize="@dimen/activity_item_text_size"/>
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/set_switch_photo_name"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#F1F1F1" />
+
+                <!-- 是否显示轨迹记录图层 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="12dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:text="@string/settings_show_track_layer"
+                        android:textColor="#131313"
+                        android:textSize="@dimen/activity_item_text_size"/>
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/set_switch_track_layer"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#F1F1F1" />
+
+                <!-- 是否显示测量结果图层 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="12dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:text="@string/settings_show_measure_layer"
+                        android:textColor="#131313"
+                        android:textSize="@dimen/activity_item_text_size"/>
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/set_switch_measure_layer"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#F1F1F1" />
+
+                <!-- 定位与中心坐标是否以米（CGCS2000 3度带）显示，关闭则为十进制度 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="12dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:text="@string/settings_coord_display_meter"
+                        android:textColor="#131313"
+                        android:textSize="@dimen/activity_item_text_size"/>
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/set_switch_coord_meter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#F1F1F1" />
+
+                <!-- 是否显示 KML/KMZ 名称标注（点 Placemark 名称 + 面/线名称），默认关 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="12dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:text="@string/settings_kml_label"
+                        android:textColor="#131313"
+                        android:textSize="@dimen/activity_item_text_size"/>
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/set_switch_kml_label"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#F1F1F1" />
+
+                <!-- 3D 视图（球模式）：关闭为 2D 平面墨卡托（默认），开启为 3D 球体；返回主界面即时生效 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="12dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:text="@string/settings_view_mode"
+                        android:textColor="#131313"
+                        android:textSize="@dimen/activity_item_text_size"/>
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/set_switch_view_mode"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- 设置类分组：照片水印与后台定位 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:paddingStart="4dp"
+                android:text="@string/settings_group_options"
+                android:textColor="#888888"
+                android:textSize="13sp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/bg_settings_group"
+                android:orientation="vertical">
+
+                <!-- 是否给照片添加坐标水印 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="12dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:text="@string/settings_photo_coordinate_watermark"
+                        android:textColor="#131313"
+                        android:textSize="@dimen/activity_item_text_size"/>
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/set_switch_photo_watermark"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#F1F1F1" />
+
+                <!-- 是否后台定位 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="12dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:text="@string/settings_background_location"
+                        android:textColor="#131313"
+                        android:textSize="@dimen/activity_item_text_size"/>
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/set_switch_background_location"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- 弹性占位：将帮助/关于分组顶到页面最下方（内容不足一屏时生效，超出则自然折叠为0） -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"/>
+
+            <!-- 帮助与关于左右并排（各占一半），中间竖向分隔线 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:background="@drawable/bg_settings_group"
+                android:orientation="horizontal">
+
+                <!-- 帮助：使用说明（软件界面/本地图层/自定义地图源） -->
+                <RelativeLayout
+                    android:id="@+id/set_row_help"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_centerInParent="true"
+                        android:text="@string/settings_help"
+                        android:textColor="#131313"
+                        android:textSize="@dimen/activity_item_text_size"/>
+
+                </RelativeLayout>
+
+                <View android:layout_width="1dp" android:layout_height="match_parent" android:background="#F1F1F1"/>
+
+                <RelativeLayout
+                    android:id="@+id/set_row_about"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_centerInParent="true"
+                        android:text="@string/settings_personal_info_list"
+                        android:textColor="#131313"
+                        android:textSize="@dimen/activity_item_text_size"/>
+
+                </RelativeLayout>
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+
+</LinearLayout>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SQL 子句下拉选中项显示布局：左对齐、14sp、单行末尾省略，保证字段/运算符/连接词可见 -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:gravity="center_vertical"
+    android:paddingStart="4dp"
+    android:paddingEnd="4dp"
+    android:singleLine="true"
+    android:ellipsize="end"
+    android:textSize="14sp"
+    android:textColor="#212121" />

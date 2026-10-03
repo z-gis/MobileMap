@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 矢量图层 SQL 查询配置对话框：以可视化子句行（连接词+字段+运算符+值）拼装 WHERE 条件，
+     替代手写 SQL 语句。子句行由 SqlQueryDialog 动态加入 sql_query_ll_clauses。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <!-- 子句容器：每条子句一张卡片，动态添加/删除 -->
+    <LinearLayout
+        android:id="@+id/sql_query_ll_clauses"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical" />
+
+    <!-- 添加子句 -->
+    <LinearLayout
+        android:id="@+id/sql_query_btn_add"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="4dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="8dp"
+        android:background="?attr/selectableItemBackground">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_sql_add" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:text="@string/sql_query_add_clause"
+            android:textColor="#4CAF50"
+            android:textSize="15sp" />
+    </LinearLayout>
+
+    <!-- 底部操作：应用 / 清除 / 取消 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal"
+        android:gravity="end">
+
+        <Button
+            android:id="@+id/sql_query_btn_clear"
+            style="?attr/buttonBarNegativeButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/sql_query_clear" />
+
+        <Button
+            android:id="@+id/sql_query_btn_apply"
+            style="?attr/buttonBarPositiveButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/sql_query_apply" />
+
+        <Button
+            android:id="@+id/sql_query_btn_cancel"
+            style="?attr/buttonBarNegativeButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/dialog_cancel" />
+    </LinearLayout>
+
+</LinearLayout>

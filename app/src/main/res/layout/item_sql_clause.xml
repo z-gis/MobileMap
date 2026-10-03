@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SQL 查询单条子句卡片：
+     第一行 连接词(WHERE/AND/OR) + 字段；
+     第二行 运算符 + 值 + 删除。
+     两行布局让每个控件有足够宽度，选中值可完整显示。
+     由 SqlQueryDialog 动态 inflate 并加入 dialog_sql_query 的子句容器。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="10dp"
+    android:orientation="vertical"
+    android:background="@drawable/bg_sql_clause"
+    android:paddingStart="8dp"
+    android:paddingEnd="8dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp">
+
+    <!-- 第一行：连接词 + 字段 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <Spinner
+            android:id="@+id/clause_sp_connector"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1" />
+
+        <Spinner
+            android:id="@+id/clause_sp_field"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="2"
+            android:layout_marginStart="8dp" />
+    </LinearLayout>
+
+    <!-- 第二行：运算符 + 值 + 删除 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <Spinner
+            android:id="@+id/clause_sp_operator"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1" />
+
+        <EditText
+            android:id="@+id/clause_et_value"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="2"
+            android:layout_marginStart="8dp"
+            android:hint="@string/sql_query_value_hint"
+            android:inputType="text"
+            android:maxLines="1"
+            android:textSize="14sp"
+            android:gravity="center_vertical"
+            android:background="@android:drawable/edit_text" />
+
+        <ImageView
+            android:id="@+id/clause_iv_delete"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="8dp"
+            android:padding="4dp"
+            android:contentDescription="@string/sql_query_remove_clause"
+            android:src="@drawable/ic_sql_close"
+            android:background="?attr/selectableItemBackgroundBorderless" />
+    </LinearLayout>
+</LinearLayout>

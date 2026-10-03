@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <external-path
+        name="shared_root"
+        path="调查宝/" />
+    <external-files-path
+        name="downloads"
+        path="Download/" />
+    <external-files-path
+        name="media"
+        path="." />
+</paths>
+
