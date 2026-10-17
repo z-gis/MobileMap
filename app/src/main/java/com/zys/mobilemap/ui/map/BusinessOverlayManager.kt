@@ -61,12 +61,19 @@ internal class BusinessOverlayManager(
         val showMedia = cfg?.showMediaLayer ?: false
         val showPhotoName = cfg?.showPhotoName ?: false
 
+        // DB 读取兜底：个别 ROM 上数据目录异常可能使底层 SQLite 打开失败，叠加层缺失不应拖垮启动，降级为空数据继续装配
         val measures: List<MeasurementRecord> =
-            if (showMeasure) MapDataStore.getInstance(activity).loadMeasurements() else emptyList()
+            if (showMeasure) runCatching { MapDataStore.getInstance(activity).loadMeasurements() }
+                .onFailure { AppLog.e(TAG, "读取测量记录失败，本次叠加层跳过", it) }.getOrDefault(emptyList())
+            else emptyList()
         val tracks: List<TrackRecord> =
-            if (showTrack) MapDataStore.getInstance(activity).loadTracks() else emptyList()
+            if (showTrack) runCatching { MapDataStore.getInstance(activity).loadTracks() }
+                .onFailure { AppLog.e(TAG, "读取轨迹记录失败，本次叠加层跳过", it) }.getOrDefault(emptyList())
+            else emptyList()
         val photos: List<MediaPlacemark> =
-            if (showMedia) MediaStore.getInstance(activity).loadPlacemarks() else emptyList()
+            if (showMedia) runCatching { MediaStore.getInstance(activity).loadPlacemarks() }
+                .onFailure { AppLog.e(TAG, "读取拍照点位失败，本次叠加层跳过", it) }.getOrDefault(emptyList())
+            else emptyList()
         // 样地点位：无全局调查模式与显隐开关，常显（读 sample_survey.db）
         val plots: List<SurveyPlot> = SampleSurveyStore.loadAllPlots(activity)
 

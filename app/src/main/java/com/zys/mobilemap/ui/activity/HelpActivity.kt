@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.View
 import android.widget.TextView
 import com.zys.mobilemap.R
+import com.zys.mobilemap.ui.FormattedTexts
 
 /**
  * 帮助界面：三段使用说明（软件界面、添加本地图层、添加自定义地图源）。
@@ -17,6 +18,11 @@ class HelpActivity : BaseStyledActivity() {
         applyDefaultPageStyle()
 
         findViewById<View>(R.id.help_iv_back).setOnClickListener { finish() }
+
+        // 三段正文改由代码多行字面量提供（不再使用带换行转义的字符串资源）
+        findViewById<TextView>(R.id.help_body_ui).text = FormattedTexts.helpUiBody
+        findViewById<TextView>(R.id.help_body_local_layer).text = FormattedTexts.helpLocalLayerBody
+        findViewById<TextView>(R.id.help_body_map_source).text = FormattedTexts.helpMapSourceBody
 
         bindSection(R.id.help_row_ui, R.id.help_body_ui)
         bindSection(R.id.help_row_local_layer, R.id.help_body_local_layer)

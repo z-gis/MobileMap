@@ -23,6 +23,8 @@ import com.zys.mobilemap.ui.activity.PhotoViewerActivity
 /**
  * 照片列表 BottomSheet：显示某拍照点位（Placemark）的全部照片，
  * 点击照片进入全屏查看（左右滑动切换，仅本点位附件）。
+ * 标题栏提供「重命名」（弹 [MediaEditDialog] 修改名称与分组，保存后经
+ * [RESULT_RENAMED] FragmentResult 通知宿主刷新地图标注）与「分享」（打包发出）。
  */
 class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
 
@@ -38,10 +40,7 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
         val sheet = sheetView ?: return dialog
 
         // 标题与内容装配统一在 onCreateDialog 完成（基类 setContentView 后 onViewCreated 不会被回调，
-        // 同 FeatureDetailDialog 处理方式）
-        sheet.findViewById<TextView>(R.id.photo_sheet_title).text = placemarkName
-
-        // 按主键查库只取本点位，不拉全部点位再过滤；非照片附件不列入网格
+        // 同 FeatureDetailDialog 处理方式）；按主键查库只取本点位，不拉全部点位再过滤；非照片附件不列入网格
         val placemark = if (placemarkId < 0) {
             null
         } else {
@@ -50,6 +49,21 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
         val attachments = placemark?.attachments
             ?.filter { it.type == MediaAttachment.TYPE_PHOTO }
             ?: emptyList()
+
+        // 重命名按钮：弹「编辑拍照标识」对话框（名称+分组），保存后就地刷新标题并经 FragmentResult 通知宿主重建叠加层
+        val titleView = sheet.findViewById<TextView>(R.id.photo_sheet_title)
+        titleView.text = placemarkName
+        val renameButton = sheet.findViewById<ImageView>(R.id.photo_sheet_rename)
+        if (placemark == null) {
+            renameButton.visibility = View.GONE
+        } else {
+            renameButton.setOnClickListener {
+                MediaEditDialog.show(requireActivity(), placemark) { name, _ ->
+                    titleView.text = name
+                    parentFragmentManager.setFragmentResult(RESULT_RENAMED, Bundle.EMPTY)
+                }
+            }
+        }
 
         // 分享按钮：把本点位（坐标/名称/照片）打包经系统分享面板发出；无照片时隐藏
         val shareButton = sheet.findViewById<ImageView>(R.id.photo_sheet_share)
@@ -128,6 +142,9 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
         private const val ARG_PLACEMARK_ID = "arg_placemark_id"
         private const val ARG_PLACEMARK_NAME = "arg_placemark_name"
         private const val DEFAULT_TITLE = "照片"
+
+        /** 重命名保存后的 FragmentResult 键：宿主（MainActivity）监听并重建业务叠加层（刷新标注名称） */
+        const val RESULT_RENAMED = "photo_sheet_renamed"
 
         /** 缩略图网格列数 */
         private const val GRID_SPAN_COUNT = 3

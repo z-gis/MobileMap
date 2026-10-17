@@ -56,6 +56,7 @@ class DocumentManager private constructor() {
                     document = doc
                     migrateAnnotationSource(doc)
                     unifyTiandituTokens(doc)
+                    ensureGaodeSources(doc)
                     notifyListeners()
                     loaded = true
                 } catch (e: IOException) {
@@ -89,28 +90,40 @@ class DocumentManager private constructor() {
 
     private fun createDefaultDocument(): MapDocument {
         val doc = MapDocument()
-        // 系统自带地图源：天地图-影像默认可见，电子/地形由地图源管理界面按需开启
-        doc.mapSources.add(createTiandituSource(SYSTEM_SOURCE_TIANDITU_IMG, TIANDITU_IMG_URL, true, "image/jpeg"))
-        doc.mapSources.add(createTiandituSource(SYSTEM_SOURCE_TIANDITU_VEC, TIANDITU_VEC_URL, false, "image/png"))
-        doc.mapSources.add(createTiandituSource(SYSTEM_SOURCE_TIANDITU_TER, TIANDITU_TER_URL, false, "image/png"))
-        // 系统自带地图源：天地图-注记（默认可见，不在地图源列表中显示，由主界面按钮控制）
-        doc.mapSources.add(createAnnotationSource(true))
+        // 系统自带地图源：高德-电子默认可见（公共瓦片服务，免密钥）；高德-影像按需开启
+        doc.mapSources.add(createSystemSource(SYSTEM_SOURCE_GAODE_VEC, GAODE_VEC_URL, true, "image/png"))
+        doc.mapSources.add(createSystemSource(SYSTEM_SOURCE_GAODE_IMG, GAODE_IMG_URL, false, "image/jpeg"))
+        // 天地图系列不再内置密钥：切换到天地图图源时提示获取并输入自己的密钥（引导见 TiandituKeyDialog）
+        doc.mapSources.add(createSystemSource(SYSTEM_SOURCE_TIANDITU_IMG, TIANDITU_IMG_URL, false, "image/jpeg"))
+        doc.mapSources.add(createSystemSource(SYSTEM_SOURCE_TIANDITU_VEC, TIANDITU_VEC_URL, false, "image/png"))
+        doc.mapSources.add(createSystemSource(SYSTEM_SOURCE_TIANDITU_TER, TIANDITU_TER_URL, false, "image/png"))
+        // 注记图层（天地图-CIA）：不在列表显示、由主界面按钮控制；无密钥默认可见性为假
+        doc.mapSources.add(createAnnotationSource(false))
         // 栅格/矢量图层默认为空
         doc.systemConfig.showCenterCross = true
         doc.systemConfig.photoAddWatermark = true
         return doc
     }
 
-    /** 构造一个系统自带天地图地图源（全部图层共用同一 Token） */
-    private fun createTiandituSource(
+    /** 构造一个系统自带地图源（名称不可修改；天地图系列共用文档密钥） */
+    private fun createSystemSource(
         name: String,
         url: String,
         visible: Boolean,
         imageFormat: String
     ): MapSource = MapSource(name, url, visible).apply {
-        token1 = TIANDITU_TOKEN
         this.imageFormat = imageFormat
         isSystem = true
+    }
+
+    /**
+     * 旧文档迁移：按序在列表头部补充高德自带图源（均不可见，不改变当前底图选择），
+     * 使升级用户无需密钥也能切换底图。
+     */
+    private fun ensureGaodeSources(doc: MapDocument) {
+        if (doc.mapSources.any { it.name == SYSTEM_SOURCE_GAODE_VEC }) return
+        doc.mapSources.add(0, createSystemSource(SYSTEM_SOURCE_GAODE_IMG, GAODE_IMG_URL, false, "image/jpeg"))
+        doc.mapSources.add(0, createSystemSource(SYSTEM_SOURCE_GAODE_VEC, GAODE_VEC_URL, false, "image/png"))
     }
 
     /**
@@ -127,16 +140,28 @@ class DocumentManager private constructor() {
             if (SYSTEM_SOURCE_TIANDITU_CIA == s.name) annotation = s
         }
         if (annotation == null) {
-            doc.mapSources.add(createAnnotationSource(true))
+            // 旧文档缺注记层：仅当文档已带天地图密钥时默认可见（无密钥开启只会空拉瓦片）
+            doc.mapSources.add(createAnnotationSource(hasTiandituKey(doc)))
         } else {
             annotation.isAnnotation = true
         }
     }
 
     private fun createAnnotationSource(visible: Boolean): MapSource =
-        createTiandituSource(SYSTEM_SOURCE_TIANDITU_CIA, TIANDITU_CIA_URL, visible, "image/png").apply {
+        createSystemSource(SYSTEM_SOURCE_TIANDITU_CIA, TIANDITU_CIA_URL, visible, "image/png").apply {
             isAnnotation = true
         }
+
+    /** 文档是否已有天地图密钥（天地图系列全图层共用，任一含非空 token1 即视为有） */
+    fun hasTiandituKey(doc: MapDocument): Boolean =
+        doc.mapSources.any { it.isTiandituSource && !it.token1.isNullOrEmpty() }
+
+    /** 把密钥写入全部天地图图层（含注记层，共用口径同 [syncTiandituTokens]） */
+    fun applyTiandituKey(doc: MapDocument, key: String) {
+        for (s in doc.mapSources) {
+            if (s.isTiandituSource) s.token1 = key
+        }
+    }
 
     /**
      * 天地图 Token 共用：修改任一天地图地图源的 Token 后，
@@ -202,7 +227,13 @@ class DocumentManager private constructor() {
         private const val DOCUMENT_FILE = "document.json"
         private const val TAG = "DocumentManager"
 
-        private const val TIANDITU_TOKEN = "2c9be3116bec8e3f7be8d0c88298ff06"
+        private const val SYSTEM_SOURCE_GAODE_VEC = "高德-电子"
+        private const val SYSTEM_SOURCE_GAODE_IMG = "高德-影像"
+        // 高德公共栅格瓦片（Web 墨卡托）：style=8 电子地图（PNG，含注记）、style=6 卫星影像（JPEG）；{rand} 轮询子域
+        private const val GAODE_VEC_URL =
+            "https://webrd0{rand=1,2,3,4}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}"
+        private const val GAODE_IMG_URL =
+            "https://webst0{rand=1,2,3,4}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}"
         private const val SYSTEM_SOURCE_TIANDITU_IMG = "天地图-影像"
         private const val SYSTEM_SOURCE_TIANDITU_VEC = "天地图-电子"
         private const val SYSTEM_SOURCE_TIANDITU_TER = "天地图-地形"

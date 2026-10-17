@@ -17,7 +17,6 @@
     <string name="update_check_failed">检查更新失败，请稍后重试</string>
     <string name="update_latest">当前已是最新版本</string>
     <string name="update_dialog_title">发现新版本</string>
-    <string name="update_dialog_message">版本：%1$s (%2$d)\n\n更新内容：\n%3$s</string>
     <string name="update_no_changelog">暂无更新说明</string>
     <string name="update_now">立即更新</string>
     <string name="update_later">稍后再说</string>
@@ -73,6 +72,17 @@
     <string name="map_source_confirm">保存</string>
     <string name="map_source_name_required">请输入地图源名称</string>
     <string name="map_source_url_required">请输入地图源网址</string>
+
+    <!-- TiandituKeyDialog：切换天地图图源且文档无密钥时弹出（引导正文已移至代码 FormattedTexts.tiandituKeyGuide） -->
+    <string name="tianditu_key_title">配置天地图密钥</string>
+    <string name="tianditu_key_label">密钥（tk）：</string>
+    <string name="tianditu_key_hint">粘贴天地图 Key</string>
+    <string name="tianditu_key_empty">请输入天地图密钥</string>
+    <string name="tianditu_key_save">保存</string>
+    <string name="tianditu_key_site">天地图开放平台：https://www.tianditu.gov.cn/</string>
+    <string name="tianditu_key_package_label">包名：</string>
+    <string name="tianditu_key_copy">复制</string>
+    <string name="tianditu_key_copied">包名已复制</string>
     <string name="layer_info_title">图层信息</string>
     <!-- 图层信息各项独立行（每项 label + value 控件，见 dialog_layer_info.xml） -->
     <string name="layer_info_label_name">名称：</string>
@@ -93,6 +103,17 @@
     <string name="layer_icon_desc">图标</string>
     <string name="media_zoom_to">缩放至</string>
     <string name="layer_level_visibility">级别可见性</string>
+
+    <!-- 栅格图层加载模式（LayerManageDialog 单选 / MapLayerManager 提示） -->
+    <string name="raster_mode_title">栅格加载模式</string>
+    <string name="raster_mode_full">全幅加载</string>
+    <string name="raster_mode_tile">分瓦加载</string>
+    <string name="raster_mode_badge_full">全幅</string>
+    <string name="raster_mode_badge_tile">分瓦</string>
+    <string name="raster_loading_hint">栅格数据加载中，请稍候…</string>
+    <string name="raster_load_failed">栅格图层「%1$s」加载失败：%2$s</string>
+    <string name="raster_err_file_missing">文件不存在</string>
+    <string name="raster_err_unknown">未知错误</string>
 
     <!-- SqlQueryDialog：可视化 SQL 查询配置（子句行拼装 WHERE 条件） -->
     <string name="layer_sql_query">SQL 查询</string>
@@ -203,17 +224,18 @@
     <string name="settings_coord_display_meter">坐标以米显示（2000坐标系）</string>
     <string name="settings_kml_label">显示 KML/KMZ 标注</string>
     <string name="settings_view_mode">3D 视图（球模式）</string>
+    <string name="settings_raster_tile_cache">本地栅格保存瓦片</string>
+    <string name="settings_tile_offline_only">在线图源仅用离线瓦片</string>
     <string name="settings_personal_info_list">关于</string>
     <string name="settings_help">帮助</string>
+    <string name="settings_group_storage">存储</string>
+    <string name="settings_data_dir">数据目录</string>
+    <string name="settings_data_dir_fallback_hint">未能写入外部存储根目录，数据已保存到应用私有目录。如需在文件管理器中直接访问成果，请在系统设置中开启“所有文件访问权限”。</string>
 
-    <!-- HelpActivity：使用说明三段内容，正文以 \n 分行，正文默认折叠，点击标题展开 -->
     <string name="help_title">帮助</string>
     <string name="help_section_ui">软件界面说明</string>
-    <string name="help_section_ui_body">主界面：全屏地图，四周分布功能按键。\n右侧（从上到下）：注记图层开关、放大/缩小（中间显示当前级别）、图层管理。\n左侧（从上到下）：北朝向按键、测量、设置、定位锁定、轨迹。\n左下角：坐标文本（点击弹出"移动到"）。\n右下角：拍照按键。\n地图中心：十字准星（可在设置中关闭）。\n\n图层管理界面：分矢量图层、栅格图层、地图源三个标签页。每行左侧样式图标（矢量）可打开整层样式，图层名可缩放到范围，右侧按键依次为 SQL 查询（仅 shp）、级别可见性、缩放到范围、可见性开关、图层信息、移除图层。</string>
     <string name="help_section_local_layer">如何添加本地图层</string>
-    <string name="help_section_local_layer_body">支持格式：\n・矢量：shp、kml、kmz、zip（shp 压缩包）、dwg、dxf\n・栅格：tif、tiff、img\n\n添加步骤：\n1. 将数据文件拷贝到手机（建议放在 /调查宝/layer/）。\n2. 主界面右侧点击"图层管理"按键。\n3. 切到"矢量图层"或"栅格图层"标签页，点击"导入"按键。\n4. 在文件选择面板中定位到目标文件并选中，导入后自动缩放到图层范围。\n\n提示：shp 需同时存在 .shp/.shx/.dbf（建议包含 .prj 声明坐标系），dwg 仅支持 2018 及以下版本。</string>
     <string name="help_section_map_source">如何添加自定义地图源</string>
-    <string name="help_section_map_source_body">适用于接入自定义 WMTS/XYZ 瓦片服务。\n\n添加步骤：\n1. 主界面右侧点击"图层管理"按键，切到"地图源"标签页。\n2. 点击"导入"按键弹出地图源编辑对话框。\n3. 填写字段：\n　・名称：自定义名称，作为图层标识。\n　・网址：瓦片服务地址，包含占位符 {z}/{x}/{y}（例：https://host/tile/{z}/{x}/{y}.png）。\n　・类型：默认 WMTS，目前支持 XYZ/WMTS 瓦片方案。\n　・Token1/Token2：选填，网址中包含 {token1}/{token2} 占位符时自动替换（天地图系列共用 Token，任一地图源中配置后自动同步）。\n4. 保存后在地图源列表中选中单选按钮，底图立即切换。\n5. 左侧设置按键可重新编辑名称/网址/Token。</string>
 
     <!-- AboutActivity -->
     <string name="about_title">关于</string>

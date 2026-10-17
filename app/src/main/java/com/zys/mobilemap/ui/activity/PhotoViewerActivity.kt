@@ -17,7 +17,8 @@ import com.zys.mobilemap.util.UiUtil
 
 /**
  * 全屏照片浏览器：只显示指定拍照点位（Placemark）的照片附件，
- * 左右滑动切换上一张/下一张。
+ * 左右滑动切换上一张/下一张；单页支持双指捻合缩放/双击放大/放大后拖动平移
+ *（见 [com.zys.mobilemap.control.ZoomableImageView]，放大时自动禁止翻页手势）。
  */
 class PhotoViewerActivity : AppCompatActivity() {
 
@@ -56,7 +57,7 @@ class PhotoViewerActivity : AppCompatActivity() {
         indexView.text = "${pager.currentItem + 1} / ${attachments.size}"
     }
 
-    /** 单页大图适配器：按屏幕尺寸采样解码，避免大图 OOM */
+    /** 单页大图适配器：按屏幕尺寸采样解码，避免大图 OOM；换图时 ZoomableImageView 自动复位缩放态 */
     private class PhotoPageAdapter(
         private val attachments: List<MediaAttachment>
     ) : RecyclerView.Adapter<PhotoPageAdapter.Holder>() {

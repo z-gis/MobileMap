@@ -3,10 +3,12 @@ package com.zys.mobilemap.ui.activity
 import android.content.Intent
 import android.os.Bundle
 import android.widget.ImageView
+import android.widget.TextView
 import androidx.appcompat.widget.SwitchCompat
 import com.zys.mobilemap.R
 import com.zys.mobilemap.doc.DocumentManager
 import com.zys.mobilemap.location.BackgroundLocationController
+import com.zys.mobilemap.util.AppDirectories
 
 class SettingsActivity : BaseStyledActivity() {
 
@@ -21,6 +23,11 @@ class SettingsActivity : BaseStyledActivity() {
         // 设置后退按键
         val backView: ImageView = findViewById(R.id.set_iv_back)
         backView.setOnClickListener { finish() }
+
+        // 存储：显示实际生效的数据根目录（启动时已判定），外部存储根不可写而回退到私有目录时给出提示
+        findViewById<TextView>(R.id.set_tv_data_path).text = AppDirectories.getRootDir(this).absolutePath
+        findViewById<TextView>(R.id.set_tv_data_hint).visibility =
+            if (AppDirectories.usingPrivateFallback) android.view.View.VISIBLE else android.view.View.GONE
 
         // 获取配置文档
         val config = DocumentManager.getInstance().getDocument()?.systemConfig ?: return
@@ -98,6 +105,20 @@ class SettingsActivity : BaseStyledActivity() {
         bgLocationSwitch.setOnCheckedChangeListener { _, isChecked ->
             config.backgroundLocation = isChecked
             BackgroundLocationController.onSettingChanged(this)
+        }
+
+        // 本地栅格保存瓦片（性能对比测试用）：开关值参入栅格层缓存键，退出设置页落盘后就地换层即时生效
+        val rasterCacheSwitch: SwitchCompat = findViewById(R.id.set_switch_raster_tile_cache)
+        rasterCacheSwitch.isChecked = config.rasterTileCacheEnabled
+        rasterCacheSwitch.setOnCheckedChangeListener { _, isChecked ->
+            config.rasterTileCacheEnabled = isChecked
+        }
+
+        // 在线图源仅用离线瓦片（无网络野外作业用）：开关值参入图源结构签名，退出设置页落盘后主界面重建瓦片层生效
+        val offlineTileSwitch: SwitchCompat = findViewById(R.id.set_switch_tile_offline_only)
+        offlineTileSwitch.isChecked = config.tileOfflineOnly
+        offlineTileSwitch.setOnCheckedChangeListener { _, isChecked ->
+            config.tileOfflineOnly = isChecked
         }
 
         // 帮助按键：进入使用说明页（三段可折叠说明）

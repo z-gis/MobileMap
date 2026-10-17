@@ -10,6 +10,7 @@ import com.zys.mobilemap.db.MapDataStore
 import com.zys.mobilemap.db.TrackRecord
 import com.zys.mobilemap.location.BackgroundLocationController
 import com.zys.mobilemap.location.LocationManager
+import com.zys.mobilemap.track.TrackSharePackage
 import com.zys.mobilemap.ui.dialog.MeasureDetailDialog
 import com.zys.mobilemap.ui.dialog.TrackManageDialog
 import com.zys.mobilemap.util.GeoCalc
@@ -288,7 +289,8 @@ internal class TrackCaptureController(
     }
 
     /**
-     * 轨迹详情 BottomSheet（复用 [MeasureDetailDialog]，typeText=轨迹）：样式编辑写库后重建叠加层，删除走确认。
+     * 轨迹详情 BottomSheet（复用 [MeasureDetailDialog]，typeText=轨迹）：样式编辑写库后重建叠加层，删除走确认，
+     * 分享按导出 shp 数据包（折线 + WGS84，见 [TrackSharePackage]）经系统分享面板发出。
      */
     fun showTrackDetail(record: TrackRecord) {
         MeasureDetailDialog(
@@ -303,7 +305,8 @@ internal class TrackCaptureController(
                 rebuildOverlays()
                 Toast.makeText(activity, "样式已更新", Toast.LENGTH_SHORT).show()
             },
-            onDelete = { confirmDeleteTrack(record) }
+            onDelete = { confirmDeleteTrack(record) },
+            onShare = { TrackSharePackage.shareTrack(activity, record) }
         ).show(fm, "TrackDetailDialog")
     }
 

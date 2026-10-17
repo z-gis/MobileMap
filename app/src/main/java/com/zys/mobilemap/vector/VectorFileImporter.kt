@@ -17,36 +17,135 @@ class ImportResult(val path: String, val name: String)
 /**
  * 矢量数据导入器，按扩展名分发：
  *  - shp/kml/dwg/dxf/gpkg：直接引用原路径（shp 依赖同目录的 dbf/prj/cpg 附属文件；gpkg 为单文件 SQLite 容器）；
- *  - zip：shp 压缩包，解压到 /调查宝/layer/<文件名>/ 后查找内部 shp；
+ *  - zip：shp 压缩包，解压后递归收集包内全部 shp，逐个连同附属文件整组搬平到
+ *    /调查宝/layer/<文件名>/ 主目录（消除 zip 内无意义中间目录），多个 shp 全部导入；
  *  - kmz：解压后查找内部 kml（优先 doc.kml）。
  */
 object VectorFileImporter {
 
     private const val TAG = "VectorFileImporter"
 
+    /** zip 解压临时目录后缀（整组搬平到主目录后即删；同名残留下次导入先清再解） */
+    private const val UNZIP_TMP_SUFFIX = "_unzip_tmp"
+
     /**
-     * 导入矢量文件，失败返回 null。
+     * 导入矢量文件，返回全部图层（zip 内多个 shp 时逐个导入），失败返回空列表。
      */
-    fun importFile(context: Context, path: String): ImportResult? {
+    fun importFiles(context: Context, path: String): List<ImportResult> {
         // 转换为File，并判断文件是否存在
         val file = File(path)
-        if (!file.exists()) return null
+        if (!file.exists()) return emptyList()
         // 获取文件名（不带扩展名，已过滤非法文件名字符）
         val name = AppDirectories.deriveBaseName(path)
         // 根据文件扩展名分发处理
         return when (file.extension.lowercase(Locale.getDefault())) {
-            "shp", "kml", "dwg", "dxf", "gpkg" -> ImportResult(path, name)
-            "zip" -> extractAndFind(context, file, listOf("shp"), name)
+            "shp", "kml", "dwg", "dxf", "gpkg" -> listOf(ImportResult(path, name))
+            "zip" -> extractZipShapefiles(context, file, name)
             // kmz 显示名用压缩包本身文件名，而非内部 doc.kml 的名称
-            "kmz" -> extractAndFind(context, file, listOf("kml"), name)
-            else -> null
+            "kmz" -> extractAndFind(context, file, listOf("kml"), name)?.let { listOf(it) } ?: emptyList()
+            else -> emptyList()
         }
     }
 
     /**
-     * 解压压缩包到 /调查宝/layer/<文件名(去扩展名)>/，并查找指定扩展名的内部文件。
+     * 导入矢量文件（单结果入口，多图层时取首个），失败返回 null。
+     */
+    fun importFile(context: Context, path: String): ImportResult? =
+        importFiles(context, path).firstOrNull()
+
+    /**
+     * shp 压缩包导入：解压到临时目录后递归收集全部 shp（跳过 __MACOSX/隐藏文件等垃圾条目），
+     * 每个 shp 连同同目录同名附属文件（dbf/shx/prj/cpg 等）整组搬平到主目录 /layer/<压缩包名>/，
+     * 主目录已有同名 shp 时整组 stem 追加序号区分，搬完删除临时目录。
+     *
+     * 复用判定只看主目录**根级**是否已有 shp（既往已搬平）：旧版解压残留在子目录深处的 shp
+     * 不视为复用（仍重新解压搬平），且不删除——可能仍被旧文档图层路径引用。
+     *
+     * 显示名：单个 shp 沿用压缩包名（与旧行为一致）；多个 shp 各用自己的文件名。
+     */
+    private fun extractZipShapefiles(context: Context, archive: File, displayName: String): List<ImportResult> {
+        val layerDir = AppDirectories.getLayerDir(context)
+        val destDir = File(layerDir, archive.nameWithoutExtension)
+        try {
+            var shps = rootShapefiles(destDir)
+            if (shps.isEmpty()) {
+                val tmpDir = File(layerDir, archive.nameWithoutExtension + UNZIP_TMP_SUFFIX)
+                if (tmpDir.exists()) tmpDir.deleteRecursively()
+                unzip(archive, tmpDir)
+                shps = collectShapefiles(tmpDir)
+                for (shp in shps) moveShapefileGroup(shp, destDir)
+                tmpDir.deleteRecursively()
+                shps = rootShapefiles(destDir)
+            }
+            if (shps.isEmpty()) {
+                Log.w(TAG, "压缩包内未找到 shp 数据: ${archive.path}")
+                return emptyList()
+            }
+            val single = shps.size == 1
+            return shps.map {
+                ImportResult(it.absolutePath, if (single) displayName else it.nameWithoutExtension)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "解压压缩包失败: ${archive.name}", e)
+            return emptyList()
+        }
+    }
+
+    /** 主目录根级 shp 列表（不递归，复用判定与最终结果口径一致）；目录不存在返回空。 */
+    private fun rootShapefiles(dir: File): List<File> =
+        dir.listFiles { f ->
+            f.isFile && f.extension.equals("shp", ignoreCase = true)
+        }?.toList() ?: emptyList()
+
+    /** 递归收集目录下全部 shp（进入时跳过 __MACOSX/隐藏目录，过滤隐藏文件）。 */
+    private fun collectShapefiles(dir: File): List<File> {
+        if (!dir.exists()) return emptyList()
+        return dir.walkTopDown()
+            .onEnter { it.name != "__MACOSX" && !it.name.startsWith(".") }
+            .filter { it.isFile && !it.name.startsWith(".") && it.extension.equals("shp", ignoreCase = true) }
+            .toList()
+    }
+
+    /**
+     * 把 shp 及其同目录全部同名附属文件（dbf/shx/prj/cpg 等，任意扩展名）整组搬到 destDir：
+     * 主目录已有同名 shp 时整组 stem 追加序号（<stem>_2 起），附属文件随组改名，保证 shp 依赖完整；
+     * renameTo 失败（跨目录等罕见情形）回退复制+删源。
+     */
+    private fun moveShapefileGroup(shp: File, destDir: File) {
+        destDir.mkdirs()
+        val stem = shp.nameWithoutExtension
+        val sourceDir = shp.parentFile ?: return
+        // 主目录同名 shp 冲突时整组换 stem（只比对 shp，不误判残留的孤立附属文件）
+        var targetStem = stem
+        var seq = 2
+        while (hasShpNamed(destDir, targetStem)) {
+            targetStem = "${stem}_$seq"
+            seq++
+        }
+        val companions = sourceDir.listFiles { f ->
+            f.isFile && f.nameWithoutExtension == stem
+        } ?: arrayOf(shp)
+        for (src in companions) {
+            val ext = src.name.substringAfterLast('.', "")
+            val target = File(destDir, if (ext.isEmpty()) targetStem else "$targetStem.$ext")
+            if (!src.renameTo(target)) {
+                src.copyTo(target, overwrite = true)
+                src.delete()
+            }
+        }
+    }
+
+    /** destDir 根级是否已有指定 stem 的 shp（扩展名大小写不敏感）。 */
+    private fun hasShpNamed(dir: File, stem: String): Boolean =
+        dir.listFiles()?.any {
+            it.isFile && it.nameWithoutExtension == stem &&
+                it.extension.equals("shp", ignoreCase = true)
+        } == true
+
+    /**
+     * kmz 专用：解压压缩包到 /调查宝/layer/<文件名(去扩展名)>/，并查找指定扩展名的内部文件。
      * displayName 为图层显示名（压缩包文件名）。
-     * kmz 解压出的约定入口 doc.kml 重命名为与目录同名（<displayName>.kml），便于阅读与后续定位（zip 内 shp 名不改）。
+     * kmz 解压出的约定入口 doc.kml 重命名为与目录同名（<displayName>.kml），便于阅读与后续定位。
      */
     private fun extractAndFind(context: Context, archive: File, exts: List<String>, displayName: String): ImportResult? {
         val layerDir = AppDirectories.getLayerDir(context)

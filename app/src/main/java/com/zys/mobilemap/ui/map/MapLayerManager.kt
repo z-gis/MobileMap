@@ -9,6 +9,7 @@ import com.zys.mobilemap.doc.DocumentManager
 import com.zys.mobilemap.doc.LayerInfo
 import com.zys.mobilemap.doc.MapDocument
 import com.zys.mobilemap.doc.MapSource
+import com.zys.mobilemap.ui.dialog.TiandituKeyDialog
 import com.zys.mobilemap.util.AppDirectories
 import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.vector.FeatureIcons
@@ -86,7 +87,7 @@ internal class MapLayerManager(
 
     // ── 矢量加载提示胶囊（大图首载/慢重载体感优化）：延迟显示 + 轮询隐藏，均经 View.postDelayed 挂在主线程 ──
 
-    /** 轮询隐藏：胶囊显示后每 [VECTOR_LOADING_POLL_MS] 查询 native 加载/上传状态，完成即收起（覆盖同帧秒级 GL 上传窗口）。 */
+    /** 轮询隐藏：胶囊显示后每 [VECTOR_LOADING_POLL_MS] 查询 native 矢量加载上传状态，完成即收起（覆盖同帧秒级 GL 上传窗口）。 */
     private val vectorLoadingPollRunnable = object : Runnable {
         override fun run() {
             val pill = vectorLoadingPill ?: return
@@ -108,13 +109,11 @@ internal class MapLayerManager(
     }
 
     /**
-     * 已加入 native 的栅格图层：[rasterKey] → native 图层索引（layers_ 空间，与瓦片底图/注记共享；add-only，隐层只翻可见性）。
-     * 懒加入：仅可见层加入 native（不可见层不触发 GDAL 打开 + 重投影 VRT 构建），首次转可见时再加入并记录索引。
+     * 已加入 native 的栅格图层（分瓦路）：[rasterKey] → native 图层索引（layers_ 空间，与瓦片底图/注记共享；
+     * add-only，隐层只翻可见性）。懒加入：仅可见层加入 native（不可见层不触发 GDAL 打开 + 重投影 VRT 构建），
+     * 首次转可见时再加入并记录索引。
      */
     private val rasterLayerIndices = mutableMapOf<String, Int>()
-
-    /** 构建栅格层时的结构签名（各栅格层 path 有序拼接）；结构变化（增/删/改栅格层）则重建界面（native 无删除图层能力） */
-    private var builtRasterSignature = ""
 
     /**
      * 装配瓦片图层栈（对齐原主界面「可见性驱动」）：文档中全部非注记底图源常驻加入（索引 0..N-1），
@@ -149,12 +148,14 @@ internal class MapLayerManager(
 
     /**
      * 文档变更响应（对齐原主界面 BaseMapActivity 的文档驱动，回调在主线程）：
-     * - 图源/栅格结构变化（增/删/改图源或栅格层）：返回 true 交宿主执行 recreate（native 暂无删除图层能力）；
+     * - 图源结构变化（增/删/改底图图源）：返回 true 交宿主执行 recreate（native 暂无删除瓦片底图能力）；
      * - 否则就地同步可见性/矢量层/栅格层并刷新叠加层，返回 false（无需重建）。
-     * 矢量层结构/样式变化经 [syncVectorLayers] 就地换层，不触发重建。
+     * 矢量层结构/样式变化经 [syncVectorLayers] 就地换层，栅格层增删改经 [syncRasterLayers] 就地换层
+     * （native 已具 removeTileLayer 能力），均不触发重建——重建会销毁 GL 上下文，底图瓦片需全部重解码
+     * 上传（每帧限额），肉眼可见为「先棋盘、后瓦片」的闪动。
      */
     fun onDocumentChanged(document: MapDocument): Boolean {
-        if (sourceSignature(document) != builtSignature || rasterSignature(document) != builtRasterSignature) {
+        if (sourceSignature(document) != builtSignature) {
             return true
         }
         applyVisibilities(document)
@@ -185,18 +186,34 @@ internal class MapLayerManager(
      * 注记显隐开关：翻转可见性 → 经 native [NativeMapView.setLayerVisible] 即时生效 → 同步图标，
      * 并写回文档注记源的 [MapSource.visible] 落盘（与原主界面 main_iv_isCIA 口径一致）。
      * 落盘后经文档变更监听再次应用（幂等），此处先即时翻转保证响应跟手。
+     * 开启天地图注记而文档中没有密钥时，先弹密钥获取引导对话框，保存密钥后才执行开启。
      */
     fun toggleAnnotation() {
         if (annotationLayerIndex < 0) {
             AppLog.w(TAG, "无注记图源，注记开关不可用")
             return
         }
-        annotationVisible = !annotationVisible
-        mapView.setLayerVisible(annotationLayerIndex, annotationVisible)
+        val dm = DocumentManager.getInstance()
+        val doc = dm.getDocument()
+        val annot = doc?.mapSources?.firstOrNull { it.isAnnotation }
+        if (!annotationVisible && doc != null && annot?.isTiandituSource == true && !dm.hasTiandituKey(doc)) {
+            TiandituKeyDialog(activity) { key ->
+                dm.applyTiandituKey(doc, key)
+                applyAnnotationToggle(true)
+            }.show()
+            return
+        }
+        applyAnnotationToggle(!annotationVisible)
+    }
+
+    /** 注记显隐生效：翻 native 可见性 + 图标，写回文档注记源并落盘 */
+    private fun applyAnnotationToggle(visible: Boolean) {
+        annotationVisible = visible
+        mapView.setLayerVisible(annotationLayerIndex, visible)
         updateAnnotationIcon()
         val a = DocumentManager.getInstance().getDocument()?.mapSources?.firstOrNull { it.isAnnotation }
         if (a != null) {
-            a.visible = annotationVisible
+            a.visible = visible
             DocumentManager.getInstance().save(activity)
         }
     }
@@ -214,7 +231,7 @@ internal class MapLayerManager(
      *   （不可见/级别不足层不加入，避免无谓的 GDAL 读取与加载胶囊误亮；首次转可见且级别达标时再懒加入）；
      * - 显隐：已加入的层按 [LayerInfo.visible] 翻转 [NativeMapView.setVectorLayerVisible]（隐层不删除，与瓦片层同口径）。
      * 样式版本/增删变化：经旧键失效检测就地换层（removeVectorLayer 墓碑 + 新键重新懒加入），无需重建界面；
-     * 仅图源/栅格结构变化才由 [onDocumentChanged] 触发重建（native 无删除瓦片/栅格图层能力）。
+     * 仅底图图源结构变化才由 [onDocumentChanged] 触发重建（栅格层已可经 removeTileLayer 就地移除）。
      */
     fun syncVectorLayers(doc: MapDocument?) {
         val infos = doc?.vectorLayers ?: return
@@ -279,30 +296,78 @@ internal class MapLayerManager(
 
     /**
      * 同步文档栅格图层到 native（懒加入 + 可见性驱动，与矢量层同口径）：
-     * - 新增：可见、有路径、文件存在且尚未加入的栅格层，经 [NativeMapView.addRasterLayer] 加入并记录索引
-     *   （不可见层不加入，避免无谓的 GDAL 打开 + 重投影 VRT 构建；首次转可见时再懒加入）；
-     * - 显隐：已加入的层按 [LayerInfo.visible] 翻转 [NativeMapView.setLayerVisible]（隐层不删除，与瓦片层同口径）。
-     * 瓦片缓存目录用 `raster-jni/<路径哈希>`（区别于原底层库主界面的 `raster/<哈希>`——两者瓦片命名格式不同，不共享）。
-     * 结构变化（增/删/改栅格层）由 [onDocumentChanged] 判定并重建界面（native 无删除图层能力）。
+     * 经 [NativeMapView.addRasterLayer] 加入（native 同步读四至、后台逐瓦 GDAL 即时生成），
+     * 失败（返回 -1）即时取 [NativeMapView.rasterAddError] Toast 具体原因；懒加入（不可见层不加入）；
+     * 显隐经 [NativeMapView.setLayerVisible] 翻转。
+     * 瓦片缓存目录用 `raster/<原文件名称>`（原底层库主界面旧瓦片目录为 `raster/<哈希>`——命名格式不同，互不冲突，不共享）。
+     * [com.zys.mobilemap.doc.SystemConfig.rasterTileCacheEnabled] 关闭时改传空目录：native TileCache 的 baseDir 为空
+     * 即读盘/写盘一律早退，瓦片全部由 GDAL 即时重生成（内存纹理 LRU 仍在）——用于对比磁盘读写是否为速度瓶颈；
+     * 该开关已纳入 [rasterKey]，翻转后旧层墓碑回收并按新模式重新加入。
+     * 结构变化（增/删/改栅格层）就地处理：旧键（文档中已不存在的 path）对应的 native 层经
+     * [NativeMapView.removeTileLayer] 墓碑回收（含其瓦片纹理），不再触发整界面 recreate——删除一个栅格层
+     * 不应牵动底图（recreate 后所有瓦片需重解码上传，肉眼可见「先棋盘、后瓦片」的闪动）。
+     * 「全幅加载」通路已下线（真机体验不佳）：[LayerInfo.rasterFullExtent] 字段被忽略——旧文档该字段
+     * 恒走分瓦路（native 侧全幅能力保留，供日后混合策略启用）。
      */
     fun syncRasterLayers(doc: MapDocument?) {
         val infos = doc?.rasterLayers ?: return
+        // 图层被移除 / 改路径：已不在当前文档 key 集合中的旧映射对应的 native 层就地墓碑（不 erase，
+        // 其它层 index 保持稳定；Renderer 下一帧在 GL 线程释放其纹理并清空其加载队列）。
+        val currentRasterKeys = HashSet<String>(infos.size)
+        for (info in infos) {
+            val path = info.path
+            if (!path.isNullOrEmpty()) currentRasterKeys.add(rasterKey(info))
+        }
+        val staleRasterIter = rasterLayerIndices.entries.iterator()
+        while (staleRasterIter.hasNext()) {
+            val entry = staleRasterIter.next()
+            if (entry.key in currentRasterKeys) continue
+            AppLog.i(TAG, "栅格层旧键失效，就地移除: ${entry.key} -> removeTileLayer(${entry.value})")
+            mapView.removeTileLayer(entry.value)
+            staleRasterIter.remove()
+        }
         // 新增：可见且尚未加入的栅格层（懒加入，隐层不触发 GDAL 打开）
         for (info in infos) {
             val path = info.path
             if (path.isNullOrEmpty() || !info.visible) continue
             val key = rasterKey(info)
+            // 已加入者跳过（含「加入后文件被移走」场景：native 缓存句柄已建，不再重复告警）
             if (rasterLayerIndices.containsKey(key)) continue
             if (!File(path).exists()) {
                 AppLog.w(TAG, "栅格文件不存在，跳过[${info.name}]: $path")
+                Toast.makeText(
+                    activity,
+                    activity.getString(R.string.raster_load_failed, info.name ?: path,
+                        activity.getString(R.string.raster_err_file_missing)),
+                    Toast.LENGTH_LONG
+                ).show()
                 continue
             }
-            val cacheDir = File(
-                AppDirectories.getTileCacheDir(activity),
-                "raster-jni/${Integer.toHexString(path.hashCode())}"
-            )
-            val idx = mapView.addRasterLayer(cacheDir.absolutePath, path)
-            if (idx >= 0) rasterLayerIndices[key] = idx
+            // 目录名用原文件名称（去扩展名、净化非法字符）；由哈希改命名后旧哈希目录不再命中，瓦片全部重新生成
+            val rasterName = File(path).name.substringBeforeLast('.')
+            val cacheDir = if (rasterTileCacheEnabled()) {
+                File(
+                    AppDirectories.getTileCacheDir(activity),
+                    "raster/${sanitizeDirName(rasterName)}"
+                ).absolutePath
+            } else {
+                // 空串 = 本层不碰磁盘缓存（既不读也不写），每块可见瓦片都即时生成
+                ""
+            }
+            val idx = mapView.addRasterLayer(cacheDir, path)
+            if (idx >= 0) {
+                rasterLayerIndices[key] = idx
+                AppLog.i(TAG, "JNI 栅格层[${info.name}] index=$idx path=$path 瓦片缓存=${cacheDir.ifEmpty { "off" }}")
+            } else {
+                val reason = mapView.rasterAddError()
+                    ?: activity.getString(R.string.raster_err_unknown)
+                Toast.makeText(
+                    activity,
+                    activity.getString(R.string.raster_load_failed, info.name ?: path, reason),
+                    Toast.LENGTH_LONG
+                ).show()
+                AppLog.w(TAG, "栅格层加入失败[${info.name}]: $path 原因=$reason")
+            }
         }
         // 显隐：已加入的层按文档可见性翻转
         for (info in infos) {
@@ -311,7 +376,6 @@ internal class MapLayerManager(
             val idx = rasterLayerIndices[rasterKey(info)] ?: continue
             mapView.setLayerVisible(idx, info.visible)
         }
-        builtRasterSignature = rasterSignature(doc)
     }
 
     /**
@@ -483,10 +547,11 @@ internal class MapLayerManager(
                 abs(last.minLat - next.minLat) > latTol || abs(last.maxLat - next.maxLat) > latTol
     }
 
-    /** 装配一个瓦片图层：定位其磁盘缓存目录 + 解析联网 URL 模板，按 [overlay] 标志加入 native 渲染栈。 */
+    /** 装配一个瓦片图层：定位其磁盘缓存目录 + 解析联网 URL 模板，按 [overlay] 标志加入 native 渲染栈。
+     * 离线开关（[com.zys.mobilemap.doc.SystemConfig.tileOfflineOnly]）打开时 URL 模板传空串——native 约定即「禁用联网、只读磁盘缓存瓦片」。 */
     private fun addLayer(src: MapSource, overlay: Boolean) {
         val cacheDir = File(AppDirectories.getTileCacheDir(activity), sanitizeDirName(src.name ?: ""))
-        val urlTemplate = resolveUrl(src) ?: ""
+        val urlTemplate = if (tileOfflineOnly()) "" else (resolveUrl(src) ?: "")
         mapView.addTileLayer(cacheDir.absolutePath, urlTemplate, src.maxLevel, overlay)
         AppLog.i(TAG, "图层[${src.name}] overlay=$overlay 缓存目录=${cacheDir.absolutePath} 联网=${urlTemplate.isNotEmpty()} maxLevel=${src.maxLevel} url=$urlTemplate")
     }
@@ -512,9 +577,11 @@ internal class MapLayerManager(
         return clean.ifEmpty { "unknown" }
     }
 
-    /** 图源结构签名：各图源 [sourceKey] 有序拼接，任一图源增删改（名称/网址/类型/Token/级别变化）即变 */
+    /** 图源结构签名：各图源 [sourceKey] 有序拼接，任一图源增删改（名称/网址/类型/Token/级别变化）即变；
+     * 离线取瓦开关一并参入——开关切换后签名变化，经 [onDocumentChanged] 返回 true 交宿主 recreate 重建瓦片层，
+     * 使新增/删改 URL 模板（联网 ↔ 只读缓存）即时生效（缓存目录不变，已有落盘瓦片直接命中）。 */
     private fun sourceSignature(doc: MapDocument?): String =
-        doc?.mapSources?.joinToString(";") { sourceKey(it) } ?: ""
+        (doc?.mapSources?.joinToString(";") { sourceKey(it) } ?: "") + "|offline=" + (if (tileOfflineOnly()) 1 else 0)
 
     /** 图源标识（复刻原主界面 BaseMapActivity.sourceKey）：名称|网址|类型|Token1|Token2|最大级别 */
     private fun sourceKey(src: MapSource): String =
@@ -581,12 +648,23 @@ internal class MapLayerManager(
     private fun vectorSignature(doc: MapDocument?): String =
         doc?.vectorLayers?.joinToString(";") { (it.path ?: "") + "#" + it.styleVersion } ?: ""
 
-    /** 栅格层缓存键：路径（栅格无样式版本，路径唯一标识一个图层） */
-    private fun rasterKey(info: LayerInfo): String = info.path ?: ""
+    /**
+     * 栅格层缓存键：路径 + 磁盘缓存开关位。开关翻转即视为换层——旧键命中失效检测被
+     * [removeTileLayer] 墓碑回收，同名栅格按新的缓存目录（或空串）重新懒加入，无需重建界面。
+     */
+    private fun rasterKey(info: LayerInfo): String =
+        (info.path ?: "") + "|" + (if (rasterTileCacheEnabled()) 1 else 0)
 
-    /** 栅格层结构签名：各栅格层 path 有序拼接，任一栅格层增删改（路径变化）即变 */
-    private fun rasterSignature(doc: MapDocument?): String =
-        doc?.rasterLayers?.joinToString(";") { it.path ?: "" } ?: ""
+    /** 本地栅格瓦片磁盘缓存开关（系统配置，默认开）；文档缺失时按默认开处理。 */
+    private fun rasterTileCacheEnabled(): Boolean =
+        DocumentManager.getInstance().getDocument()?.systemConfig?.rasterTileCacheEnabled ?: true
+
+    /**
+     * 在线图源仅读离线缓存开关（设置页）：打开时底图/注记瓦片层 URL 模板传空，
+     * native 只读磁盘缓存瓦片不联网取瓦（无网络时避免在线请求失败把已缓存区域盖成棋盘）。
+     */
+    private fun tileOfflineOnly(): Boolean =
+        DocumentManager.getInstance().getDocument()?.systemConfig?.tileOfflineOnly ?: false
 
     /** 由 native 矢量层索引反查文档 [LayerInfo]（索引与 [vectorLayerIndices] 的值对应）；未找到返回 null */
     fun layerInfoByIndex(index: Int): LayerInfo? {

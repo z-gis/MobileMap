@@ -67,7 +67,6 @@
                     android:layout_marginStart="10dp"
                     android:layout_marginEnd="10dp"
                     android:paddingBottom="12dp"
-                    android:text="@string/help_section_ui_body"
                     android:textColor="#333333"
                     android:textSize="14sp"
                     android:visibility="gone" />
@@ -98,7 +97,6 @@
                     android:layout_marginStart="10dp"
                     android:layout_marginEnd="10dp"
                     android:paddingBottom="12dp"
-                    android:text="@string/help_section_local_layer_body"
                     android:textColor="#333333"
                     android:textSize="14sp"
                     android:visibility="gone" />
@@ -129,7 +127,6 @@
                     android:layout_marginStart="10dp"
                     android:layout_marginEnd="10dp"
                     android:paddingBottom="12dp"
-                    android:text="@string/help_section_map_source_body"
                     android:textColor="#333333"
                     android:textSize="14sp"
                     android:visibility="gone" />

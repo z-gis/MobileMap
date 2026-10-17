@@ -365,6 +365,7 @@
             android:indeterminateOnly="true" />
 
         <TextView
+            android:id="@+id/jni_map_loading_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"

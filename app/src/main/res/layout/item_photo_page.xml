@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ImageView xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- 全屏照片单页：可缩放平移的图片视图（双指捏合/双击放大，放大后单指拖动，见 ZoomableImageView） -->
+<com.zys.mobilemap.control.ZoomableImageView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/photo_page_image"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@android:color/black"
-    android:scaleType="fitCenter"/>
+    android:contentDescription="@null"/>

@@ -93,14 +93,17 @@ class LayerManageDialog(
             // 获取当前文档
             val doc = DocumentManager.getInstance().getDocument() ?: return@registerForActivityResult
             if (currentTab == TAB_VECTOR) {
-                // 矢量导入：zip/kmz 经导入器解压，文档记录实际加载路径，保证重启可复现
-                val imported = VectorFileImporter.importFile(requireContext(), path)
-                if (imported == null) {
+                // 矢量导入：zip/kmz 经导入器解压，文档记录实际加载路径，保证重启可复现；
+                // zip 内多个 shp 时逐个入图层（导入器已搬平到主目录并去重名）
+                val importedList = VectorFileImporter.importFiles(requireContext(), path)
+                if (importedList.isEmpty()) {
                     Toast.makeText(requireContext(),
                         R.string.vector_import_failed, Toast.LENGTH_SHORT).show()
                     return@registerForActivityResult
                 }
-                doc.vectorLayers.add(LayerInfo(imported.name, imported.path, LayerInfo.TYPE_VECTOR, true))
+                for (imported in importedList) {
+                    doc.vectorLayers.add(LayerInfo(imported.name, imported.path, LayerInfo.TYPE_VECTOR, true))
+                }
             } else if (currentTab == TAB_RASTER) {
                 val name = AppDirectories.deriveBaseName(path)
                 doc.rasterLayers.add(LayerInfo(name, path, LayerInfo.TYPE_RASTER, true))
@@ -196,7 +199,9 @@ class LayerManageDialog(
                 layerItems.add(item)
             }
             TAB_RASTER -> for (li in doc.rasterLayers) {
-                layerItems.add(LayerItem(li.name, li.path, li.type, li.visible, LayerItem.TYPE_LAYER))
+                // 栅格恒为分瓦加载（「全幅」通路已下线，[LayerInfo.rasterFullExtent] 字段被忽略）
+                val item = LayerItem(li.name, li.path, li.type, li.visible, LayerItem.TYPE_LAYER)
+                layerItems.add(item)
             }
             TAB_MAP_SOURCE -> for (ms in doc.mapSources) {
                 // 注记图层由主界面按钮控制，不在地图源列表中显示
@@ -266,6 +271,7 @@ class LayerManageDialog(
     /**
      * 地图源单选切换：只保持一个地图源可见性为真，
      * 保存后由地图监听者移除原地图源、加载新地图源。
+     * 切换到天地图图源且文档中没有密钥时，先弹密钥获取引导对话框，保存密钥后才执行切换。
      */
     private fun onSelectMapSource(position: Int) {
         val doc = DocumentManager.getInstance().getDocument() ?: return
@@ -274,6 +280,19 @@ class LayerManageDialog(
             syncFromDocument()
             return
         }
+        if (target.isTiandituSource && !DocumentManager.getInstance().hasTiandituKey(doc)) {
+            TiandituKeyDialog(requireContext()) { key ->
+                val d = DocumentManager.getInstance().getDocument() ?: return@TiandituKeyDialog
+                DocumentManager.getInstance().applyTiandituKey(d, key)
+                selectMapSource(d, target)
+            }.show()
+            return
+        }
+        selectMapSource(doc, target)
+    }
+
+    /** 执行地图源切换：其余非注记源置为不可见、目标源置为可见并落盘 */
+    private fun selectMapSource(doc: MapDocument, target: MapSource) {
         for (s in doc.mapSources) {
             if (s.isAnnotation) continue
             s.visible = false
@@ -776,7 +795,8 @@ class LayerManageDialog(
             ivSql.setOnClickListener { onSqlQueryClick(adapterPosition) }
 
             // 级别可见性对所有矢量图层开放（shp/kml/kmz/dwg/dxf），显隐切到外层容器（回收复用时需显式隐藏）；
-            // 右下角徽标显示当前生效级别：有数字即级别可见性已启用，不限制（-1）时无徽标
+            // 右下角徽标显示当前生效级别：有数字即级别可见性已启用，不限制（-1）时无徽标。
+            // 栅格行不再占用该槽位（「全幅/分瓦」模式切换已下线，恒走分瓦路）。
             flLevel.visibility = if (isVector) View.VISIBLE else View.GONE
             ivLevel.setOnClickListener { onLevelClick(adapterPosition) }
             if (item.minLevel >= 0) {

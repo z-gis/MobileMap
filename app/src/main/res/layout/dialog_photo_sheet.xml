@@ -23,6 +23,17 @@
             android:textSize="16sp"
             android:textStyle="bold"/>
 
+        <!-- 重命名：弹「编辑拍照标识」对话框（名称+分组），无点位时隐藏 -->
+        <ImageView
+            android:id="@+id/photo_sheet_rename"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginStart="8dp"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="重命名"
+            android:padding="6dp"
+            android:src="@drawable/ic_edit"/>
+
         <ImageView
             android:id="@+id/photo_sheet_share"
             android:layout_width="36dp"

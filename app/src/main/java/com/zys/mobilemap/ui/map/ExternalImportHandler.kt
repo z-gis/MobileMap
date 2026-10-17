@@ -20,7 +20,7 @@ import java.io.File
 
 /**
  * 外部文件承接处理器（自 MainActivity 拆出）：处理系统 ACTION_VIEW 打开——拍照数据包（.mphoto）导入新建点位，
- * 其余按矢量数据（content:// 复制到本地经 [VectorFileImporter] 导入，zip/kmz 解压）写入文档并缩放到图层范围。
+ * 其余按矢量数据（content:// 复制到本地经 [VectorFileImporter] 导入，zip/kmz 解压，zip 内多个 shp 全部入图层）写入文档并缩放到首个图层范围。
  *
  * 复刻原底层库主界面 MainActivity.handleViewIntent。协程于注入的 [scope]（宿主 lifecycleScope）执行；
  * 导入新建点位后经 [rebuildOverlays] 回调刷新叠加层，缩放复用 [CameraNavigator]。
@@ -51,17 +51,22 @@ internal class ExternalImportHandler(
                 Toast.makeText(activity, R.string.vector_open_failed, Toast.LENGTH_SHORT).show()
                 return@launch
             }
-            val imported = VectorFileImporter.importFile(activity, localPath)
-            if (imported == null) {
+            val importedList = VectorFileImporter.importFiles(activity, localPath)
+            if (importedList.isEmpty()) {
                 Toast.makeText(activity, R.string.vector_import_failed, Toast.LENGTH_SHORT).show()
                 return@launch
             }
             val doc = DocumentManager.getInstance().getDocument() ?: return@launch
-            if (doc.vectorLayers.none { it.path == imported.path }) {
-                doc.vectorLayers.add(LayerInfo(imported.name, imported.path, LayerInfo.TYPE_VECTOR, true))
-                DocumentManager.getInstance().save(activity)
+            // zip 内多个 shp 全部写入文档（按路径去重），只保存一次
+            var added = false
+            for (imported in importedList) {
+                if (doc.vectorLayers.none { it.path == imported.path }) {
+                    doc.vectorLayers.add(LayerInfo(imported.name, imported.path, LayerInfo.TYPE_VECTOR, true))
+                    added = true
+                }
             }
-            navigator.zoomToLayerExtent(imported.path)
+            if (added) DocumentManager.getInstance().save(activity)
+            navigator.zoomToLayerExtent(importedList.first().path)
         }
     }
 

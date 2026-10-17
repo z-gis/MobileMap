@@ -8,6 +8,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.zys.mobilemap.BuildConfig
 import com.zys.mobilemap.R
+import com.zys.mobilemap.ui.FormattedTexts
 import java.io.File
 import java.util.Locale
 
@@ -101,12 +102,7 @@ class AppUpdateManager(private val activity: AppCompatActivity) {
             info.changelog
         }
 
-        val message = activity.getString(
-            R.string.update_dialog_message,
-            info.versionName,
-            info.versionCode,
-            changelog
-        )
+        val message = FormattedTexts.updateDialogMessage(info.versionName, info.versionCode, changelog)
 
         val builder = AlertDialog.Builder(activity)
             .setTitle(R.string.update_dialog_title)

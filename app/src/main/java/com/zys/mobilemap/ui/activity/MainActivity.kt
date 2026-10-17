@@ -43,6 +43,9 @@ import com.zys.mobilemap.ui.map.TrackCaptureController
 import com.zys.mobilemap.ui.map.decodeIconArgb
 import com.zys.mobilemap.util.AppDirectories
 import com.zys.mobilemap.util.AppLog
+import com.zys.mobilemap.control.PieMenu
+import com.zys.mobilemap.control.PieMenuItem
+import com.zys.mobilemap.ui.map.PickedFeature
 import com.zys.mobilemap.util.PermissionUtil
 import com.zys.mobilemap.util.UiUtil
 import com.zys.globecore.NativeMapView
@@ -186,7 +189,7 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         })
 
         // 启动加载遮罩：盖住 native/proj/文档初始化与首屏瓦片异步加载的白屏，初始化完成（或安全超时）后淡出。
-        // recreate（图源/栅格结构变更触发）时跳过遮罩：避免重建闪动（新实例瓦片多已在磁盘缓存）。
+        // recreate（底图图源结构变更触发）时跳过遮罩：避免重建闪动（新实例瓦片多已在磁盘缓存）。
         // savedInstanceState != null 视为重建/恢复场景。
         if (savedInstanceState == null) {
             startup.beginLoadingOverlay(loadingOverlay)
@@ -391,6 +394,12 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         // 单击拾取矢量要素：native 命中检测 → 测量拦截 → 叠加命中分流 → 文件矢量拾取（原序由 pickController 保证）
         mapView.setOnTapListener { x, y -> pickController.onMapTap(x, y) }
 
+        // 长按地图：命中矢量要素→先高亮再弹要素编辑菜单（删除/编辑）；空白/叠加层→回退到落点通用菜单
+        mapView.setOnLongPressListener { x, y ->
+            val target = pickController.onMapLongPress(x, y)
+            if (target != null) showFeatureEditMenu(target, x, y) else showMapPieMenu(x, y)
+        }
+
         navigator.updateStatusText()
 
         // 监听文档变更：底图切换 / 注记显隐 / 图源增删改经此即时同步（对齐原主界面文档驱动）
@@ -408,6 +417,11 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
 
         // 监听图层管理对话框销毁：结构/样式变更触发的 recreate 若因对话框打开被挂起，待其关闭后再执行
         supportFragmentManager.registerFragmentLifecycleCallbacks(layerDialogLifecycleCallback, false)
+
+        // 照片列表弹层内重命名拍照标识：保存后重建业务叠加层（地图标注名称同步刷新）
+        supportFragmentManager.setFragmentResultListener(PhotoSheetDialog.RESULT_RENAMED, this) { _, _ ->
+            overlayManager.rebuild()
+        }
     }
 
     /**
@@ -477,6 +491,97 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
     private var exitConfirmDialog: androidx.appcompat.app.AlertDialog? = null
 
     /**
+     * 长按落点弹圆菜单（骨架演示）：以长按点为锚，沿环顺时针提供 居中到此处 / 复制坐标 / 添加标记 / 位置信息。
+     * 圆菜单为纯 UI 浮层（见 [PieMenu]，叠在 [NativeMapView] 的 GL Surface 之上），native 仅经
+     * [NativeMapView.screenToGeo] 参与落点坐标反算（与菜单渲染无关）。
+     *
+     * @param xPx [xPx]/[yPx] 为长按回调透出的 mapView 视图内像素坐标；锚点需换算到 content 容器坐标。
+     */
+    private fun showMapPieMenu(xPx: Float, yPx: Float) {
+        // 落点地理坐标（native 屏幕点反算）；后续动作复用
+        val geo = mapView.screenToGeo(xPx, yPx)
+        // 把长按点从 mapView 视图坐标换算到 content 容器坐标（圆菜单铺满 content，需同一坐标系的锚点）
+        val anchor = contentAnchor(xPx, yPx)
+        val anchorX = anchor[0]
+        val anchorY = anchor[1]
+        val coordText = if (geo != null)
+            String.format(java.util.Locale.US, "%.6f, %.6f", geo.longitude, geo.latitude)
+        else "—"
+
+        val items = listOf(
+            // 居中到此处：相机平移到落点（保留缩放级别），复用导航器既有能力
+            PieMenuItem(R.drawable.ic_zoom_to, "居中到此处") {
+                if (geo != null) navigator.moveToLocation(geo.latitude, geo.longitude, notify = false)
+            },
+            // 复制坐标：落点经纬度写入系统剪贴板
+            PieMenuItem(R.drawable.ic_share, "复制坐标") {
+                val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("location", coordText))
+                Toast.makeText(this, "已复制坐标 $coordText", Toast.LENGTH_SHORT).show()
+            },
+            // 添加标记：打点/标注业务入口（此处为骨架占位）
+            PieMenuItem(R.drawable.baseline_playlist_add_24, "添加标记") {
+                Toast.makeText(this, "添加标记（占位）", Toast.LENGTH_SHORT).show()
+            },
+            // 位置信息：展示落点经纬度
+            PieMenuItem(R.drawable.ic_info, "位置信息") {
+                Toast.makeText(this, "落点坐标 $coordText", Toast.LENGTH_SHORT).show()
+            }
+        )
+        PieMenu.show(this, anchorX, anchorY, items)
+    }
+
+    /**
+     * 把长按点从 [mapView] 视图内像素坐标换算到 content 容器坐标（圆菜单铺满 content，需同一坐标系锚点）。
+     * @return FloatArray[2] = {contentX, contentY}
+     */
+    private fun contentAnchor(xPx: Float, yPx: Float): FloatArray {
+        val offset = IntArray(2)
+        mapView.getLocationInWindow(offset)
+        return floatArrayOf(offset[0] + xPx, offset[1] + yPx)
+    }
+
+    /**
+     * 长按命中矢量要素后的编辑入口菜单：要素已由 [FeaturePickController.onMapLongPress] 高亮，
+     * 以长按点为锚弹圆菜单（编辑 / 删除）。
+     * 编辑→进入要素编辑态（本次不实现，占位）；删除→二次确认后执行（待底层 GDAL DeleteFeature 接入）。
+     */
+    private fun showFeatureEditMenu(target: PickedFeature, xPx: Float, yPx: Float) {
+        val anchor = contentAnchor(xPx, yPx)
+        val items = listOf(
+            // 编辑：进入要素编辑态（几何/属性），本次不实现
+            PieMenuItem(R.drawable.ic_layer_vector_style, "编辑") {
+                // TODO：接入要素编辑态（几何手点编辑 / 属性编辑）
+                Toast.makeText(this, "进入编辑（待实现）", Toast.LENGTH_SHORT).show()
+            },
+            // 删除：二次确认后删除选中要素
+            PieMenuItem(R.drawable.ic_delete, "删除") {
+                confirmDeleteFeature(target)
+            }
+        )
+        PieMenu.show(this, anchor[0], anchor[1], items)
+    }
+
+    /**
+     * 删除要素二次确认：确认后执行删除。
+     * 当前 GlobeCore 尚未提供 GDAL DeleteFeature 的 JNI 绑定与层重载，故此处先落确认链路与高亮清理，
+     * 真实删除待底层能力就绪后在标注的 TODO 处接入。
+     */
+    private fun confirmDeleteFeature(target: PickedFeature) {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("删除要素")
+            .setMessage("确定删除选中的矢量要素？")
+            .setPositiveButton("删除") { _, _ ->
+                // TODO：待 GlobeCore 提供 NativeVector.deleteFeature(path, fid) 后接入真实删除 + 矢量层重载
+                AppLog.i(TAG, "删除要素（待底层实现） path=${target.path} fid=${target.fid}")
+                Toast.makeText(this, "删除功能待底层支持接入", Toast.LENGTH_SHORT).show()
+                pickController.clearSelectedHighlight()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    /**
      * 退出确认对话框：首次返回键弹出，需再点「退出」（二次操作）才退出应用。
      * 点「取消」/点击外部/再按一次返回（对话框自行 cancel）均留在应用——不拦截对话框内返回键
      * （predictive-back 规范），故退出动作唯一入口为「退出」按钮。
@@ -495,18 +600,18 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
     // ── 文档变更驱动（结构变化判定交 layerManager，recreate 编排留本类）─────────────────────
 
     /**
-     * 文档变更响应（对齐原主界面 BaseMapActivity 的文档驱动，回调在主线程）：图源/栅格结构变化交 [MapLayerManager] 判定，
+     * 文档变更响应（对齐原主界面 BaseMapActivity 的文档驱动，回调在主线程）：底图图源结构变化交 [MapLayerManager] 判定，
      * 需重建时——图层管理对话框打开态则挂起至其关闭（[layerDialogLifecycleCallback]），否则先 dismiss 弹层再 recreate；
-     * 非结构变化则由 layerManager 就地同步可见性/矢量/栅格层并刷新叠加层。
+     * 非结构变化则由 layerManager 就地同步可见性/矢量/栅格层并刷新叠加层（栅格层增删改已可就地换层，不再重建）。
      */
     override fun onDocumentChanged(document: MapDocument) {
         if (!layerManager.onDocumentChanged(document)) return
         if (supportFragmentManager.findFragmentByTag(TAG_LAYER_MANAGE_DIALOG) != null) {
-            AppLog.i(TAG, "文档图源/栅格结构变化，图层管理对话框打开中，挂起重建至对话框关闭")
+            AppLog.i(TAG, "文档底图图源结构变化，图层管理对话框打开中，挂起重建至对话框关闭")
             pendingRecreateOnLayerDialogDismiss = true
             return
         }
-        AppLog.i(TAG, "文档图源/栅格结构变化，重建界面")
+        AppLog.i(TAG, "文档底图图源结构变化，重建界面")
         // 重建前先移除已打开的弹层：recreate() 会复原仍存在的带参构造 BottomSheetDialogFragment（无公共无参构造），
         // 反射实例化失败会崩溃；结构变更常由弹层自身触发，故此处同步移除确保其不进入被保存的状态。
         dismissOpenDialogs()

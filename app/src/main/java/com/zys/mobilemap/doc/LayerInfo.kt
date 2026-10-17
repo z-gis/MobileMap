@@ -16,6 +16,13 @@ class LayerInfo {
     var styleVersion: Int = 0
 
     /**
+     * 栅格加载模式（仅 [TYPE_RASTER] 图层使用）：true=全幅加载（整幅直读为一张贴图一次性呈现），
+     * false（默认）=分瓦加载（后台转瓦片、逐级呈现的老路）。切换即图层结构变化，经 recreate 重建生效
+     * （见 MapLayerManager.rasterKey）。宽松读取：文档缺字段时按默认 false，零迁移。
+     */
+    var rasterFullExtent: Boolean = false
+
+    /**
      * 级别可见性——自动值：首次加载写入的默认最小显示级别（固定为 5）。
      * 当前级别 < 生效级别时隐藏图层（整层入屏、要素密集成片无辨识意义）。
      * `-1` 表示尚未初始化。生效规则见 [userMinDisplayLevel]。
@@ -49,6 +56,7 @@ class LayerInfo {
         o.put("visible", visible)
         o.put("type", type ?: JSONObject.NULL)
         if (styleVersion != 0) o.put("styleVersion", styleVersion)
+        if (rasterFullExtent) o.put("rasterFullExtent", true)
         if (autoMinDisplayLevel != -1) o.put("autoMinDisplayLevel", autoMinDisplayLevel)
         if (userMinDisplayLevel != -1) o.put("userMinDisplayLevel", userMinDisplayLevel)
         val style = vectorStyle
@@ -70,6 +78,7 @@ class LayerInfo {
             if (o.has("visible")) l.visible = o.getBoolean("visible")
             if (o.has("type") && !o.isNull("type")) l.type = o.getString("type")
             if (o.has("styleVersion")) l.styleVersion = o.optInt("styleVersion")
+            l.rasterFullExtent = o.optBoolean("rasterFullExtent", false)
             if (o.has("autoMinDisplayLevel")) l.autoMinDisplayLevel = o.optInt("autoMinDisplayLevel", -1)
             if (o.has("userMinDisplayLevel")) l.userMinDisplayLevel = o.optInt("userMinDisplayLevel", -1)
             val style = o.optJSONObject("vectorStyle")

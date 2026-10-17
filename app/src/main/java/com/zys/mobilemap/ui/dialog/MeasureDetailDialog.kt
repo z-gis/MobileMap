@@ -10,10 +10,11 @@ import com.zys.mobilemap.R
 
 /**
  * 测量详情 BottomSheet：点击已保存测量几何后弹出（与要素详情弹层样式一致）。
- * 标题为测量名称，中间为样式编辑区（颜色色块 + 线宽步进），底部按键：删除/保存。
+ * 标题为测量名称，中间为样式编辑区（颜色色块 + 线宽步进），底部按键：删除/分享/保存。
  *
  * 颜色以 ARGB Int 存取（与 measurement 表 color 列一致）；
  * 保存经 [onSave] 写库并重载测量图层，删除经 [onDelete] 走宿主删除确认。
+ * [onShare] 为空（测量详情默认不传）时分享按键隐藏，仅轨迹详情传入时展示。
  */
 class MeasureDetailDialog(
     private val title: String,
@@ -24,7 +25,9 @@ class MeasureDetailDialog(
     private val initialColor: Int,
     private val initialWidth: Int,
     private val onSave: ((color: Int, width: Int) -> Unit)?,
-    private val onDelete: (() -> Unit)?
+    private val onDelete: (() -> Unit)?,
+    /** 分享回调（轨迹详情专用，导出 shp 数据包）；为空时不展示分享按键 */
+    private val onShare: (() -> Unit)? = null
 ) : BaseBottomSheetDialog(R.layout.dialog_measure_detail) {
 
     private var color = initialColor
@@ -72,10 +75,20 @@ class MeasureDetailDialog(
                 .setOnClickListener { applyWidth(lineWidth + 1) }
         }
 
-        // 底部按键：删除（宿主确认）/ 保存
+        // 底部按键：删除（宿主确认）/ 分享（仅轨迹详情传入回调时展示）/ 保存
         sheet.findViewById<Button>(R.id.measure_detail_btn_delete).setOnClickListener {
             onDelete?.invoke()
             dismiss()
+        }
+        val shareButton = sheet.findViewById<Button>(R.id.measure_detail_btn_share)
+        if (onShare != null) {
+            shareButton.visibility = View.VISIBLE
+            shareButton.setOnClickListener {
+                onShare.invoke()
+                dismiss()
+            }
+        } else {
+            shareButton.visibility = View.GONE
         }
         sheet.findViewById<Button>(R.id.measure_detail_btn_save).setOnClickListener {
             onSave?.invoke(color, lineWidth)

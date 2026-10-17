@@ -171,6 +171,14 @@ internal class CameraNavigator(
      * 故即时定位（与 [zoomBy]/[moveToLocation] 同口径）。
      */
     fun zoomToExtent(minLon: Double, minLat: Double, maxLon: Double, maxLat: Double) {
+        // 四至有效性防线：投影坐标（米）被当作经纬度传进来时，相机会飞到纬 4900000 这类
+        // 无对应瓦片的空域——表现为「加载后看不到瓦片」。此处拒绝移动，保持当前视角。
+        if (minLon < -180.0 || maxLon > 180.0 || minLat < -90.0 || maxLat > 90.0 ||
+            minLon > maxLon || minLat > maxLat
+        ) {
+            AppLog.w(TAG, "四至超出经纬度范围，跳过缩放: [$minLon, $minLat, $maxLon, $maxLat]")
+            return
+        }
         val span = maxOf(maxLon - minLon, maxLat - minLat).coerceAtLeast(0.01)
         val altitude = (span * 111320.0 * 1.5).coerceAtLeast(MercatorZoom.MIN_CAMERA_ALTITUDE)
         mapView.setCamera(
@@ -192,6 +200,8 @@ internal class CameraNavigator(
         val extent = NativeLayerInfo.getLayerExtent(openPath)
         if (extent != null && extent.size == 4) {
             zoomToExtent(extent[0], extent[1], extent[2], extent[3])
+        } else {
+            AppLog.w(TAG, "图层四至读取失败: $openPath")
         }
     }
 

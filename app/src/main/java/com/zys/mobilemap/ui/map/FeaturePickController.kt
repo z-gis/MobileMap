@@ -48,6 +48,12 @@ internal interface PickHitRouter {
 }
 
 /**
+ * 长按命中的可编辑文件矢量要素目标（供宿主弹要素编辑圆菜单）。
+ * @param layerIndex native 矢量层索引；@param fid 要素 FID；@param path 源文件路径
+ */
+internal data class PickedFeature(val layerIndex: Int, val fid: Long, val path: String)
+
+/**
  * 矢量拾取与选中详情控制器（自 MainActivity 拆出）：单击地图命中分发（测量拦截→叠加命中→文件矢量拾取）、
  * 黄色选中高亮层管理、要素详情弹层（属性后台回取回填）、属性写回与样地调查入口。
  *
@@ -100,6 +106,27 @@ internal class FeaturePickController(
         if (path.isNullOrEmpty()) return
         highlightSelectedFeature(layerIndex, fid, path)
         showVectorFeatureDetail(path, fid)
+    }
+
+    /**
+     * 长按地图命中文件矢量要素：用于弹要素编辑入口。命中文件矢量则画选中高亮并回传 [PickedFeature]；
+     * 命中业务叠加层（测量/轨迹/拍照/样地）或空白则不高亮、回传 null（宿主据此回退到落点通用菜单）。
+     * 与 [onMapTap] 复用同一套 native [NativeMapView.pickVector] 拾取与 [highlightSelectedFeature] 高亮。
+     */
+    fun onMapLongPress(x: Float, y: Float): PickedFeature? {
+        val hit = mapView.pickVector(x, y) ?: return null
+        if (hit.size < 2) return null
+        val layerIndex = hit[0].toInt()
+        val fid = hit[1]
+        // 业务叠加层不作为“矢量要素编辑”目标：交回宿主走通用落点菜单
+        if (overlayManager.hitTest(layerIndex, fid) != OverlayHit.None) return null
+        // 命中的是自身选中高亮层（理论上已置 noPick，此处作防护兜底）
+        if (layerIndex == selectedHighlightIndex) return null
+        val info = layerManager.layerInfoByIndex(layerIndex) ?: return null
+        val path = info.path
+        if (path.isNullOrEmpty()) return null
+        highlightSelectedFeature(layerIndex, fid, path)
+        return PickedFeature(layerIndex, fid, path)
     }
 
     /**
@@ -165,7 +192,11 @@ internal class FeaturePickController(
         selectedPath = path
         selectedFid = fid
         when (fg.type) {
-            0 -> mapView.updateOverlayPoints(idx, fg.lonlat, longArrayOf(fid))
+            // MultiPoint 展平后 fg 会含多个点（同 fid 多派生），fids 需逐点对齐到同 fid；
+            // 单点情形 lonlat.size/2==1，行为等价旧 longArrayOf(fid)。
+            0 -> mapView.updateOverlayPoints(
+                idx, fg.lonlat, LongArray(fg.lonlat.size / 2) { fid }
+            )
             1 -> mapView.updateOverlayLines(
                 idx, fg.lonlat, fg.ringCounts, LongArray(fg.ringCounts.size) { fid }
             )

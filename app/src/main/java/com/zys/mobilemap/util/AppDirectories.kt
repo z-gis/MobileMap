@@ -17,8 +17,11 @@ import java.io.File
  * - [TILES_DIR_NAME]  底图与栅格瓦片离线缓存（按图源分子目录）
  * - [LOG_DIR_NAME]    运行日志
  *
- * 各 getXxxDir 会顺带建目录（见 [ensureDir]）；建目录失败时仍返回该路径，
- * 由调用方在真正读写时暴露错误，而不是在这里静默把数据改写到别处。
+ * 各 getXxxDir 会顺带建目录（见 [ensureDir]）。基目录（含 `/调查宝/` 根）在首次
+ * 触达时做一次「探测写」校验（见 [effectiveBaseDir]）：外部存储根不可写（如个别
+ * ROM 上“所有文件访问”授权未真正落地、FUSE 建目录静默失败）时，整体回退到应用
+ * 私有目录，保证后续 map.db / document.json / 瓦片缓存一定能落盘、不再启动闪退。
+ * 回退后所有子目录 getter 自动跟随，无需调用方感知。
  */
 object AppDirectories {
 
@@ -38,7 +41,18 @@ object AppDirectories {
 
     const val LOG_DIR_NAME = "log"
 
-    fun getRootDir(context: Context): File = File(getBaseDir(context), ROOT_DIR_NAME)
+    private const val TAG = "AppDirectories"
+
+    /** 基目录探测结果缓存（进程内一次判定）；null 表示尚未判定 */
+    @Volatile
+    private var baseDirCache: File? = null
+
+    /** 是否已回退到应用私有目录（供设置/关于页提示实际数据路径） */
+    @Volatile
+    var usingPrivateFallback: Boolean = false
+        private set
+
+    fun getRootDir(context: Context): File = File(effectiveBaseDir(context), ROOT_DIR_NAME)
 
     fun getLayerDir(context: Context): File = ensureDir(File(getRootDir(context), LAYER_DIR_NAME))
 
@@ -80,19 +94,72 @@ object AppDirectories {
     }
 
     /**
-     * 数据根目录：优先外部存储根（/storage/emulated/0），仅当系统未挂载外部存储时
-     * 回退应用内部目录（真机上不会发生）。
+     * 生效基目录：进程内首次触达时判定一次并缓存。
      *
-     * 不再回退 `File(".")`：它在 Android 上解析为根目录 `/`，不可写，
-     * 会让后续所有写入静默失败而看不出原因。
+     * 优先外部存储根（`/storage/emulated/0`）并实测 `/调查宝/` 可建可写；不可用时
+     * 回退应用私有外部目录（`Android/data/<pkg>/files`，免权限、必然可写），私有外部
+     * 目录也不可用（如外部存储整体未挂载）再退内部 [Context.getFilesDir]。
+     *
+     * 判定结果写入 [baseDirCache] 后再打日志，避免 [AppLog] 解析日志目录回调
+     * [getLogDir] 时再次进入本方法造成递归。
      */
-    private fun getBaseDir(context: Context): File =
-        Environment.getExternalStorageDirectory() ?: context.filesDir
+    private fun effectiveBaseDir(context: Context): File {
+        baseDirCache?.let { return it }
+        synchronized(this) {
+            baseDirCache?.let { return it }
+            val app = context.applicationContext
+            val primary = primaryBase()
+            val usable = primary != null && probeDirUsable(File(primary, ROOT_DIR_NAME))
+            val chosen = if (usable) primary!! else fallbackBase(app)
+            usingPrivateFallback = !usable
+            baseDirCache = chosen
+            val rootPath = File(chosen, ROOT_DIR_NAME).absolutePath
+            if (usable) {
+                AppLog.i(TAG, "数据根目录（外部存储）=$rootPath")
+            } else {
+                AppLog.w(TAG, "外部存储根不可写，数据根目录回退到应用私有目录=$rootPath")
+            }
+            return chosen
+        }
+    }
 
-    /** 目录不存在则创建；创建失败也返回原路径，由调用方在读写时暴露错误 */
+    /** 外部存储根；系统未挂载外部存储时返回 null */
+    private fun primaryBase(): File? = Environment.getExternalStorageDirectory()
+
+    /** 回退基目录：优先应用私有外部目录，再退内部 filesDir */
+    private fun fallbackBase(context: Context): File =
+        context.getExternalFilesDir(null) ?: context.filesDir
+
+    /**
+     * 探测目录能否创建且可写：建不出目录、或写探测文件失败均判为不可用。
+     * 覆盖 ENOENT（父目录没建出来）与 EACCES（只读挂载/授权未落地）两类失效。
+     */
+    private fun probeDirUsable(dir: File): Boolean {
+        if (!dir.isDirectory) {
+            runCatching { dir.mkdirs() }
+            if (!dir.isDirectory) return false
+        }
+        val probe = File(dir, ".wprobe")
+        return try {
+            probe.writeText("1")
+            true
+        } catch (e: Exception) {
+            false
+        } finally {
+            runCatching { probe.delete() }
+        }
+    }
+
+    /**
+     * 目录不存在则逐级创建并回读校验；创建失败仍返回该路径（基目录已由
+     * [effectiveBaseDir] 保证可写，此处失败仅可能出现在极端运行期变更）。
+     */
     private fun ensureDir(dir: File): File {
-        if (!dir.exists()) {
+        if (!dir.isDirectory) {
             dir.mkdirs()
+            if (!dir.isDirectory) {
+                AppLog.w(TAG, "目录创建失败: ${dir.absolutePath}")
+            }
         }
         return dir
     }
