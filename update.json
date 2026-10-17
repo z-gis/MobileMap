@@ -2,7 +2,7 @@
     "versionCode":  26101701,
     "versionName":  "0.3.0.6",
     "apkUrl":  "https://gitee.com/z-gis/MobileMap/releases/download/0.3.0.6/mobilemap-v0.3.0.6.apk",
-    "apkSizeBytes":  47986472,
+    "apkSizeBytes":  48179292,
     "changelog":  "1. 修复外部打开 zip（内含 shp）时数据在子目录下无法正确解压加载的问题，现递归查找并解压全部 shp，多 shp 文件自动全部加载\n2. 照片浏览器支持双指缩放（1~8 倍）、双击放大、拖动平移，照片列表新增重命名按键\n3. 轨迹详情新增分享按键，导出为标准 ESRI Shapefile（.shp/.shx/.dbf/.prj/.cpg）打包为 zip 分享",
     "force":  false
 }
