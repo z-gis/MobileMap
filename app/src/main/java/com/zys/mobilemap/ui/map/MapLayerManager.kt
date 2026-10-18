@@ -1,6 +1,7 @@
 package com.zys.mobilemap.ui.map
 
 import android.app.Activity
+import android.database.sqlite.SQLiteDatabase
 import android.view.View
 import android.widget.ImageView
 import android.widget.Toast
@@ -346,10 +347,12 @@ internal class MapLayerManager(
             // 目录名用原文件名称（去扩展名、净化非法字符）；由哈希改命名后旧哈希目录不再命中，瓦片全部重新生成
             val rasterName = File(path).name.substringBeforeLast('.')
             val cacheDir = if (rasterTileCacheEnabled()) {
-                File(
-                    AppDirectories.getTileCacheDir(activity),
-                    "raster/${sanitizeDirName(rasterName)}"
-                ).absolutePath
+                val mbtiles = tileCacheFile("raster/${sanitizeDirName(rasterName)}")
+                migrateLegacyTileDir(
+                    File(AppDirectories.getTileCacheDir(activity), "raster/${sanitizeDirName(rasterName)}"),
+                    mbtiles
+                )
+                mbtiles.absolutePath
             } else {
                 // 空串 = 本层不碰磁盘缓存（既不读也不写），每块可见瓦片都即时生成
                 ""
@@ -547,13 +550,70 @@ internal class MapLayerManager(
                 abs(last.minLat - next.minLat) > latTol || abs(last.maxLat - next.maxLat) > latTol
     }
 
-    /** 装配一个瓦片图层：定位其磁盘缓存目录 + 解析联网 URL 模板，按 [overlay] 标志加入 native 渲染栈。
+    /** 装配一个瓦片图层：定位其磁盘缓存文件 + 解析联网 URL 模板，按 [overlay] 标志加入 native 渲染栈。
      * 离线开关（[com.zys.mobilemap.doc.SystemConfig.tileOfflineOnly]）打开时 URL 模板传空串——native 约定即「禁用联网、只读磁盘缓存瓦片」。 */
     private fun addLayer(src: MapSource, overlay: Boolean) {
-        val cacheDir = File(AppDirectories.getTileCacheDir(activity), sanitizeDirName(src.name ?: ""))
+        val name = sanitizeDirName(src.name ?: "")
+        val mbtiles = tileCacheFile(name)
+        migrateLegacyTileDir(File(AppDirectories.getTileCacheDir(activity), name), mbtiles)
         val urlTemplate = if (tileOfflineOnly()) "" else (resolveUrl(src) ?: "")
-        mapView.addTileLayer(cacheDir.absolutePath, urlTemplate, src.maxLevel, overlay)
-        AppLog.i(TAG, "图层[${src.name}] overlay=$overlay 缓存目录=${cacheDir.absolutePath} 联网=${urlTemplate.isNotEmpty()} maxLevel=${src.maxLevel} url=$urlTemplate")
+        mapView.addTileLayer(mbtiles.absolutePath, urlTemplate, src.maxLevel, overlay)
+        AppLog.i(TAG, "图层[${src.name}] overlay=$overlay 缓存文件=${mbtiles.absolutePath} 联网=${urlTemplate.isNotEmpty()} maxLevel=${src.maxLevel} url=$urlTemplate")
+    }
+
+    /** 图源缓存文件：`/调查宝/tiles/<净化名>.mbtiles`（引擎 TileCache 路径以 .mbtiles 结尾即走单文件 SQLite 后端） */
+    private fun tileCacheFile(name: String): File =
+        File(AppDirectories.getTileCacheDir(activity), "$name.mbtiles")
+
+    /**
+     * 旧目录式瓦片缓存一次性迁入单文件 MBTiles：`<dir>/<z>/<x>_<y>.tile` → [mbtiles]（INSERT OR REPLACE 幂等，
+     * TMS y 翻转与引擎 TileCache 同构，schema 逐字一致）。迁移在加层前执行，native 打开即命中。
+     * 全部迁完才删旧目录；中途失败保留旧目录回滚事务，下次启动重迁。无旧目录时零开销返回。
+     */
+    private fun migrateLegacyTileDir(dir: File, mbtiles: File) {
+        if (!dir.isDirectory) return
+        var migrated = 0
+        try {
+            mbtiles.parentFile?.mkdirs()
+            SQLiteDatabase.openOrCreateDatabase(mbtiles.absolutePath, null).use { db ->
+                db.execSQL("CREATE TABLE IF NOT EXISTS tiles (zoom_level INTEGER, tile_column INTEGER, tile_row INTEGER, tile_data BLOB, added_at INTEGER, PRIMARY KEY (zoom_level, tile_column, tile_row))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS metadata (name TEXT, value TEXT)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_tiles ON tiles (zoom_level, tile_column, tile_row)")
+                db.beginTransaction()
+                try {
+                    val sql = "INSERT OR REPLACE INTO tiles (zoom_level, tile_column, tile_row, tile_data, added_at) VALUES (?,?,?,?,?)"
+                    val nowSec = System.currentTimeMillis() / 1000
+                    val zDirs = dir.listFiles(java.io.FileFilter { it.isDirectory }) ?: emptyArray()
+                    for (zDir in zDirs) {
+                        val z = zDir.name.toIntOrNull() ?: continue
+                        val tmsRow = (1 shl z) - 1
+                        val tiles = zDir.listFiles() ?: emptyArray()
+                        for (f in tiles) {
+                            val m = TILE_FILE_REGEX.matchEntire(f.name) ?: continue
+                            val x = m.groupValues[1].toIntOrNull() ?: continue
+                            val y = m.groupValues[2].toIntOrNull() ?: continue
+                            if (!f.exists() || f.length() == 0L) continue
+                            val stmt = db.compileStatement(sql)
+                            stmt.bindLong(1, z.toLong())
+                            stmt.bindLong(2, x.toLong())
+                            stmt.bindLong(3, (tmsRow - y).toLong())
+                            stmt.bindBlob(4, f.readBytes())
+                            // 入库时间沿用旧瓦片文件的最后修改时间（≈原下载落盘时刻），缺失回退当前
+                            stmt.bindLong(5, f.lastModified().takeIf { it > 0 }?.let { it / 1000 } ?: nowSec)
+                            stmt.executeInsert()
+                            migrated++
+                        }
+                    }
+                    db.setTransactionSuccessful()
+                } finally {
+                    db.endTransaction()
+                }
+            }
+            dir.deleteRecursively()
+            AppLog.i(TAG, "瓦片缓存迁移完成: ${dir.absolutePath} → ${mbtiles.name} 共$migrated 块")
+        } catch (e: Exception) {
+            AppLog.w(TAG, "瓦片缓存迁移失败（保留旧目录，下次重试）: ${dir.absolutePath}: ${e.message}")
+        }
     }
 
     /**
@@ -709,5 +769,8 @@ internal class MapLayerManager(
 
         // 胶囊显示后的状态轮询间隔（250ms 粒度足以平滑收尾，轮询 JNI 为纯查询不触发重绘）
         private const val VECTOR_LOADING_POLL_MS = 250L
+
+        /** 旧目录式缓存瓦片文件名 `<x>_<y>.tile`（迁移时解析坐标用） */
+        private val TILE_FILE_REGEX = Regex("(\\d+)_(\\d+)\\.tile")
     }
 }

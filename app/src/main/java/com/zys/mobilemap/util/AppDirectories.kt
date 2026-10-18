@@ -14,7 +14,7 @@ import java.io.File
  * - [MEDIA_DIR_NAME]  拍照点位数据库 media.db 及各点位附件子目录
  * - [SAMPLE_DIR_NAME] 示例数据（预留）
  * - [CONFIG_DIR_NAME] 地图文档 document.json
- * - [TILES_DIR_NAME]  底图与栅格瓦片离线缓存（按图源分子目录）
+ * - [TILES_DIR_NAME]  底图与栅格瓦片离线缓存（每图源一个 .mbtiles 单文件，旧目录式缓存加层时自动迁入）
  * - [LOG_DIR_NAME]    运行日志
  * - [PROJECT_DIR_NAME] 工程 GeoPackage 文件（0.4.0.0 工程模块）
  *
