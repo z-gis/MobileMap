@@ -42,6 +42,14 @@ object LegacyMigration {
         return migrated
     }
 
+    /** 旧三库（map.db / media.db / sample_survey.db）任一仍存在：启动期判定是否走迁移文案的依据 */
+    fun hasLegacyStores(context: Context): Boolean {
+        val root = AppDirectories.getRootDir(context)
+        return File(File(root, AppDirectories.MAP_DIR_NAME), "map.db").exists() ||
+                File(File(root, AppDirectories.MEDIA_DIR_NAME), "media.db").exists() ||
+                File(File(root, AppDirectories.SAMPLE_DIR_NAME), "sample_survey.db").exists()
+    }
+
     // ---- map.db（轨迹 + 测量）----
 
     private fun migrateMapStore(context: Context, p: Project): Boolean {

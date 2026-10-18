@@ -21,6 +21,7 @@ import com.zys.mobilemap.doc.DocumentManager
 import com.zys.mobilemap.doc.MapDocument
 import com.zys.mobilemap.location.LocationManager
 import com.zys.mobilemap.media.MediaCaptureHelper
+import com.zys.mobilemap.project.LegacyMigration
 import com.zys.mobilemap.project.Project
 import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.survey.SampleSurveyActivity
@@ -151,6 +152,11 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
     /** 启动初始化是否完成：native/proj/文档加载与地图 UI 装配均完成后为 true；onResume/onPause/onDestroy 据此守卫 */
     private var initialized = false
 
+    /** 地图 UI（setupMapUi）是否装配完成：工程装载/旧数据迁移后台化后与 [initialized] 解耦，
+     *  迁移期间 initialized 已 true 但 navigator/overlayManager/importHandler 尚未创建，
+     *  生命周期回调依赖此门跳过地图相关逻辑。 */
+    private var mapReady = false
+
     /** 冷启动首装遮罩已显示标记：仅此时才在装配完成后挂图层加载门控驱动淡出（recreate/恢复场景不启动） */
     private var coldStartOverlay = false
 
@@ -219,6 +225,12 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         if (initialized) return
         initialized = true
 
+        // MediaCaptureHelper 的 registerForActivityResult 须在 STARTED 前注册：工程装载/迁移已后台化，
+        // setupMapUi 延迟到 RESUMED 后执行，故注册提前至此（onCreate 链路）；回调里 overlayManager
+        // 为 lateinit，实际触发（拍照返回）时地图必已装配完成。
+        mediaCaptureHelper = MediaCaptureHelper(this) { overlayManager.rebuild() }
+        mediaCaptureHelper?.register()
+
         // 启动链耗时打点：主线程串行初始化各阶段逐项记录，便于真机核对卡顿分解
         // native 库由 globecore 门面类（NativeSrs/NativeLayerInfo/NativeVector）首次触达时自动加载
         var t = SystemClock.elapsedRealtime()
@@ -236,10 +248,30 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
 
         // 工程模块（0.4.0.0）：恢复上次工程 / 首次创建默认工程（旧工作库数据自动吸入）。
         // 须在 setupMapUi 前完成：打开工程会导入工作库，叠加层首轮重建须读到工程数据。
-        ProjectManager.get(this).ensureLoaded()
+        // 后台化：首启旧数据迁移（旧三库→GeoPackage + 旧瓦片目录→MBTiles）可达数分钟，全部挪后台，
+        // 期间遮罩显示「正在迁移旧版数据」并暂停 8s 超时兜底；完成后主线程继续装配地图。
+        val pm = ProjectManager.get(this)
+        val doc = DocumentManager.getInstance().getDocument()
+        val migrating = LegacyMigration.hasLegacyStores(this)
+        if (coldStartOverlay && migrating) startup.beginMigrationPhase(loadingOverlay)
+        val t0 = SystemClock.elapsedRealtime()
+        Thread {
+            pm.ensureLoaded()
+            MapLayerManager.migrateBaseTileCaches(this, doc)
+            AppLog.i(TAG, "启动耗时 工程装载+旧数据迁移=${SystemClock.elapsedRealtime() - t0}ms")
+            runOnUiThread {
+                if (coldStartOverlay && migrating) startup.endMigrationPhase(loadingOverlay)
+                continueSetupAfterProject()
+            }
+        }.start()
+    }
 
-        t = SystemClock.elapsedRealtime()
+    /** 工程装载（含旧数据迁移）完成后的主线程续段：地图装配与启动收尾（自 initializeAndSetup 拆出） */
+    private fun continueSetupAfterProject() {
+        if (isFinishing || isDestroyed) return
+        val t = SystemClock.elapsedRealtime()
         setupMapUi()
+        mapReady = true
         AppLog.i(TAG, "启动耗时 UI装配合计=${SystemClock.elapsedRealtime() - t}ms")
 
         // 系统外部打开数据（文件管理器/微信分享）：初始化完成后立即处理
@@ -288,9 +320,8 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
      * 地图 UI 与各功能模块装配（原 onCreate 主体，抽为独立方法以便权限授予后续跑）：创建各协作类并接线到控件/回调。
      */
     private fun setupMapUi() {
-        // 拍照会话：尽早注册 Activity 结果回调（复用原主界面 [MediaCaptureHelper]），变更回调刷新业务叠加层
-        mediaCaptureHelper = MediaCaptureHelper(this) { overlayManager.rebuild() }
-        mediaCaptureHelper?.register()
+        // 拍照会话：MediaCaptureHelper 已在 initializeAndSetup（STARTED 前）注册（registerForActivityResult 时序约束），
+        // 此处仅依赖其变更回调刷新业务叠加层
 
         val doc = DocumentManager.getInstance().getDocument()
 
@@ -606,7 +637,11 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         exitConfirmDialog = androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("退出确认")
             .setMessage("是否退出应用？")
-            .setPositiveButton("退出") { _, _ -> finish() }
+            .setPositiveButton("退出") { _, _ ->
+                // 退出前兜底落盘（同步等待）：防抖窗口/后台队列中未写完的工程数据在进程结束前强制写盘
+                ProjectManager.get(this).saveNow()
+                finish()
+            }
             .setNegativeButton("取消", null)
             .create()
         exitConfirmDialog?.show()
@@ -676,8 +711,8 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        // 未初始化完成前（如权限页返回前）外部 VIEW intent 先暂存，初始化完成后统一处理
-        if (!initialized) return
+        // 未装配完成前（工程装载/迁移后台执行中）外部 VIEW intent 先暂存，装配完成后统一处理
+        if (!mapReady) return
         importHandler.handleViewIntent(intent)
     }
 
@@ -691,8 +726,8 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
             recreate()
             return
         }
-        // 未完成初始化时地图尚未装配（mapView 无图层），跳过依赖它的刷新逻辑
-        if (!initialized) return
+        // 未完成地图装配时（迁移后台执行中）跳过依赖 overlayManager/navigator 的刷新逻辑
+        if (!mapReady) return
         // GLSurfaceView 要求：驱动 GL 渲染线程
         mapView.onResume()
         // 刷新业务叠加层：数据签名变化才重建（捕获设置开关切换 / 外部数据库变更 / 样地调查返回后新增样地）
@@ -706,8 +741,8 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
     override fun onPause() {
         super.onPause()
         if (::navigator.isInitialized) navigator.stopPolling()
-        // 未完成初始化时地图尚未装配，跳过相机保存与 GL 暂停
-        if (!initialized) return
+        // 未完成地图装配时跳过相机保存与 GL 暂停
+        if (!mapReady) return
         // 把当前视角存到本界面独立的 SharedPreferences（不碰共享文档相机），最后暂停 GL 线程
         navigator.saveCameraState()
         mapView.onPause()

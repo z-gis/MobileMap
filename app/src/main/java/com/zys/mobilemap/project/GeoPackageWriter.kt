@@ -35,12 +35,30 @@ class GeoPackageWriter(context: Context) {
      */
     fun write(project: Project, filePath: String): Boolean {
         return try {
-            val json = project.toJson().toString()
-            val ok = nativeWriteGeoPackage(filePath, json)
-            Log.i(TAG, "write: $filePath -> $ok")
-            ok
+            writeEncoded(encode(project), filePath)
         } catch (e: JSONException) {
             Log.e(TAG, "write: JSON 序列化失败", e)
+            false
+        }
+    }
+
+    /**
+     * 主线程快照：把工程序列化为 JSON 字符串。此后内存工程可继续被改动而不影响本次落盘内容，
+     * 是「后台写盘」（[writeEncoded]）与主线程改动解耦的关键——序列化留在调用线程完成。
+     */
+    fun encode(project: Project): String = project.toJson().toString()
+
+    /**
+     * 后台落盘：仅持 [json] 字符串做 native 写入（GDAL 整文件重建），不吃内存工程对象，
+     * 供保存线程池安全执行（无并发撕裂风险）。
+     */
+    fun writeEncoded(json: String, filePath: String): Boolean {
+        return try {
+            val ok = nativeWriteGeoPackage(filePath, json)
+            Log.i(TAG, "writeEncoded: $filePath -> $ok")
+            ok
+        } catch (e: Exception) {
+            Log.e(TAG, "writeEncoded: $filePath 写入失败", e)
             false
         }
     }

@@ -195,17 +195,23 @@ class ProjectManager private constructor(context: Context) {
         return p
     }
 
-    /** 保存工程（写入 GeoPackage；落盘前取消待执行的防抖保存，避免重复整文件重写） */
+    /** 保存工程（主线程快照 + 后台线程落盘：GDAL 整文件重写不再阻塞主线程，删除/记录轨迹时平移地图不卡顿）
+     *  返回 true 表示已提交落盘任务（写入结果异步，失败仅记日志；需确定性落盘用 [saveNow]） */
     fun saveProject(project: Project?): Boolean {
         if (project == null) return false
         mainHandler.removeCallbacks(autosaveRunnable)
         project.updateTime = System.currentTimeMillis()
         val fileName = sanitizeFileName(project.name ?: "未命名工程") + ".gpkg"
         val filePath = File(projectsDir, fileName).absolutePath
-        val ok = gpkgWriter.write(project, filePath)
-        Log.i(TAG, "saveProject: ${project.name} -> $ok")
-        return ok
+        val json = gpkgWriter.encode(project) // 主线程快照，此后内存工程可继续改
+        saveExecutor.execute { gpkgWriter.writeEncoded(json, filePath) }
+        Log.i(TAG, "saveProject(异步): ${project.name} 已提交")
+        return true
     }
+
+    /** 保存任务封装：快照 + 目标路径（同步等待类 API 共用） */
+    private fun prepareWrite(project: Project, filePath: String): Pair<String, String> =
+        Pair(gpkgWriter.encode(project), filePath)
 
     /** 另存为 */
     fun saveProjectAs(project: Project?, newName: String): Boolean {
@@ -214,7 +220,8 @@ class ProjectManager private constructor(context: Context) {
         return saveProject(project)
     }
 
-    /** 导出工程为 GeoPackage（先落盘当前工程，再写到 Download/调查宝/ 供分享） */
+    /** 导出工程为 GeoPackage（先落盘当前工程，再写到 Download/调查宝/ 供分享）。
+     *  导出文件由 [ok] 路径直接交给系统分享，调用返回时文件必须已在磁盘——同步等待写完。 */
     fun exportProject(project: Project?): File? {
         if (project == null) return null
         project.updateTime = System.currentTimeMillis()
@@ -222,9 +229,12 @@ class ProjectManager private constructor(context: Context) {
         if (!exportDir.exists()) exportDir.mkdirs()
         val fileName = "${sanitizeFileName(project.name ?: "未命名工程")}_${System.currentTimeMillis()}.gpkg"
         val filePath = File(exportDir, fileName).absolutePath
-        val ok = gpkgWriter.write(project, filePath)
+        val (json, _) = prepareWrite(project, filePath)
+        val ok = runCatching {
+            saveExecutor.submit(java.util.concurrent.Callable { gpkgWriter.writeEncoded(json, filePath) }).get()
+        }.getOrElse { false }
         if (ok) {
-            Log.i(TAG, "exportProject: ${project.name} -> $filePath")
+            Log.i(TAG, "exportProject: $filePath")
             return File(filePath)
         }
         Log.e(TAG, "exportProject: 导出失败 ${project.name}")
@@ -263,17 +273,26 @@ class ProjectManager private constructor(context: Context) {
         return ok
     }
 
-    /** 复制工程（直读文件，不切换当前工程） */
+    /** 复制工程（直读文件，不切换当前工程；写盘同步等待——复制完成的提示须以真实落盘为准） */
     fun duplicateProject(fileName: String, newName: String): Boolean {
         val p = gpkgWriter.read(File(projectsDir, fileName).absolutePath) ?: return false
         p.name = newName
         p.createTime = System.currentTimeMillis()
         p.updateTime = System.currentTimeMillis()
         val path = File(projectsDir, sanitizeFileName(newName) + ".gpkg").absolutePath
-        return gpkgWriter.write(p, path)
+        val (json, _) = prepareWrite(p, path)
+        return runCatching {
+            saveExecutor.submit(java.util.concurrent.Callable { gpkgWriter.writeEncoded(json, path) }).get()
+        }.getOrElse { false }
     }
 
     // ---- 防抖自动保存 ----
+
+    /** GeoPackage 写盘线程池（单线程串行）：GDAL 整文件重写是重 IO，全部离开主线程；
+     *  串行保证写写不并发，队列按序写最终以最新快照收尾（防抖已合并连续变更，队列深度 1~2）。 */
+    private val saveExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "gpkg-save").apply { priority = Thread.NORM_PRIORITY - 1 }
+    }
 
     private val autosaveRunnable = Runnable {
         val p = currentProject ?: return@Runnable
@@ -291,12 +310,19 @@ class ProjectManager private constructor(context: Context) {
     }
 
     /**
-     * 立即同步落盘（跳过防抖）：用于定型类关键写入（轨迹停表入库、拍照入库等），
-     * 调用返回时数据已在磁盘，防抖窗口内进程被杀不丢失。
+     * 立即落盘（跳过防抖）：用于定型类关键写入（轨迹停表入库、拍照入库、退出前兜底），
+     * 调用返回时数据已在磁盘，防抖窗口内进程被杀不丢失。后台池串行排队 + 同步等待实现，
+     * 等待窗口=排队写时长（低频关键点可接受），避免退回主线程重 IO。
      */
     fun saveNow() {
         val p = currentProject ?: return
-        saveProject(p)  // 内部已取消待执行防抖，避免重复重写
+        mainHandler.removeCallbacks(autosaveRunnable)
+        val fileName = sanitizeFileName(p.name ?: "未命名工程") + ".gpkg"
+        val filePath = File(projectsDir, fileName).absolutePath
+        val (json, _) = prepareWrite(p, filePath)
+        runCatching {
+            saveExecutor.submit(java.util.concurrent.Callable { gpkgWriter.writeEncoded(json, filePath) }).get()
+        }.onFailure { Log.e(TAG, "saveNow: 落盘等待失败", it) }
     }
 
     // ---- 记录 ID 分配（gpkg 落表为 fid，须 >0 且集合内唯一）----
