@@ -190,11 +190,18 @@ class ProjectManager private constructor(context: Context) {
 
     /** 打开工程：当前工程先同步落盘 → 读 gpkg 切换 [currentProject] → 记为最近工程。
      *  同步落盘防竞态：异步写时「切换到当前工程自身」（或 1.5s 防抖窗口内切换）会读到
-     *  GDAL 整文件重建中的半成品，导致切换失败。 */
+     *  GDAL 整文件重建中的半成品，导致切换失败。
+     *  工程名以文件名为准：gpkg 内 name 与文件名不一致（外部拷贝/文件管理器改名所致）时
+     *  回填文件名，否则按内部 name 落盘会另生成新文件，同名数据分叉成两份。 */
     fun openProject(filePath: String): Project? {
         currentProject?.let { saveNowProject(it) }
         val p = gpkgWriter.read(filePath)
         if (p != null) {
+            val fileBase = File(filePath).nameWithoutExtension
+            if (p.name != fileBase) {
+                Log.i(TAG, "openProject: 工程名回填 '${p.name}' -> '$fileBase'（与文件名对齐）")
+                p.name = fileBase
+            }
             currentProject = p
             rememberCurrent(filePath)
             Log.i(TAG, "openProject: $filePath -> ${p.name}")
