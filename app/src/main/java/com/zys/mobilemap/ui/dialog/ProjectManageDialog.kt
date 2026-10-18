@@ -67,7 +67,7 @@ object ProjectManageDialog {
                     Toast.makeText(activity, "工程读取失败", Toast.LENGTH_SHORT).show()
                 }
             },
-            onMore = { info -> showActionMenu(activity, pm, info, ::refreshList, onChanged, dialog) }
+            onMore = { info -> showActionMenu(activity, pm, info, ::refreshList) }
         )
         list.adapter = adapter
         view.findViewById<TextView>(R.id.project_manage_new).setOnClickListener {
@@ -88,28 +88,31 @@ object ProjectManageDialog {
             .show()
     }
 
-    /** 长按操作菜单：导出分享 / 复制 / 重命名 / 删除 */
+    /** 操作菜单：分享 / 复制 / 重命名（当前工程无删除项）/ 删除（仅非当前工程） */
     private fun showActionMenu(
         activity: Activity,
         pm: ProjectManager,
         info: ProjectManager.ProjectInfo,
-        refreshList: () -> Unit,
-        onChanged: () -> Unit,
-        dialog: AlertDialog?
+        refreshList: () -> Unit
     ) {
         val fileName = info.fileName ?: return
-        val actions = arrayOf("分享", "复制", "重命名", "删除")
+        val isCurrent = fileName == pm.currentFileName()
+        // 当前工程不可删除（工作库镜像源），其余操作正常
+        val actions = if (isCurrent)
+            arrayOf("分享", "复制", "重命名")
+        else
+            arrayOf("分享", "复制", "重命名", "删除")
         AlertDialog.Builder(activity)
             .setTitle(fileName.removeSuffix(".gpkg"))
             .setItems(actions) { _, which ->
-                when (which) {
-                    0 -> exportAndShare(activity, pm, info)
-                    1 -> {
+                when (actions[which]) {
+                    "分享" -> exportAndShare(activity, pm, info)
+                    "复制" -> {
                         val newName = uniqueCopyName(pm, fileName.removeSuffix(".gpkg"))
                         if (pm.duplicateProject(fileName, newName)) refreshList()
                     }
-                    2 -> showRenameDialog(activity, pm, fileName, refreshList)
-                    3 -> showDeleteConfirmDialog(activity, pm, fileName, refreshList, onChanged)
+                    "重命名" -> showRenameDialog(activity, pm, fileName, refreshList)
+                    "删除" -> showDeleteConfirmDialog(activity, pm, fileName, refreshList)
                 }
             }
             .show()
@@ -168,28 +171,15 @@ object ProjectManageDialog {
             .show()
     }
 
-    /** 删除确认：删除当前工程后由 ProjectManager 置空当前工程，并确保回退到默认工程 */
+    /** 删除确认（仅非当前工程可达此入口；当前工程在操作菜单中不显示删除项） */
     private fun showDeleteConfirmDialog(
-        activity: Activity, pm: ProjectManager, fileName: String,
-        refreshList: () -> Unit, onChanged: () -> Unit
+        activity: Activity, pm: ProjectManager, fileName: String, refreshList: () -> Unit
     ) {
-        val isCurrent = fileName == pm.currentFileName()
-        val msg = if (isCurrent)
-            "这是当前工程：删除后地图上的轨迹/测量/拍照将一并清空，并自动新建空「默认工程」。该操作不可恢复，是否继续？"
-        else
-            "删除后该工程文件（.gpkg）不可恢复，是否继续？"
         AlertDialog.Builder(activity)
             .setTitle("删除工程")
-            .setMessage(msg)
+            .setMessage("删除后该工程文件（.gpkg）不可恢复，是否继续？")
             .setPositiveButton("删除") { _, _ ->
-                if (pm.deleteProject(fileName)) {
-                    if (isCurrent) {
-                        // 当前工程被删：重置为空默认工程（数据随删除清空，工作库同步清空）
-                        pm.resetToEmptyDefault()
-                        onChanged()
-                    }
-                    refreshList()
-                }
+                if (pm.deleteProject(fileName)) refreshList()
             }
             .setNegativeButton("取消", null)
             .show()

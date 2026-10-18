@@ -104,22 +104,6 @@ class ProjectManager private constructor(context: Context) {
         return ok
     }
 
-    /**
-     * 当前工程被删除后的回退（工程管理对话框删除当前/唯一工程时调用）：
-     * 新建空的默认工程并**直写文件**（不走 [saveProject] 的 syncFromStores，
-     * 删除语义 = 数据一起清掉，不做旧数据吸收），随后导入空工程清空工作库。
-     */
-    fun resetToEmptyDefault() {
-        val p = createProject(DEFAULT_PROJECT_NAME, "自动创建")
-        val file = File(projectsDir, sanitizeFileName(DEFAULT_PROJECT_NAME) + ".gpkg")
-        val ok = gpkgWriter.write(p, file.absolutePath)
-        if (ok) {
-            importToStores(p) // 空工程 → 清空工作库
-            rememberCurrent(null)
-        }
-        Log.i(TAG, "resetToEmptyDefault -> $ok")
-    }
-
     /** 检查是否有打开的工程 */
     fun hasProject(): Boolean = currentProject != null
 
