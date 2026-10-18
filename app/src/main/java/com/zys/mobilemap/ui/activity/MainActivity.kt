@@ -638,9 +638,20 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
             .setTitle("退出确认")
             .setMessage("是否退出应用？")
             .setPositiveButton("退出") { _, _ ->
-                // 退出前兜底落盘（同步等待）：防抖窗口/后台队列中未写完的工程数据在进程结束前强制写盘
-                ProjectManager.get(this).saveNow()
-                finish()
+                // 退出前兜底落盘：防抖窗口/后台队列中未写完的工程数据在进程结束前强制写盘。
+                // 落盘在后台线程同步等待（大工程 GDAL 整文件重写可达数秒，主线程等会卡死假死），
+                // 期间显示不可取消提示，落盘完成才 finish——点击退出后卡顿即此处的同步等待。
+                val saving = androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setMessage("正在保存工程数据…")
+                    .setCancelable(false)
+                    .show()
+                Thread {
+                    ProjectManager.get(this).saveNow()
+                    runOnUiThread {
+                        saving.dismiss()
+                        finish()
+                    }
+                }.start()
             }
             .setNegativeButton("取消", null)
             .create()
