@@ -80,9 +80,8 @@ object AppDirectories {
         ensureDir(getRootDir(context))
         // 以下 getter 内部已 ensureDir，此处调用只为触发建目录
         getLayerDir(context)
-        getMapDir(context)
-        getMediaDir(context)
-        getSampleDir(context)
+        // 0.4.0.0 单库后不再创建旧工作库目录（map/Media/sample）：
+        // map/sample 随旧库废弃；Media 目录仍存照片文件本体，由拍照链路按需自建
         getConfigDir(context)
         getTileCacheDir(context)
         getLogDir(context)

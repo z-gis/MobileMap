@@ -17,14 +17,13 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.lifecycleScope
 import com.zys.mobilemap.R
-import com.zys.mobilemap.db.MapDataStore
 import com.zys.mobilemap.doc.DocumentManager
 import com.zys.mobilemap.doc.MapDocument
 import com.zys.mobilemap.location.LocationManager
 import com.zys.mobilemap.media.MediaCaptureHelper
+import com.zys.mobilemap.project.Project
 import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.survey.SampleSurveyActivity
-import com.zys.mobilemap.survey.SampleSurveyStore
 import com.zys.mobilemap.ui.dialog.LayerManageDialog
 import com.zys.mobilemap.ui.dialog.MediaManageDialog
 import com.zys.mobilemap.ui.dialog.LocationDetailDialog
@@ -496,7 +495,7 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
                     0 -> mediaCaptureHelper?.launchPhotoCapture()
                     1 -> MediaManageDialog(
                         onChanged = { overlayManager.rebuild() },
-                        onZoomTo = { placemark -> navigator.zoomToMediaPlacemark(placemark) }
+                        onZoomTo = { photo -> navigator.zoomToMediaPlacemark(photo) }
                     ).show(supportFragmentManager, "MediaManageDialog")
                 }
             }
@@ -648,24 +647,24 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
 
     /** 测量叠加命中：读记录后弹测量详情（记录可能已被外部删除，空安全） */
     override fun onMeasureHit(recordId: Long) {
-        val record = MapDataStore.getInstance(this).loadMeasurements().firstOrNull { it.id == recordId }
+        val record = ProjectManager.get(this).findMeasure(recordId)
         if (record != null) measureController.showMeasureDetail(record)
     }
 
     /** 轨迹叠加命中：读记录后弹轨迹详情 */
     override fun onTrackHit(recordId: Long) {
-        val record = MapDataStore.getInstance(this).loadTracks().firstOrNull { it.id == recordId }
+        val record = ProjectManager.get(this).findTrack(recordId)
         if (record != null) trackController.showTrackDetail(record)
     }
 
     /** 拍照点位命中：弹出照片管理（[PhotoSheetDialog]） */
-    override fun onMediaHit(placemark: com.zys.mobilemap.media.MediaPlacemark) {
-        PhotoSheetDialog.show(supportFragmentManager, placemark.id, placemark.name)
+    override fun onMediaHit(photo: Project.PhotoRecord) {
+        PhotoSheetDialog.show(supportFragmentManager, photo.id, photo.name ?: "")
     }
 
     /** 样地点位命中：按 fid=样地主键打开样地调查编辑（对齐原主界面 SurveyOverlayModel 点击识别） */
     override fun onSurveyHit(plotId: Long) {
-        val plot = SampleSurveyStore.loadPlot(this, plotId) ?: return
+        val plot = ProjectManager.get(this).findSurveyPlot(plotId) ?: return
         SampleSurveyActivity.start(
             this, plot.sourcePath, plot.sourceFid, plot.compartmentNo,
             plot.centerLatitude, plot.centerLongitude, plot.id

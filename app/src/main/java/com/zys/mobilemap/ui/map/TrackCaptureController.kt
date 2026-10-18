@@ -6,16 +6,19 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.FragmentManager
-import com.zys.mobilemap.db.MapDataStore
-import com.zys.mobilemap.db.TrackRecord
 import com.zys.mobilemap.location.BackgroundLocationController
 import com.zys.mobilemap.location.LocationManager
+import com.zys.mobilemap.project.Project
+import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.track.TrackSharePackage
 import com.zys.mobilemap.ui.dialog.MeasureDetailDialog
 import com.zys.mobilemap.ui.dialog.TrackManageDialog
 import com.zys.mobilemap.util.GeoCalc
 import com.zys.globecore.NativeMapView
 import com.zys.globecore.VectorStyle as NativeVectorStyle
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -40,12 +43,11 @@ internal class TrackCaptureController(
     private val rebuildOverlays: () -> Unit
 ) {
 
-    /** 轨迹采集：记录/暂停状态 + 活动点串（[lat,lon,alt]）+ live 叠加层索引 + 草稿主键/起始时间 + 落库单线程 */
+    /** 轨迹采集：记录/暂停状态 + 活动点串（[lat,lon,alt]）+ live 叠加层索引 + 草稿起始时间 + 草稿写盘单线程 */
     private var trackRecording = false
     private var trackPaused = false
     private val trackActivePoints = mutableListOf<DoubleArray>()
     private var trackLiveIndex = -1
-    private var trackDraftId = -1L
     private var trackDraftCreatedTime = 0L
     private val trackDbExecutor = Executors.newSingleThreadExecutor()
 
@@ -65,7 +67,7 @@ internal class TrackCaptureController(
             Toast.makeText(activity, "轨迹记录进行中", Toast.LENGTH_SHORT).show()
             return
         }
-        val hasRecords = MapDataStore.getInstance(activity).loadTracks().isNotEmpty()
+        val hasRecords = ProjectManager.get(activity).hasTracks()
         if (!hasRecords) startTrackRecording() else showTrackMenu()
     }
 
@@ -103,8 +105,7 @@ internal class TrackCaptureController(
         trackPaused = false
         ensureTrackLiveLayer()
         trackDraftCreatedTime = System.currentTimeMillis()
-        trackDraftId = MapDataStore.getInstance(activity)
-            .beginDraftTrack(trackNameOf(trackDraftCreatedTime), trackDraftCreatedTime)
+        writeDraftTrack()  // 建立草稿文件（进程崩溃可恢复）
         lm.getLastLocation()?.let { appendTrackPoint(it.latitude, it.longitude, it.altitude) }
         // 记录开始 → 后台定位保活服务随记录态启动（仅当开关为开，由 Controller 门控）——息屏后仍持续定位不缺点
         BackgroundLocationController.onTrackRecordingChanged(activity, true)
@@ -134,8 +135,8 @@ internal class TrackCaptureController(
     }
 
     /**
-     * 停止轨迹记录：采集点已实时落库，此处结束草稿（写最终名称 + 清 recording 标记）；点数不足则删草稿。
-     * 先同步拆 live 层并置 trackRecording=false（capturing 转 false），落库/定型在单线程完成后回主线程重建叠加层。
+     * 停止轨迹记录：采集点已实时写入草稿文件，此处把整串定型进当前工程并删除草稿；点数不足则只删草稿。
+     * 先同步拆 live 层并置 trackRecording=false（capturing 转 false），再重建叠加层显示新轨迹。
      */
     fun stopTrackRecording() {
         if (!trackRecording) return
@@ -145,34 +146,20 @@ internal class TrackCaptureController(
         BackgroundLocationController.onTrackRecordingChanged(activity, false)
         updateTrackControlButtons()
 
-        val draftId = trackDraftId
-        trackDraftId = -1L
-        val store = MapDataStore.getInstance(activity)
+        val createdTime = trackDraftCreatedTime
         val insufficient = trackActivePoints.size < 2
-        val points = trackActivePoints.toList()
+        val points = trackActivePoints.map { doubleArrayOf(it[0], it[1], it.getOrElse(2) { 0.0 }) }
         clearActiveTrack()  // 拆 live 层 + 清活动点（capturing 转 false，后续重建可正常执行）
 
         if (insufficient) {
-            if (draftId > 0) trackDbExecutor.execute { store.deleteTrack(draftId) }
+            deleteDraftTrack()
             rebuildOverlays()
             Toast.makeText(activity, "轨迹点不足，未生成轨迹线", Toast.LENGTH_SHORT).show()
             return
         }
-        val name = trackNameOf(trackDraftCreatedTime)
-        if (draftId > 0) {
-            // 与待写入的采集点同一单线程队列，定型后回主线程重建，保证渲染含全部点
-            trackDbExecutor.execute {
-                store.finishDraftTrack(draftId, name)
-                activity.runOnUiThread { onTrackSaved() }
-            }
-        } else {
-            // 草稿建立失败的兜底：整串一次性保存
-            val pts = points.map { doubleArrayOf(it[0], it[1], it.getOrElse(2) { 0.0 }) }
-            trackDbExecutor.execute {
-                store.addTrack(name, trackDraftCreatedTime, pts)
-                activity.runOnUiThread { onTrackSaved() }
-            }
-        }
+        ProjectManager.get(activity).addTrack(trackNameOf(createdTime), createdTime, points)
+        deleteDraftTrack()
+        onTrackSaved()
     }
 
     /** 轨迹保存完成（主线程）：重建叠加层显示已存轨迹并提示 */
@@ -190,7 +177,7 @@ internal class TrackCaptureController(
     }
 
     /**
-     * 追加轨迹点（[lat,lon,alt]）：按最小间距过滤 GPS 抖动，实时写入草稿（单线程队列），并重绘 live 红线。
+     * 追加轨迹点（[lat,lon,alt]）：按最小间距过滤 GPS 抖动，实时重写草稿文件（单线程队列），并重绘 live 红线。
      * 由 [onLocation]（记录中且未暂停）与开始/继续时的定位首点调用。
      */
     private fun appendTrackPoint(lat: Double, lon: Double, alt: Double) {
@@ -201,14 +188,48 @@ internal class TrackCaptureController(
             return
         }
         trackActivePoints.add(doubleArrayOf(lat, lon, alt))
-        val draftId = trackDraftId
-        if (draftId > 0) {
-            val seq = trackActivePoints.size - 1
-            trackDbExecutor.execute {
-                MapDataStore.getInstance(activity).appendTrackPoint(draftId, seq, lat, lon, alt)
+        writeDraftTrack()
+        renderLiveTrack()
+    }
+
+    // ---- 草稿文件（崩溃恢复）：/调查宝/projects/.track_draft.json，{name,createdTime,points:[[lat,lon,alt],...]} ----
+
+    private fun draftFile(): File = File(ProjectManager.get(activity).projectsDir, DRAFT_FILE_NAME)
+
+    /** 把当前活动点串整体重写进草稿文件（单线程队列串行化；先写临时文件再 rename，防半写文件） */
+    private fun writeDraftTrack() {
+        val name = trackNameOf(trackDraftCreatedTime)
+        val created = trackDraftCreatedTime
+        val snapshot = trackActivePoints.toList()
+        val file = draftFile()
+        trackDbExecutor.execute {
+            runCatching {
+                val pts = JSONArray()
+                for (p in snapshot) {
+                    pts.put(JSONArray().apply {
+                        put(p[0]); put(p[1]); put(if (p.size > 2) p[2] else 0.0)
+                    })
+                }
+                val json = JSONObject()
+                    .put("name", name)
+                    .put("createdTime", created)
+                    .put("points", pts)
+                    .toString()
+                file.parentFile?.mkdirs()
+                val tmp = File(file.parentFile, "$DRAFT_FILE_NAME.tmp")
+                tmp.writeText(json)
+                if (!tmp.renameTo(file)) {
+                    file.delete()
+                    tmp.renameTo(file)
+                }
             }
         }
-        renderLiveTrack()
+    }
+
+    /** 删除草稿文件（定型入库或丢弃时调用） */
+    private fun deleteDraftTrack() {
+        val file = draftFile()
+        trackDbExecutor.execute { runCatching { file.delete() } }
     }
 
     /** 实时重绘活动轨迹 live 红线层（≥2 点才成线，覆盖式更新） */
@@ -243,22 +264,34 @@ internal class TrackCaptureController(
     }
 
     /**
-     * 恢复未结束的草稿轨迹（进程被回收/异常退出后）：读回已落库采集点重建 live 红线并恢复记录态。
+     * 恢复未结束的草稿轨迹（进程被回收/异常退出后）：读回草稿文件中的采集点重建 live 红线并恢复记录态。
      * 空草稿（刚开始就中断）直接清理。在 onCreate 装配叠加层后调用。
      */
     fun restoreDraftTrack() {
-        val store = MapDataStore.getInstance(activity)
-        val draft = store.loadDraftTrack() ?: return
-        if (draft.points.isEmpty()) {
-            store.deleteTrack(draft.id)
+        val file = draftFile()
+        if (!file.exists()) return
+        val json = runCatching { JSONObject(file.readText()) }.getOrNull() ?: return
+        val arr = json.optJSONArray("points")
+        val pts = mutableListOf<DoubleArray>()
+        if (arr != null) {
+            for (i in 0 until arr.length()) {
+                val p = arr.optJSONArray(i) ?: continue
+                if (p.length() < 2) continue
+                pts.add(
+                    doubleArrayOf(
+                        p.getDouble(0), p.getDouble(1),
+                        if (p.length() > 2) p.getDouble(2) else 0.0
+                    )
+                )
+            }
+        }
+        if (pts.isEmpty()) {
+            deleteDraftTrack()
             return
         }
-        trackDraftId = draft.id
-        trackDraftCreatedTime = draft.createdTime
+        trackDraftCreatedTime = json.optLong("createdTime", System.currentTimeMillis())
         trackActivePoints.clear()
-        for (p in draft.points) {
-            trackActivePoints.add(doubleArrayOf(p[0], p[1], p.getOrElse(2) { 0.0 }))
-        }
+        trackActivePoints.addAll(pts)
         trackRecording = true
         trackPaused = false
         // 草稿恢复即记录会话延续 → 按「记录态 && 开关」重新拉起保活服务
@@ -292,16 +325,16 @@ internal class TrackCaptureController(
      * 轨迹详情 BottomSheet（复用 [MeasureDetailDialog]，typeText=轨迹）：样式编辑写库后重建叠加层，删除走确认，
      * 分享按导出 shp 数据包（折线 + WGS84，见 [TrackSharePackage]）经系统分享面板发出。
      */
-    fun showTrackDetail(record: TrackRecord) {
+    fun showTrackDetail(record: Project.TrackRecord) {
         MeasureDetailDialog(
-            title = record.name,
+            title = record.name ?: "",
             typeText = "轨迹",
             geometryText = trackGeometryText(record),
             widthEditable = true,
-            initialColor = record.color,
+            initialColor = ProjectManager.parseColor(record.color, 0xFF33CCFF.toInt()),
             initialWidth = record.lineWidth,
             onSave = { color, width ->
-                MapDataStore.getInstance(activity).updateTrackStyle(record.id, color, width)
+                ProjectManager.get(activity).updateTrackStyle(record.id, color, width)
                 rebuildOverlays()
                 Toast.makeText(activity, "样式已更新", Toast.LENGTH_SHORT).show()
             },
@@ -311,20 +344,20 @@ internal class TrackCaptureController(
     }
 
     /** 轨迹量算文本：总长 + 点数 */
-    private fun trackGeometryText(record: TrackRecord): String {
+    private fun trackGeometryText(record: Project.TrackRecord): String {
         val degrees = record.points.map { doubleArrayOf(it[0], it[1]) }
         val length = GeoCalc.polylineLengthMeters(degrees)
         return "距离: " + GeoCalc.formatDistance(length) + "　·　" + record.points.size + "个点"
     }
 
     /** 删除轨迹确认：删库并重建叠加层 */
-    private fun confirmDeleteTrack(record: TrackRecord) {
+    private fun confirmDeleteTrack(record: Project.TrackRecord) {
         AlertDialog.Builder(activity)
             .setTitle("删除确认")
-            .setMessage("确定删除轨迹：${record.name} ？删除后该轨迹及其全部坐标点将一并删除。")
+            .setMessage("确定删除轨迹：${record.name ?: ""} ？删除后该轨迹及其全部坐标点将一并删除。")
             .setNegativeButton("取消", null)
             .setPositiveButton("删除") { _, _ ->
-                MapDataStore.getInstance(activity).deleteTrack(record.id)
+                ProjectManager.get(activity).removeTrack(record.id)
                 rebuildOverlays()
                 Toast.makeText(activity, "已删除", Toast.LENGTH_SHORT).show()
             }
@@ -337,7 +370,7 @@ internal class TrackCaptureController(
     )
 
     /** 缩放至轨迹：按轨迹点四至计算中心与合适高度（对齐原主界面 TrackModel.zoomToTrack） */
-    private fun zoomToTrack(track: TrackRecord) {
+    private fun zoomToTrack(track: Project.TrackRecord) {
         if (track.points.isEmpty()) return
         var minLat = Double.MAX_VALUE
         var maxLat = -Double.MAX_VALUE
@@ -358,5 +391,10 @@ internal class TrackCaptureController(
         // 下次启动由 restoreDraftTrack 恢复记录态时再据开关拉起
         if (trackRecording) BackgroundLocationController.onTrackRecordingChanged(activity, false)
         trackDbExecutor.shutdown()
+    }
+
+    companion object {
+        /** 轨迹草稿文件名（崩溃恢复用，存于工程目录下，隐藏文件不参与工程列表） */
+        private const val DRAFT_FILE_NAME = ".track_draft.json"
     }
 }

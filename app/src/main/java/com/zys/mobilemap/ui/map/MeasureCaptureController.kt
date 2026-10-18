@@ -6,8 +6,8 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.FragmentManager
-import com.zys.mobilemap.db.MapDataStore
-import com.zys.mobilemap.db.MeasurementRecord
+import com.zys.mobilemap.project.Project
+import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.ui.dialog.MeasureDetailDialog
 import com.zys.mobilemap.util.GeoCalc
 import com.zys.globecore.NativeMapView
@@ -212,7 +212,7 @@ internal class MeasureCaptureController(
                 mapView.updateOverlayLines(
                     idx, BusinessOverlayManager.flattenLonLat(measurePoints), intArrayOf(measurePoints.size), longArrayOf(0L), emptyArray()
                 )
-                updateMeasureLiveLabels(MeasurementRecord.TYPE_DISTANCE, measurePoints)
+                updateMeasureLiveLabels(Project.MeasureRecord.TYPE_DISTANCE, measurePoints)
             }
             MeasureMode.AREA -> {
                 if (measurePoints.size < 2) {
@@ -228,7 +228,7 @@ internal class MeasureCaptureController(
                     mapView.updateOverlayLines(
                         idx, BusinessOverlayManager.flattenLonLat(measurePoints), intArrayOf(2), longArrayOf(0L), emptyArray()
                     )
-                    updateMeasureLiveLabels(MeasurementRecord.TYPE_AREA, measurePoints)
+                    updateMeasureLiveLabels(Project.MeasureRecord.TYPE_AREA, measurePoints)
                     return
                 }
                 val ring = ArrayList<DoubleArray>(measurePoints.size + 1).apply {
@@ -239,7 +239,7 @@ internal class MeasureCaptureController(
                 mapView.updateOverlayPolygons(
                     idx, BusinessOverlayManager.flattenLonLat(ring), intArrayOf(ring.size), intArrayOf(1), longArrayOf(0L), emptyArray()
                 )
-                updateMeasureLiveLabels(MeasurementRecord.TYPE_AREA, measurePoints)
+                updateMeasureLiveLabels(Project.MeasureRecord.TYPE_AREA, measurePoints)
             }
             MeasureMode.NONE -> Unit
         }
@@ -296,9 +296,9 @@ internal class MeasureCaptureController(
             return
         }
         val type = when (measureMode) {
-            MeasureMode.POINT -> MeasurementRecord.TYPE_POINT
-            MeasureMode.AREA -> MeasurementRecord.TYPE_AREA
-            else -> MeasurementRecord.TYPE_DISTANCE
+            MeasureMode.POINT -> Project.MeasureRecord.TYPE_POINT
+            MeasureMode.AREA -> Project.MeasureRecord.TYPE_AREA
+            else -> Project.MeasureRecord.TYPE_DISTANCE
         }
         val now = System.currentTimeMillis()
         val name = String.format(
@@ -306,8 +306,8 @@ internal class MeasureCaptureController(
             measureModeDisplayName(measureMode), Date(now)
         )
         val points = measurePoints.map { doubleArrayOf(it[0], it[1], it.getOrElse(2) { 0.0 }) }
-        val id = MapDataStore.getInstance(activity)
-            .addMeasurement(name, type, defaultColorForMode(measureMode), now, points)
+        val id = ProjectManager.get(activity)
+            .addMeasure(name, type, defaultColorForMode(measureMode), now, points)
         if (id >= 0) Toast.makeText(activity, "测量已保存", Toast.LENGTH_SHORT).show()
         exitMeasureMode()
     }
@@ -336,16 +336,16 @@ internal class MeasureCaptureController(
      * 测量详情 BottomSheet（复用原主界面 [MeasureDetailDialog]）：标题=名称，样式区（颜色 + 线宽，点测量无线要素隐藏线宽），
      * 保存写库后经 [rebuildOverlays] 依签名变化重渲染，删除走 [confirmDeleteMeasurement]。
      */
-    fun showMeasureDetail(record: MeasurementRecord) {
+    fun showMeasureDetail(record: Project.MeasureRecord) {
         MeasureDetailDialog(
-            title = record.name,
+            title = record.name ?: "",
             typeText = measureTypeDisplayName(record.type),
             geometryText = measureGeometryText(record),
-            widthEditable = record.type != MeasurementRecord.TYPE_POINT,
-            initialColor = record.color,
+            widthEditable = record.type != Project.MeasureRecord.TYPE_POINT,
+            initialColor = ProjectManager.parseColor(record.color, defaultColorForType(record.type)),
             initialWidth = record.lineWidth,
             onSave = { color, width ->
-                MapDataStore.getInstance(activity).updateMeasurementStyle(record.id, color, width)
+                ProjectManager.get(activity).updateMeasureStyle(record.id, color, width)
                 rebuildOverlays()
                 Toast.makeText(activity, "样式已更新", Toast.LENGTH_SHORT).show()
             },
@@ -354,13 +354,13 @@ internal class MeasureCaptureController(
     }
 
     /** 删除测量确认：删库并重建叠加层 */
-    private fun confirmDeleteMeasurement(record: MeasurementRecord) {
+    private fun confirmDeleteMeasurement(record: Project.MeasureRecord) {
         AlertDialog.Builder(activity)
             .setTitle("删除确认")
-            .setMessage("确定删除测量数据：${record.name} ？")
+            .setMessage("确定删除测量数据：${record.name ?: ""} ？")
             .setNegativeButton("取消", null)
             .setPositiveButton("删除") { _, _ ->
-                MapDataStore.getInstance(activity).deleteMeasurement(record.id)
+                ProjectManager.get(activity).removeMeasure(record.id)
                 rebuildOverlays()
                 Toast.makeText(activity, "已删除", Toast.LENGTH_SHORT).show()
             }
@@ -368,11 +368,18 @@ internal class MeasureCaptureController(
     }
 
     /** 测量类型显示名（详情卡片） */
-    private fun measureTypeDisplayName(type: String): String = when (type) {
-        MeasurementRecord.TYPE_POINT -> "点位测量"
-        MeasurementRecord.TYPE_DISTANCE -> "距离测量"
-        MeasurementRecord.TYPE_AREA -> "面积测量"
+    private fun measureTypeDisplayName(type: String?): String = when (type) {
+        Project.MeasureRecord.TYPE_POINT -> "点位测量"
+        Project.MeasureRecord.TYPE_DISTANCE -> "距离测量"
+        Project.MeasureRecord.TYPE_AREA -> "面积测量"
         else -> "测量"
+    }
+
+    /** 按类型回退默认色（详情弹层 color 缺省时兜底） */
+    private fun defaultColorForType(type: String?): Int = when (type) {
+        Project.MeasureRecord.TYPE_AREA -> MapStyleColors.MEASURE_COLOR_AREA
+        Project.MeasureRecord.TYPE_POINT -> MapStyleColors.MEASURE_COLOR_POINT
+        else -> MapStyleColors.MEASURE_COLOR_DISTANCE
     }
 
     /** 测量模式显示名（用于生成记录名称前缀） */
@@ -384,18 +391,18 @@ internal class MeasureCaptureController(
     }
 
     /** 几何量算文本：点=坐标，距离=总长，面积=面积 + 周长（复用 [GeoCalc]） */
-    private fun measureGeometryText(record: MeasurementRecord): String? {
+    private fun measureGeometryText(record: Project.MeasureRecord): String? {
         if (record.points.isEmpty()) return null
         return when (record.type) {
-            MeasurementRecord.TYPE_POINT -> {
+            Project.MeasureRecord.TYPE_POINT -> {
                 val p = record.points[0]
                 String.format(Locale.getDefault(), "坐标: %.6f, %.6f", p[0], p[1])
             }
-            MeasurementRecord.TYPE_DISTANCE ->
+            Project.MeasureRecord.TYPE_DISTANCE ->
                 "距离: " + GeoCalc.formatDistance(
                     GeoCalc.polylineLengthMeters(record.points.map { doubleArrayOf(it[0], it[1]) })
                 )
-            MeasurementRecord.TYPE_AREA -> {
+            Project.MeasureRecord.TYPE_AREA -> {
                 if (record.points.size < 3) return null
                 val degrees = record.points.map { doubleArrayOf(it[0], it[1]) }
                 val closed = ArrayList(degrees).apply { add(degrees.first()) }

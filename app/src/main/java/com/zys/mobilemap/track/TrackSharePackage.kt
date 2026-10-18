@@ -8,7 +8,8 @@ import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import androidx.core.content.FileProvider
-import com.zys.mobilemap.db.TrackRecord
+import com.zys.mobilemap.project.Project
+import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.util.GeoCalc
 import com.zys.mobilemap.util.ShapefileWriter
 import java.io.File
@@ -50,7 +51,7 @@ object TrackSharePackage {
      * 分享一条轨迹：后台线程调用（IO + zip 打包可能耗时），完成后经系统分享面板发出；
      * 失败（点数不足/写盘异常/无可用分享应用）在主线程 Toast 提示，不抛出。
      */
-    fun shareTrack(context: Context, track: TrackRecord) {
+    fun shareTrack(context: Context, track: Project.TrackRecord) {
         if (track.points.size < 2) {
             Toast.makeText(context, "轨迹点数不足，无法分享", Toast.LENGTH_SHORT).show()
             return
@@ -61,7 +62,7 @@ object TrackSharePackage {
                 Log.e(TAG, "轨迹打包分享失败", it)
                 null
             }
-            mainHandler.post { share(app, file, track.name.ifBlank { "轨迹" }) }
+            mainHandler.post { share(app, file, track.name?.ifBlank { null } ?: "轨迹") }
         }.start()
     }
 
@@ -95,13 +96,13 @@ object TrackSharePackage {
      * 构建分享包：写出 shp 文件组到临时目录，压成单个 `.zip`；写盘失败或文件组缺失返回 null。
      * 临时目录打包后即删除，只留最终 zip 文件。
      */
-    private fun buildPackage(context: Context, track: TrackRecord): File? {
+    private fun buildPackage(context: Context, track: Project.TrackRecord): File? {
         val shareDir = File(context.getExternalFilesDir(null) ?: context.cacheDir, SHARE_DIR)
         if (!shareDir.exists()) shareDir.mkdirs()
         cleanStalePackages(shareDir)
 
         val stamp = System.currentTimeMillis()
-        val base = sanitize(track.name.ifBlank { "轨迹" })
+        val base = sanitize(track.name?.ifBlank { null } ?: "轨迹")
         val tmpDir = File(shareDir, "tmp_$base" + "_" + stamp)
         val packageFile = File(shareDir, base + "_" + stamp + "." + EXT)
 
@@ -109,8 +110,8 @@ object TrackSharePackage {
         val lonLatPoints = track.points.map { doubleArrayOf(it[1], it[0]) }
         val lengthMeters = GeoCalc.polylineLengthMeters(track.points.map { doubleArrayOf(it[0], it[1]) })
         val fields = listOf(
-            ShapefileWriter.DbfField("NAME", 100, track.name),
-            ShapefileWriter.DbfField("CREATED", 20, TIME_FORMAT.format(Date(track.createdTime))),
+            ShapefileWriter.DbfField("NAME", 100, track.name ?: "轨迹"),
+            ShapefileWriter.DbfField("CREATED", 20, TIME_FORMAT.format(Date(ProjectManager.parseTime(track.date)))),
             ShapefileWriter.DbfField("LENGTH_M", 20, String.format(Locale.US, "%.1f", lengthMeters)),
             ShapefileWriter.DbfField("POINTS", 10, track.points.size.toString())
         )

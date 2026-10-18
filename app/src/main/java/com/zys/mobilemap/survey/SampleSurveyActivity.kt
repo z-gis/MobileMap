@@ -10,6 +10,8 @@ import android.widget.*
 import com.zys.mobilemap.R
 import com.zys.mobilemap.ui.activity.BaseStyledActivity
 import com.zys.mobilemap.location.LocationManager
+import com.zys.mobilemap.project.Project
+import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.util.AppLog
 
 /**
@@ -57,8 +59,8 @@ class SampleSurveyActivity : BaseStyledActivity() {
     private var centerLon: Double = Double.NaN
     private var selectedPlotId: Long = -1L
 
-    private var draftPlot: SurveyPlot? = null
-    private val rows = mutableListOf<SurveyRow>()
+    private var draftPlot: Project.SurveyPlot? = null
+    private val rows = mutableListOf<Project.SurveyRow>()
     private lateinit var adapter: SurveyRowAdapter
 
     // Views
@@ -109,13 +111,24 @@ class SampleSurveyActivity : BaseStyledActivity() {
 
     private fun loadPlot() {
         val plot = if (selectedPlotId > 0L) {
-            SampleSurveyStore.loadPlot(this, selectedPlotId)
+            ProjectManager.get(this).findSurveyPlot(selectedPlotId)
         } else null
 
-        draftPlot = plot ?: SampleSurveyStore.createDraftPlot(
-            this, sourcePath, sourceFid, compartmentNo, "",
-            centerLat, centerLon
-        )
+        // 新建草稿（对齐旧 createDraftPlot：未持久化 id=0，编号取同小班内下一个）
+        draftPlot = plot ?: Project.SurveyPlot().apply {
+            sourcePath = this@SampleSurveyActivity.sourcePath.trim()
+            sourceFid = this@SampleSurveyActivity.sourceFid
+            compartmentNo = this@SampleSurveyActivity.compartmentNo.trim()
+            plotNo = ProjectManager.get(this@SampleSurveyActivity)
+                .nextSurveyPlotNo(this@SampleSurveyActivity.sourcePath, this@SampleSurveyActivity.sourceFid)
+            cornerCoordinates = ""
+            val now = System.currentTimeMillis()
+            createdAt = now
+            updatedAt = now
+            if (!this@SampleSurveyActivity.centerLat.isNaN() && !this@SampleSurveyActivity.centerLon.isNaN()) {
+                setCenter(this@SampleSurveyActivity.centerLat, this@SampleSurveyActivity.centerLon)
+            }
+        }
 
         draftPlot?.let { p ->
             tvPlotNo.text = "第 ${p.plotNo} 号样地"
@@ -133,8 +146,9 @@ class SampleSurveyActivity : BaseStyledActivity() {
             tvGps.text = String.format("%.6f, %.6f", loc.longitude, loc.latitude)
             // 更新草稿中心坐标
             draftPlot?.let {
-                if (it.centerLatitude.isNaN()) it.centerLatitude = loc.latitude
-                if (it.centerLongitude.isNaN()) it.centerLongitude = loc.longitude
+                if (it.centerLatitude.isNaN() || it.centerLongitude.isNaN()) {
+                    it.setCenter(loc.latitude, loc.longitude)
+                }
             }
         } else if (!centerLat.isNaN() && !centerLon.isNaN()) {
             tvGps.text = String.format("%.6f, %.6f", centerLon, centerLat)
@@ -143,7 +157,7 @@ class SampleSurveyActivity : BaseStyledActivity() {
 
     private fun addRow() {
         syncRowsFromViews()
-        rows.add(SurveyRow(sortNo = rows.size + 1))
+        rows.add(Project.SurveyRow().apply { sortNo = rows.size + 1 })
         adapter.notifyDataSetChanged()
     }
 
@@ -155,7 +169,10 @@ class SampleSurveyActivity : BaseStyledActivity() {
         plot.averageTreeHeight = etTreeHeight.text.toString().trim().takeIf { it.isNotEmpty() }
         plot.canopyDensity = etCanopyDensity.text.toString().trim().toDoubleOrNull() ?: Double.NaN
 
-        val saved = SampleSurveyStore.savePlot(this, plot, rows)
+        // 明细行全量替换后整体保存（对齐旧 savePlot 语义）
+        plot.rows.clear()
+        plot.rows.addAll(rows)
+        val saved = ProjectManager.get(this).saveSurveyPlot(plot)
         if (saved != null) {
             draftPlot = saved
             Toast.makeText(this, "样地调查已保存", Toast.LENGTH_SHORT).show()

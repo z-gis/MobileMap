@@ -13,10 +13,9 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.zys.mobilemap.R
 import com.zys.mobilemap.control.MaxHeightRecyclerView
-import com.zys.mobilemap.media.MediaGroup
 import com.zys.mobilemap.media.MediaPackage
-import com.zys.mobilemap.media.MediaPlacemark
-import com.zys.mobilemap.media.MediaStore
+import com.zys.mobilemap.project.Project
+import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.util.AppDirectories
 import java.io.File
 import java.text.SimpleDateFormat
@@ -36,27 +35,27 @@ import java.util.Locale
  */
 class MediaManageDialog(
     private val onChanged: () -> Unit,
-    private val onZoomTo: (MediaPlacemark) -> Unit
+    private val onZoomTo: (Project.PhotoRecord) -> Unit
 ) : BaseBottomSheetDialog(R.layout.dialog_media_manage) {
 
-    private lateinit var store: MediaStore
+    private lateinit var projectManager: ProjectManager
     private lateinit var listView: MaxHeightRecyclerView
     private lateinit var emptyView: TextView
     private lateinit var adapter: GroupAdapter
 
     /** 全部分组（真实分组，未分组为虚拟组不在此列） */
-    private val groups = mutableListOf<MediaGroup>()
+    private val groups = mutableListOf<Project.MediaGroupRecord>()
 
     /** 全部点位 */
-    private val placemarks = mutableListOf<MediaPlacemark>()
+    private val placemarks = mutableListOf<Project.PhotoRecord>()
 
-    /** 折叠的分组 id 集合（含 [MediaStore.UNGROUPED_ID]） */
+    /** 折叠的分组 id 集合（含 [Project.PhotoRecord.UNGROUPED_ID]） */
     private val collapsed = mutableSetOf<Long>()
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         val dialog = super.onCreateDialog(savedInstanceState)
         val sheet = sheetView ?: return dialog
-        store = MediaStore.getInstance(requireContext())
+        projectManager = ProjectManager.get(requireContext())
 
         emptyView = sheet.findViewById(R.id.media_manage_empty)
         listView = sheet.findViewById(R.id.media_manage_list)
@@ -68,8 +67,8 @@ class MediaManageDialog(
         sheet.findViewById<ImageView>(R.id.media_manage_add_group).setOnClickListener {
             MediaEditDialog.promptGroupName(requireActivity(), "新建分组", "") { name ->
                 // promptGroupName 只负责收集名称，写库由调用方完成（与点位编辑对话框的“+”一致）；
-                // 漏掉 insertGroup 会导致点确定后库里根本没新分组，reloadData 重读自然毫无变化
-                store.insertGroup(name, System.currentTimeMillis())
+                // 漏掉 addGroup 会导致点确定后工程里根本没新分组，reloadData 重读自然毫无变化
+                projectManager.addGroup(name, System.currentTimeMillis())
                 reloadData()
             }
         }
@@ -82,12 +81,12 @@ class MediaManageDialog(
         return dialog
     }
 
-    /** 从库重载分组与点位，重建扁平化行并刷新空态。 */
+    /** 从工程重载分组与点位，重建扁平化行并刷新空态。 */
     private fun reloadData() {
         groups.clear()
-        groups.addAll(store.loadGroups())
+        groups.addAll(projectManager.listGroups())
         placemarks.clear()
-        placemarks.addAll(store.loadPlacemarks())
+        placemarks.addAll(projectManager.currentProject?.photos ?: emptyList())
 
         val rows = buildRows()
         adapter.submit(rows)
@@ -106,14 +105,14 @@ class MediaManageDialog(
         for (group in groups) {
             val members = placemarks.filter { it.groupId == group.id }
             val isCollapsed = collapsed.contains(group.id)
-            rows.add(HeaderRow(group.id, group.name, members.size, allVisible(members), isCollapsed, false))
+            rows.add(HeaderRow(group.id, group.name ?: "", members.size, allVisible(members), isCollapsed, false))
             if (!isCollapsed) rows.addAll(members)
         }
-        val ungrouped = placemarks.filter { it.groupId == MediaStore.UNGROUPED_ID }
-        val ungroupedCollapsed = collapsed.contains(MediaStore.UNGROUPED_ID)
+        val ungrouped = placemarks.filter { it.groupId == Project.PhotoRecord.UNGROUPED_ID }
+        val ungroupedCollapsed = collapsed.contains(Project.PhotoRecord.UNGROUPED_ID)
         rows.add(
             HeaderRow(
-                MediaStore.UNGROUPED_ID, "未分组", ungrouped.size,
+                Project.PhotoRecord.UNGROUPED_ID, "未分组", ungrouped.size,
                 allVisible(ungrouped), ungroupedCollapsed, true
             )
         )
@@ -122,34 +121,34 @@ class MediaManageDialog(
     }
 
     /** 组内点位是否全部可见（空组视为不可见，开关呈关闭态）。 */
-    private fun allVisible(members: List<MediaPlacemark>): Boolean =
+    private fun allVisible(members: List<Project.PhotoRecord>): Boolean =
         members.isNotEmpty() && members.all { it.visible }
 
     // ---- 分组操作 ----
 
     /** 整组可见性开关：批量写组内各点位 visible，刷新地图。 */
     private fun onGroupVisibleChanged(groupId: Long, visible: Boolean) {
-        store.setGroupPlacemarksVisible(groupId, visible)
+        projectManager.setGroupPhotosVisible(groupId, visible)
         placemarks.filter { it.groupId == groupId }.forEach { it.visible = visible }
         reloadData()
         onChanged()
     }
 
     /** 重命名分组。 */
-    private fun onGroupRename(group: MediaGroup) {
-        MediaEditDialog.promptGroupName(requireActivity(), "重命名分组", group.name) { name ->
-            store.updateGroupName(group.id, name)
+    private fun onGroupRename(group: Project.MediaGroupRecord) {
+        MediaEditDialog.promptGroupName(requireActivity(), "重命名分组", group.name ?: "") { name ->
+            projectManager.renameGroup(group.id, name)
             reloadData()
         }
     }
 
     /** 删除分组：组内点位不删除，移到"未分组"。 */
-    private fun onGroupDelete(group: MediaGroup) {
+    private fun onGroupDelete(group: Project.MediaGroupRecord) {
         AlertDialog.Builder(requireActivity())
             .setTitle("删除分组")
             .setMessage("删除分组\"${group.name}\"后，组内拍照标识不会被删除，将移到\"未分组\"。是否继续？")
             .setPositiveButton("删除") { _, _ ->
-                store.deleteGroup(group.id)
+                projectManager.removeGroup(group.id)
                 collapsed.remove(group.id)
                 reloadData()
                 onChanged()
@@ -162,7 +161,7 @@ class MediaManageDialog(
     private fun onGroupShare(groupId: Long, groupName: String) {
         val members = placemarks.filter { it.groupId == groupId }
         // 未分组为虚拟组：分享包不带分组名，导入后点位仍归未分组（不新建“未分组”分组）
-        val pkgGroup = if (groupId == MediaStore.UNGROUPED_ID) null else groupName
+        val pkgGroup = if (groupId == Project.PhotoRecord.UNGROUPED_ID) null else groupName
         MediaPackage.shareGroup(requireContext(), pkgGroup, members)
     }
 
@@ -175,7 +174,7 @@ class MediaManageDialog(
     // ---- 点位操作 ----
 
     /** 点击点位行：编辑名称与所属分组。 */
-    private fun onPlacemarkEdit(placemark: MediaPlacemark) {
+    private fun onPlacemarkEdit(placemark: Project.PhotoRecord) {
         MediaEditDialog.show(requireActivity(), placemark) { name, groupId ->
             placemark.name = name
             placemark.groupId = groupId
@@ -185,26 +184,26 @@ class MediaManageDialog(
     }
 
     /** 点位可见性开关。 */
-    private fun onPlacemarkVisibleChanged(placemark: MediaPlacemark, visible: Boolean) {
-        store.updatePlacemarkVisible(placemark.id, visible)
+    private fun onPlacemarkVisibleChanged(placemark: Project.PhotoRecord, visible: Boolean) {
+        projectManager.updatePhotoVisible(placemark.id, visible)
         placemark.visible = visible
         reloadData()
         onChanged()
     }
 
     /** 缩放至点位：关闭弹层后由宿主执行相机跳转。 */
-    private fun onPlacemarkZoom(placemark: MediaPlacemark) {
+    private fun onPlacemarkZoom(placemark: Project.PhotoRecord) {
         dismiss()
         onZoomTo(placemark)
     }
 
     /** 删除点位：连同附件文件目录一并删除。 */
-    private fun onPlacemarkDelete(placemark: MediaPlacemark) {
+    private fun onPlacemarkDelete(placemark: Project.PhotoRecord) {
         AlertDialog.Builder(requireActivity())
             .setTitle("删除拍照标识")
             .setMessage("删除后该点位及其全部照片文件将一并删除，是否继续？")
             .setPositiveButton("删除") { _, _ ->
-                store.deletePlacemark(placemark.id)
+                projectManager.removePhoto(placemark.id)
                 File(AppDirectories.getMediaDir(requireContext()), placemark.id.toString())
                     .deleteRecursively()
                 placemarks.remove(placemark)
@@ -226,7 +225,7 @@ class MediaManageDialog(
     )
 
     /**
-     * 分组分区适配器：分组头（[HeaderRow]）与点位行（[MediaPlacemark]）两种视图类型。
+     * 分组分区适配器：分组头（[HeaderRow]）与点位行（[Project.PhotoRecord]）两种视图类型。
      * 行数据由 [submit] 整体替换后 notifyDataSetChanged（管理弹窗数据量小，无需 DiffUtil）。
      */
     private inner class GroupAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
@@ -259,7 +258,7 @@ class MediaManageDialog(
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
             when (val row = rows[position]) {
                 is HeaderRow -> bindHeader(holder as HeaderHolder, row)
-                is MediaPlacemark -> bindItem(holder as ItemHolder, row)
+                is Project.PhotoRecord -> bindItem(holder as ItemHolder, row)
             }
         }
 
@@ -292,10 +291,10 @@ class MediaManageDialog(
             }
         }
 
-        private fun bindItem(holder: ItemHolder, placemark: MediaPlacemark) {
+        private fun bindItem(holder: ItemHolder, placemark: Project.PhotoRecord) {
             holder.name.text = placemark.name
             val count = placemark.attachments.size
-            holder.subtitle.text = formatTime(placemark.createdTime) +
+            holder.subtitle.text = formatTime(placemark.timestamp) +
                     if (count > 0) "　·　${count}张照片" else "　·　无照片"
 
             holder.visibleSwitch.setOnCheckedChangeListener(null)

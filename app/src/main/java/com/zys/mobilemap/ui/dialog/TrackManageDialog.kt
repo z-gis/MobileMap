@@ -13,22 +13,22 @@ import androidx.appcompat.widget.SwitchCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.zys.mobilemap.R
-import com.zys.mobilemap.db.MapDataStore
-import com.zys.mobilemap.db.TrackRecord
+import com.zys.mobilemap.project.Project
+import com.zys.mobilemap.project.ProjectManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
  * 轨迹管理对话框（轨迹菜单"管理"入口，参照拍照标识管理）：
- * 列出数据库全部轨迹，支持重命名、可见性开关（隐藏后地图不渲染）、
+ * 列出当前工程全部轨迹，支持重命名、可见性开关（隐藏后地图不渲染）、
  * 缩放至轨迹、删除。数据变更后经回调刷新轨迹图层。
  */
 object TrackManageDialog {
 
-    fun show(activity: Activity, onChanged: () -> Unit, onZoomTo: (TrackRecord) -> Unit) {
-        val store = MapDataStore.getInstance(activity)
-        val tracks = store.loadTracks().toMutableList()
+    fun show(activity: Activity, onChanged: () -> Unit, onZoomTo: (Project.TrackRecord) -> Unit) {
+        val pm = ProjectManager.get(activity)
+        val tracks = (pm.currentProject?.tracks ?: emptyList()).toMutableList()
 
         val view = LayoutInflater.from(activity).inflate(R.layout.dialog_track_manage, null)
         val emptyView = view.findViewById<TextView>(R.id.track_manage_empty)
@@ -46,13 +46,13 @@ object TrackManageDialog {
             tracks,
             onRename = { track ->
                 showRenameDialog(activity, track) { newName ->
-                    store.updateTrackName(track.id, newName)
+                    pm.updateTrackName(track.id, newName)
                     adapter.notifyDataSetChanged()
                     onChanged()
                 }
             },
             onVisibleChanged = { track, visible ->
-                store.updateTrackVisible(track.id, visible)
+                pm.updateTrackVisible(track.id, visible)
                 onChanged()
             },
             onZoomTo = { track ->
@@ -61,7 +61,7 @@ object TrackManageDialog {
             },
             onDelete = { track ->
                 showDeleteConfirmDialog(activity, track) {
-                    store.deleteTrack(track.id)
+                    pm.removeTrack(track.id)
                     tracks.remove(track)
                     adapter.notifyDataSetChanged()
                     refreshEmpty()
@@ -78,7 +78,7 @@ object TrackManageDialog {
     }
 
     /** 重命名对话框：预填当前名称，空名称不保存。 */
-    private fun showRenameDialog(activity: Activity, track: TrackRecord, onRenamed: (String) -> Unit) {
+    private fun showRenameDialog(activity: Activity, track: Project.TrackRecord, onRenamed: (String) -> Unit) {
         val edit = EditText(activity).apply {
             setText(track.name)
             isSingleLine = true
@@ -106,7 +106,7 @@ object TrackManageDialog {
     }
 
     /** 删除确认：轨迹记录及其坐标点将一并删除。 */
-    private fun showDeleteConfirmDialog(activity: Activity, track: TrackRecord, onConfirmed: () -> Unit) {
+    private fun showDeleteConfirmDialog(activity: Activity, track: Project.TrackRecord, onConfirmed: () -> Unit) {
         AlertDialog.Builder(activity)
             .setTitle("删除轨迹")
             .setMessage("删除后该轨迹及其全部坐标点将一并删除，是否继续？")
@@ -117,11 +117,11 @@ object TrackManageDialog {
 
     /** 轨迹列表适配器：名称/副标题（时间·点数）+ 可见性开关 + 缩放/删除按钮。 */
     private class TrackAdapter(
-        private val tracks: List<TrackRecord>,
-        private val onRename: (TrackRecord) -> Unit,
-        private val onVisibleChanged: (TrackRecord, Boolean) -> Unit,
-        private val onZoomTo: (TrackRecord) -> Unit,
-        private val onDelete: (TrackRecord) -> Unit
+        private val tracks: List<Project.TrackRecord>,
+        private val onRename: (Project.TrackRecord) -> Unit,
+        private val onVisibleChanged: (Project.TrackRecord, Boolean) -> Unit,
+        private val onZoomTo: (Project.TrackRecord) -> Unit,
+        private val onDelete: (Project.TrackRecord) -> Unit
     ) : RecyclerView.Adapter<TrackAdapter.Holder>() {
 
         class Holder(view: View) : RecyclerView.ViewHolder(view) {
@@ -141,9 +141,9 @@ object TrackManageDialog {
         override fun onBindViewHolder(holder: Holder, position: Int) {
             val track = tracks[position]
             holder.name.text = track.name
-            holder.subtitle.text = "${formatTime(track.createdTime)}　·　${track.points.size}个点"
+            holder.subtitle.text = "${formatTime(ProjectManager.parseTime(track.date))}　·　${track.points.size}个点"
 
-            // 先设状态再挂监听，避免回显触发写库
+            // 先设状态再挂监听，避免回显触发写入
             holder.visibleSwitch.setOnCheckedChangeListener(null)
             holder.visibleSwitch.isChecked = track.visible
             holder.visibleSwitch.setOnCheckedChangeListener { _, isChecked ->

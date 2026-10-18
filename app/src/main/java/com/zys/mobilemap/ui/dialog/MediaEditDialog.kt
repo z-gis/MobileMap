@@ -12,9 +12,8 @@ import android.widget.ImageView
 import android.widget.Spinner
 import androidx.appcompat.app.AlertDialog
 import com.zys.mobilemap.R
-import com.zys.mobilemap.media.MediaGroup
-import com.zys.mobilemap.media.MediaPlacemark
-import com.zys.mobilemap.media.MediaStore
+import com.zys.mobilemap.project.Project
+import com.zys.mobilemap.project.ProjectManager
 
 /**
  * 拍照标识编辑对话框（复用）：一处完成"修改名称 + 选择所属分组"。
@@ -23,7 +22,7 @@ import com.zys.mobilemap.media.MediaStore
  * - 拍照会话点"完成" → 复用本对话框命名并归组。
  *
  * 分组下拉含"未分组"与全部已建分组，右侧"+"可即时新建分组并选中。
- * 确定后名称与分组归属一并写库（[MediaStore.updatePlacemarkName]/[MediaStore.updatePlacemarkGroup]），
+ * 确定后名称与分组归属一并写入工程（[ProjectManager.updatePhotoName]/[ProjectManager.updatePhotoGroup]），
  * 再回调 [onSaved] 由宿主刷新地图标注。
  */
 object MediaEditDialog {
@@ -35,11 +34,11 @@ object MediaEditDialog {
      */
     fun show(
         activity: Activity,
-        placemark: MediaPlacemark,
+        placemark: Project.PhotoRecord,
         title: String = "编辑拍照标识",
         onSaved: (name: String, groupId: Long) -> Unit
     ) {
-        val store = MediaStore.getInstance(activity)
+        val projectManager = ProjectManager.get(activity)
         val view = LayoutInflater.from(activity).inflate(R.layout.dialog_media_edit, null)
         val nameEdit = view.findViewById<EditText>(R.id.media_edit_name)
         val spinner = view.findViewById<Spinner>(R.id.media_edit_group)
@@ -48,7 +47,7 @@ object MediaEditDialog {
         nameEdit.setText(placemark.name)
         nameEdit.setSelection(nameEdit.text?.length ?: 0)
 
-        var groups: List<MediaGroup> = store.loadGroups()
+        var groups: List<Project.MediaGroupRecord> = projectManager.listGroups()
         var selectedGroupId = placemark.groupId
 
         val adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, groupLabels(groups))
@@ -66,8 +65,8 @@ object MediaEditDialog {
 
         addButton.setOnClickListener {
             promptGroupName(activity, "新建分组", "") { name ->
-                val newId = store.insertGroup(name, System.currentTimeMillis())
-                groups = store.loadGroups()
+                val newId = projectManager.addGroup(name, System.currentTimeMillis())
+                groups = projectManager.listGroups()
                 adapter.clear()
                 adapter.addAll(groupLabels(groups))
                 adapter.notifyDataSetChanged()
@@ -80,9 +79,9 @@ object MediaEditDialog {
             .setTitle(title)
             .setView(view)
             .setPositiveButton("确定") { _, _ ->
-                val newName = nameEdit.text.toString().trim().ifEmpty { placemark.name }
-                store.updatePlacemarkName(placemark.id, newName)
-                store.updatePlacemarkGroup(placemark.id, selectedGroupId)
+                val newName = nameEdit.text.toString().trim().ifEmpty { placemark.name ?: "" }
+                projectManager.updatePhotoName(placemark.id, newName)
+                projectManager.updatePhotoGroup(placemark.id, selectedGroupId)
                 onSaved(newName, selectedGroupId)
             }
             .setNegativeButton("取消", null)
@@ -126,16 +125,16 @@ object MediaEditDialog {
     }
 
     /** Spinner 选项文本：首项"未分组" + 各分组名。 */
-    private fun groupLabels(groups: List<MediaGroup>): List<String> =
-        listOf("未分组") + groups.map { it.name }
+    private fun groupLabels(groups: List<Project.MediaGroupRecord>): List<String> =
+        listOf("未分组") + groups.map { it.name ?: "" }
 
     /** Spinner 位置 → 分组ID（位置 0 为未分组）。 */
-    private fun groupIdAt(groups: List<MediaGroup>, position: Int): Long =
-        if (position <= 0) MediaStore.UNGROUPED_ID else groups[position - 1].id
+    private fun groupIdAt(groups: List<Project.MediaGroupRecord>, position: Int): Long =
+        if (position <= 0) Project.PhotoRecord.UNGROUPED_ID else groups[position - 1].id
 
     /** 分组ID → Spinner 位置（未分组或找不到时回 0）。 */
-    private fun indexOfGroup(groups: List<MediaGroup>, groupId: Long): Int {
-        if (groupId == MediaStore.UNGROUPED_ID) return 0
+    private fun indexOfGroup(groups: List<Project.MediaGroupRecord>, groupId: Long): Int {
+        if (groupId == Project.PhotoRecord.UNGROUPED_ID) return 0
         val idx = groups.indexOfFirst { it.id == groupId }
         return if (idx >= 0) idx + 1 else 0
     }

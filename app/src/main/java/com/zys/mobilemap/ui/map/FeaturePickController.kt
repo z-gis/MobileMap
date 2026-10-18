@@ -9,10 +9,9 @@ import com.zys.mobilemap.R
 import com.zys.mobilemap.doc.DocumentManager
 import com.zys.mobilemap.doc.VectorStyle
 import com.zys.mobilemap.location.LocationManager
-import com.zys.mobilemap.media.MediaStore
-import com.zys.mobilemap.media.MediaPlacemark
+import com.zys.mobilemap.project.Project
+import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.survey.SampleSurveyActivity
-import com.zys.mobilemap.survey.SampleSurveyStore
 import com.zys.mobilemap.ui.dialog.FeatureDetailDialog
 import com.zys.mobilemap.ui.dialog.PhotoSheetDialog
 import com.zys.mobilemap.util.AppLog
@@ -41,7 +40,7 @@ internal interface PickHitRouter {
     fun onTrackHit(recordId: Long)
 
     /** 拍照点位命中：Activity 弹 PhotoSheetDialog */
-    fun onMediaHit(placemark: MediaPlacemark)
+    fun onMediaHit(photo: Project.PhotoRecord)
 
     /** 样地点位命中：Activity 启动 SampleSurveyActivity */
     fun onSurveyHit(plotId: Long)
@@ -147,8 +146,8 @@ internal class FeaturePickController(
                 return true
             }
             is OverlayHit.Media -> {
-                val placemark = MediaStore.getInstance(activity).findPlacemark(h.pointId)
-                if (placemark != null) router.onMediaHit(placemark)
+                val photo = ProjectManager.get(activity).findPhoto(h.pointId)
+                if (photo != null) router.onMediaHit(photo)
                 return true
             }
             is OverlayHit.Survey -> {
@@ -371,7 +370,7 @@ internal class FeaturePickController(
                 }
             }
         }
-        val plots = SampleSurveyStore.loadPlots(activity, path, fid)
+        val plots = ProjectManager.get(activity).findSurveyPlots(path, fid)
         // 尝试从属性表提取小班编号（常见字段名），无则回退“未命名小班”
         val compartmentNo = attrs?.get("小班号")
             ?: attrs?.get("XBH")

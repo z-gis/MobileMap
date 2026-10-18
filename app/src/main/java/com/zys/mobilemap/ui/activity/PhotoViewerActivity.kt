@@ -11,8 +11,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import com.zys.mobilemap.R
-import com.zys.mobilemap.media.MediaAttachment
-import com.zys.mobilemap.media.MediaStore
+import com.zys.mobilemap.project.Project
+import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.util.UiUtil
 
 /**
@@ -34,10 +34,8 @@ class PhotoViewerActivity : AppCompatActivity() {
         val initialIndex = intent.getIntExtra(EXTRA_INITIAL_INDEX, 0)
 
         val attachments = if (placemarkId < 0) emptyList() else
-            MediaStore.getInstance(this).loadPlacemarks()
-                .firstOrNull { it.id == placemarkId }
+            ProjectManager.get(this).findPhoto(placemarkId)
                 ?.attachments
-                ?.filter { it.type == MediaAttachment.TYPE_PHOTO }
                 ?: emptyList()
 
         if (attachments.isEmpty()) {
@@ -59,7 +57,7 @@ class PhotoViewerActivity : AppCompatActivity() {
 
     /** 单页大图适配器：按屏幕尺寸采样解码，避免大图 OOM；换图时 ZoomableImageView 自动复位缩放态 */
     private class PhotoPageAdapter(
-        private val attachments: List<MediaAttachment>
+        private val attachments: List<Project.PhotoAttachment>
     ) : RecyclerView.Adapter<PhotoPageAdapter.Holder>() {
 
         class Holder(val image: ImageView) : RecyclerView.ViewHolder(image)

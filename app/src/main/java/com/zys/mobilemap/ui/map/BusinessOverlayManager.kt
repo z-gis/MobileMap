@@ -2,22 +2,16 @@ package com.zys.mobilemap.ui.map
 
 import android.app.Activity
 import com.zys.mobilemap.R
-import com.zys.mobilemap.db.MapDataStore
-import com.zys.mobilemap.db.MeasurementRecord
-import com.zys.mobilemap.db.TrackRecord
 import com.zys.mobilemap.doc.DocumentManager
-import com.zys.mobilemap.media.MediaPlacemark
-import com.zys.mobilemap.media.MediaStore
-import com.zys.mobilemap.survey.SampleSurveyStore
-import com.zys.mobilemap.survey.SurveyPlot
-import com.zys.mobilemap.util.AppLog
+import com.zys.mobilemap.project.Project
+import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.util.GeoCalc
 import com.zys.globecore.NativeMapView
 import com.zys.globecore.VectorStyle as NativeVectorStyle
 
 /**
- * 业务叠加层显示与命中映射（自 MainActivity 拆出）：测量/轨迹/拍照/样地数据（存于 map.db / media.db /
- * sample_survey.db，非文档）经 overlay 地基渲染，按数据签名判断是否重建。
+ * 业务叠加层显示与命中映射（自 MainActivity 拆出）：测量/轨迹/拍照/样地数据（0.4.0.0 单库后统一存于
+ * 当前工程 gpkg，见 [ProjectManager]）经 overlay 地基渲染，按数据签名判断是否重建。
  *
  * 采集态门控、查询高亮缓存、失效索引重置均经宿主接线：
  *  - [isCapturing]：测量/轨迹采集中跳过重建（保护 live 层）；
@@ -49,7 +43,7 @@ internal class BusinessOverlayManager(
     private var surveyOverlayIndex = -1
 
     /**
-     * 重建业务叠加层：读设置可见性开关 + 三类独立数据库，按数据签名判断是否需重建（签名未变直接返回，避免累积墓碑层）。
+     * 重建业务叠加层：读设置可见性开关 + 当前工程数据，按数据签名判断是否需重建（签名未变直接返回，避免累积墓碑层）。
      * 在 onCreate/onResume/文档变更（开关落盘）时调用。
      */
     fun rebuild() {
@@ -61,21 +55,15 @@ internal class BusinessOverlayManager(
         val showMedia = cfg?.showMediaLayer ?: false
         val showPhotoName = cfg?.showPhotoName ?: false
 
-        // DB 读取兜底：个别 ROM 上数据目录异常可能使底层 SQLite 打开失败，叠加层缺失不应拖垮启动，降级为空数据继续装配
-        val measures: List<MeasurementRecord> =
-            if (showMeasure) runCatching { MapDataStore.getInstance(activity).loadMeasurements() }
-                .onFailure { AppLog.e(TAG, "读取测量记录失败，本次叠加层跳过", it) }.getOrDefault(emptyList())
-            else emptyList()
-        val tracks: List<TrackRecord> =
-            if (showTrack) runCatching { MapDataStore.getInstance(activity).loadTracks() }
-                .onFailure { AppLog.e(TAG, "读取轨迹记录失败，本次叠加层跳过", it) }.getOrDefault(emptyList())
-            else emptyList()
-        val photos: List<MediaPlacemark> =
-            if (showMedia) runCatching { MediaStore.getInstance(activity).loadPlacemarks() }
-                .onFailure { AppLog.e(TAG, "读取拍照点位失败，本次叠加层跳过", it) }.getOrDefault(emptyList())
-            else emptyList()
-        // 样地点位：无全局调查模式与显隐开关，常显（读 sample_survey.db）
-        val plots: List<SurveyPlot> = SampleSurveyStore.loadAllPlots(activity)
+        val project = ProjectManager.get(activity).currentProject
+        val measures: List<Project.MeasureRecord> =
+            if (showMeasure) project?.measures ?: emptyList() else emptyList()
+        val tracks: List<Project.TrackRecord> =
+            if (showTrack) project?.tracks ?: emptyList() else emptyList()
+        val photos: List<Project.PhotoRecord> =
+            if (showMedia) project?.photos ?: emptyList() else emptyList()
+        // 样地点位：无全局调查模式与显隐开关，常显
+        val plots: List<Project.SurveyPlot> = project?.surveyPlots ?: emptyList()
 
         val sig = overlayDataSignature(showMeasure, showTrack, showMedia, showPhotoName, measures, tracks, photos, plots)
         if (sig == overlaySignature) return
@@ -98,8 +86,6 @@ internal class BusinessOverlayManager(
         addSurveyOverlay(plots)
         // 恢复 SQL 查询高亮（若有）：查询结果为临时叠加、不写文档，故缓存 features 于重建后重新渲染
         restoreQueryHighlight()
-        // 数据签名已变化 → 工作库有更新：请求工程镜像防抖自动保存（0.4.0.0 工程模块接线点）
-        com.zys.mobilemap.project.ProjectManager.get(activity).requestAutosave()
     }
 
     /**
@@ -108,8 +94,8 @@ internal class BusinessOverlayManager(
      */
     private fun overlayDataSignature(
         showMeasure: Boolean, showTrack: Boolean, showMedia: Boolean, showPhotoName: Boolean,
-        measures: List<MeasurementRecord>, tracks: List<TrackRecord>, photos: List<MediaPlacemark>,
-        plots: List<SurveyPlot>
+        measures: List<Project.MeasureRecord>, tracks: List<Project.TrackRecord>, photos: List<Project.PhotoRecord>,
+        plots: List<Project.SurveyPlot>
     ): String = buildString {
         append(if (showMeasure) 'M' else '-').append(if (showTrack) 'T' else '-')
         append(if (showMedia) 'P' else '-').append(if (showPhotoName) 'N' else '-')
@@ -123,7 +109,7 @@ internal class BusinessOverlayManager(
         }
         for (p in photos) {
             append("|p").append(p.id).append(':').append(if (p.visible) 1 else 0).append(':')
-                .append(p.name).append(':').append(p.latitude).append(':').append(p.longitude)
+                .append(p.name).append(':').append(p.lat).append(':').append(p.lon)
         }
         for (s in plots) {
             append("|s").append(s.id).append(':').append(s.plotNo).append(':')
@@ -131,18 +117,28 @@ internal class BusinessOverlayManager(
         }
     }
 
+    /** 测量记录渲染色：记录色优先，缺省按类型回退模式默认色（距离=蓝、面积=绿、点位=黄） */
+    private fun measureColorOf(record: Project.MeasureRecord): Int {
+        val def = when (record.type) {
+            Project.MeasureRecord.TYPE_AREA -> MapStyleColors.MEASURE_COLOR_AREA
+            Project.MeasureRecord.TYPE_POINT -> MapStyleColors.MEASURE_COLOR_POINT
+            else -> MapStyleColors.MEASURE_COLOR_DISTANCE
+        }
+        return ProjectManager.parseColor(record.color, def)
+    }
+
     /**
      * 测量记录 → 叠加层（对齐原主界面 MeasureModel）：点位=彩心圆点 + 名称标注；
      * 距离=折线（几何层）+ 各测点累计距离（纯文字标注层）；面积=alpha 0.22 填充 + 描边（几何层）+ 各边中点边长
      * 与质心面积（纯文字标注层）。样式取记录自身 color/lineWidth；线/面顶点圆点标记从略（仅画主几何 + 标注）。
      */
-    private fun addMeasurementOverlay(record: MeasurementRecord) {
+    private fun addMeasurementOverlay(record: Project.MeasureRecord) {
         val pts = record.points
         if (pts.isEmpty()) return
-        val color = record.color
+        val color = measureColorOf(record)
         val lineW = record.lineWidth.toFloat()
         when (record.type) {
-            MeasurementRecord.TYPE_POINT -> {
+            Project.MeasureRecord.TYPE_POINT -> {
                 val idx = mapView.addOverlayLayer(
                     NativeVectorStyle(
                         fillColor = color, outlineColor = color, outlineWidth = lineW,
@@ -155,10 +151,10 @@ internal class BusinessOverlayManager(
                 measureOverlayIds[idx] = record.id
                 val p = pts[0]
                 mapView.updateOverlayPoints(
-                    idx, doubleArrayOf(p[1], p[0]), longArrayOf(record.id), arrayOf(record.name)
+                    idx, doubleArrayOf(p[1], p[0]), longArrayOf(record.id), arrayOf(record.name ?: "")
                 )
             }
-            MeasurementRecord.TYPE_DISTANCE -> {
+            Project.MeasureRecord.TYPE_DISTANCE -> {
                 if (pts.size < 2) return
                 val idx = mapView.addOverlayLayer(
                     NativeVectorStyle(
@@ -174,9 +170,9 @@ internal class BusinessOverlayManager(
                 mapView.updateOverlayLines(
                     idx, flattenLonLat(pts), intArrayOf(pts.size), longArrayOf(record.id), emptyArray()
                 )
-                addMeasureLabelOverlay(record.id, MeasurementRecord.TYPE_DISTANCE, pts)
+                addMeasureLabelOverlay(record.id, Project.MeasureRecord.TYPE_DISTANCE, pts)
             }
-            MeasurementRecord.TYPE_AREA -> {
+            Project.MeasureRecord.TYPE_AREA -> {
                 if (pts.size < 3) return
                 val fill = (color and 0x00FFFFFF) or
                         (((MapStyleColors.MEASURE_AREA_FILL_ALPHA * 255f).toInt() and 0xFF) shl 24)
@@ -200,7 +196,7 @@ internal class BusinessOverlayManager(
                     idx, flattenLonLat(ring), intArrayOf(ring.size), intArrayOf(1),
                     longArrayOf(record.id), emptyArray()
                 )
-                addMeasureLabelOverlay(record.id, MeasurementRecord.TYPE_AREA, pts)
+                addMeasureLabelOverlay(record.id, Project.MeasureRecord.TYPE_AREA, pts)
             }
         }
     }
@@ -225,8 +221,8 @@ internal class BusinessOverlayManager(
     }
 
     /** 轨迹记录 → 一线叠加层（对齐原主界面 TrackModel）：颜色/线宽取记录自身，无标注 */
-    private fun addTrackOverlay(record: TrackRecord) {
-        val color = record.color
+    private fun addTrackOverlay(record: Project.TrackRecord) {
+        val color = ProjectManager.parseColor(record.color, 0xFF33CCFF.toInt())
         val lineW = record.lineWidth.toFloat()
         val idx = mapView.addOverlayLayer(
             NativeVectorStyle(
@@ -247,7 +243,7 @@ internal class BusinessOverlayManager(
      * ic_media（[decodeIconArgb] 解码为 ARGB 传入 native 作 billboard），fid=点位主键（供交互阶段查附件）；名称标注受
      * showPhotoName 控制、空名回退「拍照(附件数)」。分组可见性已由管理对话框写入各点 visible，故仅过滤 visible。
      */
-    private fun addMediaOverlay(photos: List<MediaPlacemark>, showName: Boolean) {
+    private fun addMediaOverlay(photos: List<Project.PhotoRecord>, showName: Boolean) {
         val visible = photos.filter { it.visible }
         if (visible.isEmpty()) return
         val icon = decodeIconArgb(activity, R.drawable.ic_media)
@@ -267,8 +263,8 @@ internal class BusinessOverlayManager(
         val labels = Array(visible.size) { "" }
         for (i in visible.indices) {
             val p = visible[i]
-            lonlat[i * 2] = p.longitude
-            lonlat[i * 2 + 1] = p.latitude
+            lonlat[i * 2] = p.lon
+            lonlat[i * 2 + 1] = p.lat
             fids[i] = p.id
             labels[i] = if (showName) mediaDisplayName(p) else ""
         }
@@ -276,8 +272,9 @@ internal class BusinessOverlayManager(
     }
 
     /** 拍照点位显示名（对齐原主界面 MediaOverlayModel）：有名用名，空名回退「拍照(附件数)」/「拍照」 */
-    private fun mediaDisplayName(p: MediaPlacemark): String {
-        if (p.name.isNotBlank()) return p.name
+    private fun mediaDisplayName(p: Project.PhotoRecord): String {
+        val name = p.name
+        if (!name.isNullOrBlank()) return name
         val count = p.attachments.size
         return if (count > 1) "拍照($count)" else "拍照"
     }
@@ -288,7 +285,7 @@ internal class BusinessOverlayManager(
      * 标注“样地#编号”。MainActivity 无全局调查模式，样地点位常显（SystemConfig 无对应开关）；
      * 无有效中心坐标的样地跳过（新建未定位的草稿不显示）。
      */
-    private fun addSurveyOverlay(plots: List<SurveyPlot>) {
+    private fun addSurveyOverlay(plots: List<Project.SurveyPlot>) {
         val valid = plots.filter { !it.centerLatitude.isNaN() && !it.centerLongitude.isNaN() }
         if (valid.isEmpty()) return
         val icon = decodeIconArgb(activity, R.drawable.ic_sample)
@@ -379,7 +376,7 @@ internal object MeasureLabels {
             put((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5, GeoCalc.formatDistance(len))
         }
         when (type) {
-            MeasurementRecord.TYPE_DISTANCE -> {
+            Project.MeasureRecord.TYPE_DISTANCE -> {
                 var cumulative = 0.0
                 for (i in pts.indices) {
                     if (i > 0) {
@@ -388,7 +385,7 @@ internal object MeasureLabels {
                     put(pts[i][0], pts[i][1], GeoCalc.formatDistance(cumulative))
                 }
             }
-            MeasurementRecord.TYPE_AREA -> {
+            Project.MeasureRecord.TYPE_AREA -> {
                 if (pts.size >= 2) {
                     for (i in 1 until pts.size) putEdge(pts[i - 1], pts[i])
                     if (pts.size >= 3) putEdge(pts.last(), pts.first()) // 闭合边（末→首）

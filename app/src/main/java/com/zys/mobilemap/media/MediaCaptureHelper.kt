@@ -17,6 +17,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.zys.mobilemap.doc.DocumentManager
 import com.zys.mobilemap.location.LocationManager
+import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.ui.dialog.MediaEditDialog
 import com.zys.mobilemap.util.AppDirectories
 import java.io.File
@@ -26,9 +27,9 @@ import java.util.Locale
 
 /**
  * 拍照会话管理（简单版，参照上一版：调起系统相机拍照）。
- * 一次会话对应一个媒体 Placemark：拍照后不退出，可继续拍照，
- * 多张照片作为同一 Placemark 的多个附件保存。
- * 附件文件保存在 /调查宝/Media/<placemark_id>/ 目录，记录写入媒体数据库。
+ * 一次会话对应一个拍照点位：拍照后不退出，可继续拍照，
+ * 多张照片作为同一点位的多个附件保存。
+ * 附件文件保存在 /调查宝/Media/<placemark_id>/ 目录，记录写入当前工程。
  */
 class MediaCaptureHelper(
     private val activity: AppCompatActivity,
@@ -91,9 +92,8 @@ class MediaCaptureHelper(
             pendingCaptureLat = location.latitude
             pendingCaptureLon = location.longitude
 
-            val store = MediaStore.getInstance(activity)
             val now = System.currentTimeMillis()
-            sessionPlacemarkId = store.insertPlacemark(
+            sessionPlacemarkId = ProjectManager.get(activity).addPhoto(
                 formatPlacemarkName(now),
                 pendingCaptureLat, pendingCaptureLon, now
             )
@@ -169,9 +169,8 @@ class MediaCaptureHelper(
         }
 
         // 写入附件记录
-        MediaStore.getInstance(activity).insertAttachment(
+        ProjectManager.get(activity).addPhotoAttachment(
             sessionPlacemarkId,
-            MediaAttachment.TYPE_PHOTO,
             file.name,
             file.absolutePath,
             capturedAt
@@ -205,8 +204,7 @@ class MediaCaptureHelper(
      * 保存后刷新地图标注（名称/分组生效）；取消则保留默认时间名，点位已在拍照时入库渲染。
      */
     private fun finishSession() {
-        val store = MediaStore.getInstance(activity)
-        val placemark = store.findPlacemark(sessionPlacemarkId)
+        val placemark = ProjectManager.get(activity).findPhoto(sessionPlacemarkId)
         // 先复位会话：编辑对话框取消也应结束本次连拍，避免下次拍照误并入本点位
         resetSession()
         if (placemark == null) return
@@ -224,10 +222,10 @@ class MediaCaptureHelper(
      */
     private fun cleanupEmptySessionPlacemark() {
         if (sessionPlacemarkId < 0) return
-        val store = MediaStore.getInstance(activity)
-        val placemark = store.findPlacemark(sessionPlacemarkId)
+        val projectManager = ProjectManager.get(activity)
+        val placemark = projectManager.findPhoto(sessionPlacemarkId)
         if (placemark != null && placemark.attachments.isEmpty()) {
-            store.deletePlacemark(sessionPlacemarkId)
+            projectManager.removePhoto(sessionPlacemarkId)
             File(AppDirectories.getMediaDir(activity), sessionPlacemarkId.toString()).deleteRecursively()
             resetSession()
             onMediaChanged()

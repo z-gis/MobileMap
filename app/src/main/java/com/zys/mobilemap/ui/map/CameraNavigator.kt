@@ -10,7 +10,7 @@ import android.widget.Toast
 import com.zys.mobilemap.R
 import com.zys.mobilemap.doc.MapDocument
 import com.zys.mobilemap.location.MercatorZoom
-import com.zys.mobilemap.media.MediaPlacemark
+import com.zys.mobilemap.project.Project
 import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.util.CoordFormatter
 import com.zys.globecore.Camera
@@ -206,13 +206,13 @@ internal class CameraNavigator(
     }
 
     /** 缩放至拍照点位：平移到点位经纬度，保留当前缩放级别 */
-    fun zoomToMediaPlacemark(placemark: MediaPlacemark) {
+    fun zoomToMediaPlacemark(photo: Project.PhotoRecord) {
         val cam = mapView.getCamera()
         val alt = if (cam != null && cam.altitude > 0.0) cam.altitude else GOTO_ALTITUDE
         mapView.setCamera(
             Camera(
-                latitude = placemark.latitude,
-                longitude = placemark.longitude,
+                latitude = photo.lat,
+                longitude = photo.lon,
                 altitude = alt,
             )
         )

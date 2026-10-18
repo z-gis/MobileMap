@@ -15,9 +15,9 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.zys.mobilemap.R
 import com.zys.mobilemap.control.MaxHeightRecyclerView
-import com.zys.mobilemap.media.MediaAttachment
 import com.zys.mobilemap.media.MediaPackage
-import com.zys.mobilemap.media.MediaStore
+import com.zys.mobilemap.project.Project
+import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.ui.activity.PhotoViewerActivity
 
 /**
@@ -40,15 +40,13 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
         val sheet = sheetView ?: return dialog
 
         // 标题与内容装配统一在 onCreateDialog 完成（基类 setContentView 后 onViewCreated 不会被回调，
-        // 同 FeatureDetailDialog 处理方式）；按主键查库只取本点位，不拉全部点位再过滤；非照片附件不列入网格
+        // 同 FeatureDetailDialog 处理方式）；按主键查工程只取本点位，不拉全部点位再过滤；附件即照片全部列入网格
         val placemark = if (placemarkId < 0) {
             null
         } else {
-            MediaStore.getInstance(requireContext()).findPlacemark(placemarkId)
+            ProjectManager.get(requireContext()).findPhoto(placemarkId)
         }
-        val attachments = placemark?.attachments
-            ?.filter { it.type == MediaAttachment.TYPE_PHOTO }
-            ?: emptyList()
+        val attachments = placemark?.attachments ?: emptyList()
 
         // 重命名按钮：弹「编辑拍照标识」对话框（名称+分组），保存后就地刷新标题并经 FragmentResult 通知宿主重建叠加层
         val titleView = sheet.findViewById<TextView>(R.id.photo_sheet_title)
@@ -95,7 +93,7 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
 
     /** 缩略图适配器：采样解码，避免大图 OOM */
     private class PhotoThumbAdapter(
-        private val attachments: List<MediaAttachment>,
+        private val attachments: List<Project.PhotoAttachment>,
         private val onClick: (Int) -> Unit
     ) : RecyclerView.Adapter<PhotoThumbAdapter.Holder>() {
 

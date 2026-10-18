@@ -5,33 +5,27 @@ import android.content.SharedPreferences
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import com.zys.mobilemap.db.MapDataStore
-import com.zys.mobilemap.media.MediaStore
-import com.zys.mobilemap.survey.SampleSurveyStore
 import com.zys.mobilemap.util.AppDirectories
 import com.zys.mobilemap.util.GeoCalc
-import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
- * 工程管理器（0.4.0.0）
+ * 工程管理器（0.4.0.0 单库版）
  *
- * 负责工程的 CRUD、打开/保存/导出、与 Document 的关联。
- * 工程文件存储在 /调查宝/projects/<工程名>.gpkg（GeoPackage 格式，公共目录，
- * 卸载不清除、文件管理器可直接取走，FileProvider 已由 shared_root 覆盖可直接分享）。
+ * 工程 gpkg 是采集数据（轨迹/测量/拍照/样地）的唯一数据本体，旧工作库
+ * （map.db / media.db / sample_survey.db）已废弃，仅在首启由 [LegacyMigration]
+ * 一次性迁入「默认工程」（旧文件保留不删）。
  *
- * 数据流（镜像同步架构）：
- *  - 采集/管理功能仍写既有工作库（map.db / media.db / sample_survey.db），叠加层显示链路不变；
- *  - 工作库数据变化后由 BusinessOverlayManager 触发 [requestAutosave]，防抖后 [syncFromStores]
- *    把工作库全量镜像进当前工程并写 gpkg —— 工程文件始终是工作库的完整快照；
- *  - 打开工程 = [importToStores] 清库导入 gpkg（工作库切换为工程内容），随后叠加层按常规重建；
- *  - 分享 = [exportProject] 先同步再导出到公共目录，gpkg 单文件可直接分享，QGIS/ArcGIS 可读。
+ * 数据流：
+ *  - 采集/管理功能直接读写 [currentProject] 内存模型，变更经 [requestSave] 防抖落盘 gpkg；
+ *  - 打开工程 = 读 gpkg 替换 [currentProject]，叠加层随后按签名重建；
+ *  - 分享 = 先落盘再直接分享 gpkg 文件本体（QGIS/ArcGIS 可读）。
  *
- * 注意：工作库是全局唯一的，打开工程会替换其内容，故任一时刻工作库 == 当前工程；
- * 样地调查（SampleSurveyStore）仅单向导出到工程（attributes 携带关键字段），不回导（其表单结构比工程模型丰富）。
+ * 工程文件存储在 /调查宝/projects/<工程名>.gpkg（公共目录，卸载不清除、文件管理器可直接取走）。
+ * 内存模型坐标序为 [lat,lon,alt]（与采集/叠加层一致），gpkg 轴序转换在 [Project.toJson] 边界完成。
  */
 class ProjectManager private constructor(context: Context) {
 
@@ -77,8 +71,8 @@ class ProjectManager private constructor(context: Context) {
 
     /**
      * 确保已装载工程（App 启动时调用一次，幂等）：
-     * 上次打开的工程文件仍在 → 读入并导入工作库；
-     * 否则创建「默认工程」并立即同步（既有工作库数据自动吸入，兼容 0.3.x 老数据，免单独迁移工具）。
+     * 上次打开的工程文件仍在 → 读入；否则创建「默认工程」，并由 [LegacyMigration]
+     * 把旧工作库（map.db / media.db / sample_survey.db，若存在）一次性迁入后落盘。
      */
     fun ensureLoaded() {
         if (currentProject != null) return
@@ -87,17 +81,17 @@ class ProjectManager private constructor(context: Context) {
             val p = gpkgWriter.read(last)
             if (p != null) {
                 currentProject = p
-                importToStores(p)
                 Log.i(TAG, "ensureLoaded: 恢复上次工程 ${p.name}")
                 return
             }
             Log.w(TAG, "ensureLoaded: 上次工程读取失败，重建默认工程 $last")
         }
         val p = createProject(DEFAULT_PROJECT_NAME, "自动创建，收纳现有采集数据")
-        syncFromStores()
+        val migrated = LegacyMigration.migrateInto(appContext, p)
         saveProject(p)
-        rememberCurrent(last)
-        Log.i(TAG, "ensureLoaded: 已创建默认工程")
+        rememberCurrent(null)
+        val migText = if (migrated) "有" else "无"
+        Log.i(TAG, "ensureLoaded: 已创建默认工程（旧库迁移 ${migText}数据）")
     }
 
     /** 当前工程文件名（列表高亮用），无工程返回 null */
@@ -116,16 +110,13 @@ class ProjectManager private constructor(context: Context) {
         return p
     }
 
-    /** 新建空工程并落盘、导入（清空工作库），返回成功与否。工程管理对话框「新建」入口。 */
+    /** 新建空工程并落盘、切换为当前工程，返回成功与否。工程管理对话框「新建」入口。 */
     fun createEmptyProject(name: String, description: String): Boolean {
         // 先把当前工程最新数据落盘，再切换
-        currentProject?.let { syncFromStores(); saveProject(it) }
+        currentProject?.let { saveProject(it) }
         val p = createProject(name, description)
         val ok = saveProject(p)
-        if (ok) {
-            importToStores(p) // 空工程 → 清空工作库
-            rememberCurrent(null)
-        }
+        if (ok) rememberCurrent(null)
         return ok
     }
 
@@ -134,7 +125,7 @@ class ProjectManager private constructor(context: Context) {
 
     /** 关闭当前工程（自动保存） */
     fun closeProject() {
-        currentProject?.let { syncFromStores(); saveProject(it) }
+        currentProject?.let { saveProject(it) }
         currentProject = null
         prefs.edit().remove(KEY_LAST_PROJECT).apply()
         Log.i(TAG, "closeProject")
@@ -162,16 +153,15 @@ class ProjectManager private constructor(context: Context) {
         return list
     }
 
-    /** 只读读取工程（不切换当前工程、不导入工作库，供导出/复制非当前工程用） */
+    /** 只读读取工程（不切换当前工程，供导出/复制非当前工程用） */
     fun readProject(filePath: String): Project? = gpkgWriter.read(filePath)
 
-    /** 打开工程：当前工程先同步落盘 → 读 gpkg → 导入工作库 → 记为最近工程 */
+    /** 打开工程：当前工程先落盘 → 读 gpkg 切换 [currentProject] → 记为最近工程 */
     fun openProject(filePath: String): Project? {
-        currentProject?.let { syncFromStores(); saveProject(it) }
+        currentProject?.let { saveProject(it) }
         val p = gpkgWriter.read(filePath)
         if (p != null) {
             currentProject = p
-            importToStores(p)
             rememberCurrent(filePath)
             Log.i(TAG, "openProject: $filePath -> ${p.name}")
         } else {
@@ -180,10 +170,10 @@ class ProjectManager private constructor(context: Context) {
         return p
     }
 
-    /** 保存工程（先同步工作库，再写入 GeoPackage） */
+    /** 保存工程（写入 GeoPackage；落盘前取消待执行的防抖保存，避免重复整文件重写） */
     fun saveProject(project: Project?): Boolean {
         if (project == null) return false
-        if (project === currentProject) syncFromStores()
+        mainHandler.removeCallbacks(autosaveRunnable)
         project.updateTime = System.currentTimeMillis()
         val fileName = sanitizeFileName(project.name ?: "未命名工程") + ".gpkg"
         val filePath = File(projectsDir, fileName).absolutePath
@@ -196,14 +186,12 @@ class ProjectManager private constructor(context: Context) {
     fun saveProjectAs(project: Project?, newName: String): Boolean {
         if (project == null) return false
         project.name = newName
-        project.updateTime = System.currentTimeMillis()
         return saveProject(project)
     }
 
-    /** 导出工程为 GeoPackage（先同步，再写到 Download/调查宝/ 供分享） */
+    /** 导出工程为 GeoPackage（先落盘当前工程，再写到 Download/调查宝/ 供分享） */
     fun exportProject(project: Project?): File? {
         if (project == null) return null
-        if (project === currentProject) syncFromStores()
         project.updateTime = System.currentTimeMillis()
         val exportDir = File("/sdcard/Download/调查宝")
         if (!exportDir.exists()) exportDir.mkdirs()
@@ -258,162 +246,243 @@ class ProjectManager private constructor(context: Context) {
         return gpkgWriter.write(p, path)
     }
 
-    // ---- 工作库 → 工程镜像同步 ----
+    // ---- 防抖自动保存 ----
 
     private val autosaveRunnable = Runnable {
         val p = currentProject ?: return@Runnable
-        syncFromStores()
         saveProject(p)
     }
 
     /**
-     * 请求自动保存（防抖 1.5s）：工作库数据变化后由叠加层重建链路触发。
+     * 请求自动保存（防抖 1.5s）：工程数据变更后由各 mutation API 触发。
      * 合并窗口内的连续变化（轨迹逐点、连拍），避免频繁整文件重写。
      */
-    fun requestAutosave() {
+    fun requestSave() {
         if (currentProject == null) return
         mainHandler.removeCallbacks(autosaveRunnable)
         mainHandler.postDelayed(autosaveRunnable, AUTOSAVE_DELAY_MS)
     }
 
-    /**
-     * 工作库全量镜像进当前工程（tracks/measures/photos/surveyPlots 重建，元数据保留）。
-     * 坐标序转换：工作库点串为 [lat,lon,alt]，工程/gpkg 为 [lon,lat,alt]。
-     * 线宽属显示样式不入工程（gpkg 表结构不含），工程记录 id 取工作库主键（仅本次镜像内稳定）。
-     */
-    fun syncFromStores() {
-        val p = currentProject ?: return
+    // ---- 记录 ID 分配（gpkg 落表为 fid，须 >0 且集合内唯一）----
 
-        p.tracks.clear()
-        runCatching {
-            for (t in MapDataStore.getInstance(appContext).loadTracks()) {
-                val r = Project.TrackRecord()
-                r.id = t.id
-                r.name = t.name
-                r.date = formatTime(t.createdTime)
-                r.color = colorToHex(t.color)
-                r.hidden = !t.visible
-                for (pt in t.points) {
-                    r.points.add(doubleArrayOf(pt[1], pt[0], pt.getOrElse(2) { 0.0 }))
-                }
-                p.tracks.add(r)
-            }
-        }.onFailure { Log.e(TAG, "同步轨迹失败", it) }
+    private fun nextId(ids: List<Long>): Long = (ids.maxOrNull() ?: 0L) + 1L
 
-        p.measures.clear()
-        runCatching {
-            for (m in MapDataStore.getInstance(appContext).loadMeasurements()) {
-                val r = Project.MeasureRecord()
-                r.id = m.id
-                r.name = m.name
-                r.date = formatTime(m.createdTime)
-                r.type = m.type
-                r.result = measureResultText(m.type, m.points)
-                r.color = colorToHex(m.color)
-                r.hidden = false
-                r.closed = m.type == "area"
-                for (pt in m.points) {
-                    r.points.add(doubleArrayOf(pt[1], pt[0], pt.getOrElse(2) { 0.0 }))
-                }
-                p.measures.add(r)
-            }
-        }.onFailure { Log.e(TAG, "同步测量失败", it) }
+    // ---- 轨迹 ----
 
-        p.photos.clear()
-        runCatching {
-            for (pm in MediaStore.getInstance(appContext).loadPlacemarks()) {
-                val r = Project.PhotoRecord()
-                r.id = pm.id
-                r.name = pm.name
-                r.lat = pm.latitude
-                r.lon = pm.longitude
-                r.alt = 0.0
-                r.photoPath = pm.attachments.firstOrNull()?.path ?: ""
-                r.timestamp = pm.createdTime
-                p.photos.add(r)
-            }
-        }.onFailure { Log.e(TAG, "同步拍照失败", it) }
+    fun hasTracks(): Boolean = currentProject?.tracks?.isNotEmpty() == true
 
-        p.surveyPlots.clear()
-        runCatching {
-            for (s in SampleSurveyStore.loadAllPlots(appContext)) {
-                if (s.centerLatitude.isNaN() || s.centerLongitude.isNaN()) continue
-                val r = Project.SurveyPlot()
-                r.id = s.id
-                r.name = "样地#${s.plotNo}"
-                r.plotType = "point"
-                r.points.add(doubleArrayOf(s.centerLongitude, s.centerLatitude, 0.0))
-                r.attributes = JSONObject().apply {
-                    put("plotNo", s.plotNo)
-                    put("compartmentNo", s.compartmentNo)
-                    put("sourcePath", s.sourcePath)
-                    put("sourceFid", s.sourceFid)
-                    put("updatedAt", s.updatedAt)
-                }
-                p.surveyPlots.add(r)
-            }
-        }.onFailure { Log.e(TAG, "同步样地失败", it) }
+    fun findTrack(id: Long): Project.TrackRecord? =
+        currentProject?.tracks?.firstOrNull { it.id == id }
 
-        p.updateTime = System.currentTimeMillis()
+    /** 新增轨迹（[points] 内存序 [lat,lon,alt]），返回分配的记录 id */
+    fun addTrack(
+        name: String,
+        createdTime: Long,
+        points: List<DoubleArray>,
+        colorHex: String = Project.TrackRecord.DEFAULT_COLOR_HEX,
+        lineWidth: Int = Project.TrackRecord.DEFAULT_LINE_WIDTH
+    ): Long {
+        val p = currentProject ?: return -1
+        val r = Project.TrackRecord()
+        r.id = nextId(p.tracks.map { it.id })
+        r.name = name
+        r.date = formatTime(createdTime)
+        r.color = colorHex
+        r.lineWidth = lineWidth
+        r.points.addAll(points)
+        p.tracks.add(r)
+        requestSave()
+        return r.id
     }
 
-    // ---- 工程 → 工作库导入（打开工程）----
+    fun removeTrack(id: Long) {
+        val p = currentProject ?: return
+        if (p.tracks.removeAll { it.id == id }) requestSave()
+    }
+
+    fun updateTrackName(id: Long, name: String) {
+        findTrack(id)?.let { it.name = name; requestSave() }
+    }
+
+    fun updateTrackVisible(id: Long, visible: Boolean) {
+        findTrack(id)?.let { it.hidden = !visible; requestSave() }
+    }
+
+    fun updateTrackStyle(id: Long, colorInt: Int, lineWidth: Int) {
+        findTrack(id)?.let {
+            it.color = colorToHex(colorInt)
+            it.lineWidth = lineWidth
+            requestSave()
+        }
+    }
+
+    // ---- 测量 ----
+
+    fun findMeasure(id: Long): Project.MeasureRecord? =
+        currentProject?.measures?.firstOrNull { it.id == id }
+
+    /** 新增测量（[points] 内存序 [lat,lon,alt]；result 文本按几何自动计算），返回记录 id */
+    fun addMeasure(
+        name: String,
+        type: String,
+        colorInt: Int,
+        createdTime: Long,
+        points: List<DoubleArray>,
+        lineWidth: Int = Project.MeasureRecord.DEFAULT_LINE_WIDTH
+    ): Long {
+        val p = currentProject ?: return -1
+        val r = Project.MeasureRecord()
+        r.id = nextId(p.measures.map { it.id })
+        r.name = name
+        r.date = formatTime(createdTime)
+        r.type = type
+        r.result = measureResultText(type, points)
+        r.color = colorToHex(colorInt)
+        r.closed = type == Project.MeasureRecord.TYPE_AREA
+        r.lineWidth = lineWidth
+        r.points.addAll(points)
+        p.measures.add(r)
+        requestSave()
+        return r.id
+    }
+
+    fun removeMeasure(id: Long) {
+        val p = currentProject ?: return
+        if (p.measures.removeAll { it.id == id }) requestSave()
+    }
+
+    fun updateMeasureStyle(id: Long, colorInt: Int, lineWidth: Int) {
+        findMeasure(id)?.let {
+            it.color = colorToHex(colorInt)
+            it.lineWidth = lineWidth
+            requestSave()
+        }
+    }
+
+    // ---- 拍照标识 ----
+
+    fun findPhoto(id: Long): Project.PhotoRecord? =
+        currentProject?.photos?.firstOrNull { it.id == id }
+
+    /** 新增拍照点位（首张照片前建会话点位），返回记录 id */
+    fun addPhoto(name: String, lat: Double, lon: Double, timestamp: Long): Long {
+        val p = currentProject ?: return -1
+        val r = Project.PhotoRecord()
+        r.id = nextId(p.photos.map { it.id })
+        r.name = name
+        r.lat = lat
+        r.lon = lon
+        r.timestamp = timestamp
+        p.photos.add(r)
+        requestSave()
+        return r.id
+    }
+
+    /** 为拍照点位追加一个照片附件 */
+    fun addPhotoAttachment(photoId: Long, name: String, path: String, time: Long) {
+        findPhoto(photoId)?.let {
+            it.attachments.add(Project.PhotoAttachment(name, path, time))
+            requestSave()
+        }
+    }
+
+    fun removePhoto(id: Long) {
+        val p = currentProject ?: return
+        if (p.photos.removeAll { it.id == id }) requestSave()
+    }
+
+    fun updatePhotoName(id: Long, name: String) {
+        findPhoto(id)?.let { it.name = name; requestSave() }
+    }
+
+    fun updatePhotoGroup(id: Long, groupId: Long) {
+        findPhoto(id)?.let { it.groupId = groupId; requestSave() }
+    }
+
+    fun updatePhotoVisible(id: Long, visible: Boolean) {
+        findPhoto(id)?.let { it.visible = visible; requestSave() }
+    }
+
+    // ---- 拍照分组 ----
+
+    fun listGroups(): List<Project.MediaGroupRecord> =
+        currentProject?.mediaGroups?.toList() ?: emptyList()
+
+    fun findGroupByName(name: String): Project.MediaGroupRecord? =
+        currentProject?.mediaGroups?.firstOrNull { it.name == name }
+
+    fun addGroup(name: String, createdTime: Long): Long {
+        val p = currentProject ?: return -1
+        val g = Project.MediaGroupRecord()
+        g.id = nextId(p.mediaGroups.map { it.id })
+        g.name = name
+        g.createdTime = createdTime
+        p.mediaGroups.add(g)
+        requestSave()
+        return g.id
+    }
+
+    fun renameGroup(id: Long, name: String) {
+        currentProject?.mediaGroups?.firstOrNull { it.id == id }
+            ?.let { it.name = name; requestSave() }
+    }
+
+    /** 删除分组：组内点位不删除，移到未分组 */
+    fun removeGroup(id: Long) {
+        val p = currentProject ?: return
+        if (p.mediaGroups.removeAll { it.id == id }) {
+            for (photo in p.photos) {
+                if (photo.groupId == id) photo.groupId = Project.PhotoRecord.UNGROUPED_ID
+            }
+            requestSave()
+        }
+    }
+
+    /** 批量设置分组内全部点位可见性（组开关直接作用于组内各点位） */
+    fun setGroupPhotosVisible(groupId: Long, visible: Boolean) {
+        val p = currentProject ?: return
+        var changed = false
+        for (photo in p.photos) {
+            if (photo.groupId == groupId && photo.visible != visible) {
+                photo.visible = visible
+                changed = true
+            }
+        }
+        if (changed) requestSave()
+    }
+
+    // ---- 样地调查 ----
+
+    fun findSurveyPlot(id: Long): Project.SurveyPlot? =
+        currentProject?.surveyPlots?.firstOrNull { it.id == id }
+
+    fun findSurveyPlots(sourcePath: String, sourceFid: Long): List<Project.SurveyPlot> =
+        currentProject?.surveyPlots
+            ?.filter { it.sourcePath == sourcePath && it.sourceFid == sourceFid }
+            ?.sortedBy { it.plotNo }
+            ?: emptyList()
+
+    /** 获取下一个样地编号（同小班内最大编号 +1） */
+    fun nextSurveyPlotNo(sourcePath: String, sourceFid: Long): Int =
+        (findSurveyPlots(sourcePath, sourceFid).maxOfOrNull { it.plotNo } ?: 0) + 1
 
     /**
-     * 工程数据导入工作库（替换式）：清空后按工程内容重建。
-     * 轨迹草稿（recording=1）保留，不打断进行中的记录；照片文件不删（附件按路径存在性回补）；
-     * 样地调查不回导（工程仅持有点位与摘要属性）。
+     * 保存样地（新增或更新）：id<=0 分配新 id 插入，否则按 id 原位更新。
+     * 返回保存后的样地（含 id），无当前工程返回 null。
      */
-    private fun importToStores(p: Project) {
-        val mapStore = MapDataStore.getInstance(appContext)
-        val mediaStore = MediaStore.getInstance(appContext)
-
-        runCatching { mapStore.clearFinishedData() }.onFailure { Log.e(TAG, "清空轨迹/测量失败", it) }
-        runCatching { mediaStore.deleteAllPlacemarks() }.onFailure { Log.e(TAG, "清空拍照点位失败", it) }
-
-        for (t in p.tracks) {
-            runCatching {
-                val pts = t.points.map { doubleArrayOf(it[1], it[0], it.getOrElse(2) { 0.0 }) }
-                val id = mapStore.addTrack(
-                    t.name ?: "轨迹", parseTime(t.date), pts,
-                    color = parseColor(t.color, com.zys.mobilemap.db.TrackRecord.DEFAULT_COLOR)
-                )
-                if (id >= 0 && t.hidden) mapStore.updateTrackVisible(id, false)
-            }.onFailure { Log.e(TAG, "导入轨迹失败: ${t.name}", it) }
+    fun saveSurveyPlot(plot: Project.SurveyPlot): Project.SurveyPlot? {
+        val p = currentProject ?: return null
+        val now = System.currentTimeMillis()
+        plot.updatedAt = now
+        if (plot.id <= 0) {
+            plot.id = nextId(p.surveyPlots.map { it.id })
+            if (plot.createdAt <= 0) plot.createdAt = now
+            p.surveyPlots.add(plot)
+        } else if (p.surveyPlots.none { it.id == plot.id }) {
+            p.surveyPlots.add(plot)
         }
-
-        for (m in p.measures) {
-            runCatching {
-                val dbType = when (m.type) {
-                    "point" -> "point"
-                    "area", "polygon" -> "area"
-                    else -> "distance" // distance/angle/line 统一按线显示
-                }
-                val pts = m.points.map { doubleArrayOf(it[1], it[0], it.getOrElse(2) { 0.0 }) }
-                mapStore.addMeasurement(
-                    m.name ?: "测量", dbType,
-                    parseColor(m.color, 0xFFE91E63.toInt()),
-                    parseTime(m.date), pts
-                )
-            }.onFailure { Log.e(TAG, "导入测量失败: ${m.name}", it) }
-        }
-
-        for (ph in p.photos) {
-            runCatching {
-                val id = mediaStore.insertPlacemark(
-                    ph.name ?: "拍照", ph.lat, ph.lon,
-                    if (ph.timestamp > 0) ph.timestamp else System.currentTimeMillis()
-                )
-                // 照片文件本机仍在（本机工程往返）则回补附件记录；分享来的工程照片路径不存在则仅留点位
-                val path = ph.photoPath
-                if (id >= 0 && !path.isNullOrEmpty() && File(path).exists()) {
-                    mediaStore.insertAttachment(
-                        id, com.zys.mobilemap.media.MediaAttachment.TYPE_PHOTO,
-                        File(path).name, path, ph.timestamp
-                    )
-                }
-            }.onFailure { Log.e(TAG, "导入拍照失败: ${ph.name}", it) }
-        }
+        requestSave()
+        return plot
     }
 
     // ---- 工具方法 ----
@@ -435,36 +504,6 @@ class ProjectManager private constructor(context: Context) {
         return String.format(Locale.getDefault(), "%.1f MB", bytes / (1024.0 * 1024))
     }
 
-    // ---- 数据操作（添加到当前工程，一般由镜像同步代劳；保留给直接追加场景）----
-
-    fun addTrack(track: Project.TrackRecord) {
-        currentProject?.let {
-            it.tracks.add(track)
-            it.updateTime = System.currentTimeMillis()
-        }
-    }
-
-    fun addMeasure(measure: Project.MeasureRecord) {
-        currentProject?.let {
-            it.measures.add(measure)
-            it.updateTime = System.currentTimeMillis()
-        }
-    }
-
-    fun addPhoto(photo: Project.PhotoRecord) {
-        currentProject?.let {
-            it.photos.add(photo)
-            it.updateTime = System.currentTimeMillis()
-        }
-    }
-
-    fun addSurveyPlot(plot: Project.SurveyPlot) {
-        currentProject?.let {
-            it.surveyPlots.add(plot)
-            it.updateTime = System.currentTimeMillis()
-        }
-    }
-
     companion object {
         private const val TAG = "ProjectManager"
         private const val PREFS_NAME = "project_manager"
@@ -477,19 +516,19 @@ class ProjectManager private constructor(context: Context) {
         /** 工程记录 date 字段格式（人读友好，QGIS 中直接可读） */
         private val TIME_FORMAT = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
 
-        private fun formatTime(millis: Long): String =
+        fun formatTime(millis: Long): String =
             if (millis > 0) TIME_FORMAT.format(Date(millis)) else ""
 
-        private fun parseTime(text: String?): Long =
+        fun parseTime(text: String?): Long =
             runCatching { TIME_FORMAT.parse(text ?: "")?.time ?: 0L }.getOrDefault(0L)
                 .takeIf { it > 0 } ?: System.currentTimeMillis()
 
         /** ARGB Int → "#RRGGBB"（去 alpha，工程交换格式不含透明度） */
-        private fun colorToHex(color: Int): String =
+        fun colorToHex(color: Int): String =
             String.format("#%06X", 0xFFFFFF and color)
 
         /** "#RRGGBB"/"#AARRGGBB" → ARGB Int，解析失败回默认 */
-        private fun parseColor(hex: String?, def: Int): Int {
+        fun parseColor(hex: String?, def: Int): Int {
             if (hex.isNullOrBlank()) return def
             return runCatching {
                 val c = android.graphics.Color.parseColor(hex)
@@ -497,16 +536,16 @@ class ProjectManager private constructor(context: Context) {
             }.getOrDefault(def)
         }
 
-        /** 测量结果文本（导出附属信息，几何为准）：距离=累计长度，面积=总面积，点=坐标 */
-        private fun measureResultText(type: String?, pts: List<DoubleArray>): String {
+        /** 测量结果文本（导出附属信息，几何为准）：距离=累计长度，面积=总面积，点=坐标；[pts] 内存序 [lat,lon] */
+        fun measureResultText(type: String?, pts: List<DoubleArray>): String {
             return try {
                 when (type) {
-                    "area", "polygon" -> {
+                    Project.MeasureRecord.TYPE_AREA -> {
                         val ring = pts.map { doubleArrayOf(it[0], it[1]) }
                         GeoCalc.formatArea(GeoCalc.polygonAreaSquareMeters(ring))
                     }
-                    "point" -> if (pts.isNotEmpty())
-                        String.format(Locale.US, "%.6f, %.6f", pts[0][1], pts[0][0]) else ""
+                    Project.MeasureRecord.TYPE_POINT -> if (pts.isNotEmpty())
+                        String.format(Locale.US, "%.6f, %.6f", pts[0][0], pts[0][1]) else ""
                     else -> {
                         var total = 0.0
                         for (i in 1 until pts.size) {

@@ -6,6 +6,8 @@ import android.content.Intent
 import android.util.Log
 import android.widget.Toast
 import androidx.core.content.FileProvider
+import com.zys.mobilemap.project.Project
+import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.util.AppDirectories
 import org.json.JSONArray
 import org.json.JSONObject
@@ -58,8 +60,8 @@ object MediaPackage {
     /**
      * 分享单个拍照点位：打包其坐标/名称/全部照片后经系统分享面板发出。
      */
-    fun sharePlacemark(context: Context, placemark: MediaPlacemark) {
-        val subject = placemark.name.ifBlank { "拍照点位" }
+    fun sharePlacemark(context: Context, placemark: Project.PhotoRecord) {
+        val subject = (placemark.name ?: "").ifBlank { "拍照点位" }
         share(context, buildPackage(context, null, listOf(placemark)), subject)
     }
 
@@ -67,7 +69,7 @@ object MediaPackage {
      * 分享整个分组：打包组内全部点位（含各自坐标/照片）后经系统分享面板发出。
      * [groupName] 非空时写入包内，导入据此重建同名分组；未分组分享传 null，导入后点位仍归未分组。
      */
-    fun shareGroup(context: Context, groupName: String?, placemarks: List<MediaPlacemark>) {
+    fun shareGroup(context: Context, groupName: String?, placemarks: List<Project.PhotoRecord>) {
         val subject = groupName?.takeIf { it.isNotBlank() } ?: "拍照分组"
         share(context, buildPackage(context, groupName, placemarks), subject)
     }
@@ -99,13 +101,13 @@ object MediaPackage {
     }
 
     /**
-     * 构建数据包：仅打包有照片的点位（过滤非照片附件与失效文件），写入 metadata.json 与各点位照片，
+     * 构建数据包：仅打包有照片的点位（附件即照片，过滤失效文件），写入 metadata.json 与各点位照片，
      * 返回 `.[EXT]` 文件；无任何照片时返回 null（调用方提示）。
      */
-    private fun buildPackage(context: Context, groupName: String?, placemarks: List<MediaPlacemark>): File? {
+    private fun buildPackage(context: Context, groupName: String?, placemarks: List<Project.PhotoRecord>): File? {
         val entries = placemarks.mapNotNull { p ->
             val photos = p.attachments.filter {
-                it.type == MediaAttachment.TYPE_PHOTO && File(it.path).let { f -> f.exists() && f.length() > 0 }
+                File(it.path).let { f -> f.exists() && f.length() > 0 }
             }
             if (photos.isEmpty()) null else p to photos
         }
@@ -116,7 +118,7 @@ object MediaPackage {
         cleanStalePackages(shareDir)
 
         val stamp = System.currentTimeMillis()
-        val base = sanitize((groupName ?: entries.first().first.name).ifBlank { "拍照数据包" })
+        val base = sanitize((groupName ?: entries.first().first.name ?: "").ifBlank { "拍照数据包" })
         val packageFile = File(shareDir, base + "_" + stamp + "." + EXT)
 
         return try {
@@ -145,7 +147,7 @@ object MediaPackage {
     /** 组装 metadata.json：格式标识/版本/导出时间 + 可选分组名 + 各点位与其照片相对路径。 */
     private fun buildMetadata(
         groupName: String?,
-        entries: List<Pair<MediaPlacemark, List<MediaAttachment>>>,
+        entries: List<Pair<Project.PhotoRecord, List<Project.PhotoAttachment>>>,
         stamp: Long
     ): JSONObject {
         val meta = JSONObject()
@@ -157,10 +159,10 @@ object MediaPackage {
         entries.forEachIndexed { index, entry ->
             val p = entry.first
             val po = JSONObject()
-            po.put("name", p.name)
-            po.put("latitude", p.latitude)
-            po.put("longitude", p.longitude)
-            po.put("createdTime", p.createdTime)
+            po.put("name", p.name ?: "")
+            po.put("latitude", p.lat)
+            po.put("longitude", p.lon)
+            po.put("createdTime", p.timestamp)
             val names = JSONArray()
             entry.second.forEach { names.put(index.toString() + "/" + File(it.path).name) }
             po.put("photos", names)
@@ -188,7 +190,7 @@ object MediaPackage {
      *
      * 与矢量外部导入一致，本方法只做 IO，须在工作线程调用；[packageFile] 由调用方负责善后。
      */
-    fun importPackage(context: Context, packageFile: File): List<MediaPlacemark> {
+    fun importPackage(context: Context, packageFile: File): List<Project.PhotoRecord> {
         if (!packageFile.exists()) return emptyList()
         val tmpDir = File(
             context.getExternalFilesDir(null) ?: context.cacheDir,
@@ -217,17 +219,19 @@ object MediaPackage {
         }
     }
 
-    /** 按元数据在库中新建点位并复制照片，返回新建点位（分组包先建同名分组承接）。 */
-    private fun createPlacemarks(context: Context, tmpDir: File, meta: JSONObject): List<MediaPlacemark> {
-        val store = MediaStore.getInstance(context)
+    /** 按元数据在工程中新建点位并复制照片，返回新建点位（分组包先建同名分组承接）。 */
+    private fun createPlacemarks(context: Context, tmpDir: File, meta: JSONObject): List<Project.PhotoRecord> {
+        val projectManager = ProjectManager.get(context)
         val mediaDir = AppDirectories.getMediaDir(context)
 
-        // 分组包：新建同名分组承接导入点位；单点位包（无 groupName）归入未分组
+        // 分组包：复用或新建同名分组承接导入点位；单点位包（无 groupName）归入未分组
         val groupName = meta.optString("groupName", "").takeIf { it.isNotBlank() }
-        val groupId = groupName?.let { store.insertGroup(it, System.currentTimeMillis()) }
-            ?: MediaStore.UNGROUPED_ID
+        val groupId = groupName?.let {
+            projectManager.findGroupByName(it)?.id
+                ?: projectManager.addGroup(it, System.currentTimeMillis())
+        } ?: Project.PhotoRecord.UNGROUPED_ID
 
-        val created = mutableListOf<MediaPlacemark>()
+        val created = mutableListOf<Project.PhotoRecord>()
         val arr = meta.optJSONArray("placemarks") ?: return created
         for (i in 0 until arr.length()) {
             val po = arr.optJSONObject(i) ?: continue
@@ -237,12 +241,14 @@ object MediaPackage {
             val name = po.optString("name", "")
             val createdTime = po.optLong("createdTime", System.currentTimeMillis())
 
-            val newId = store.insertPlacemark(name, lat, lon, createdTime, groupId)
+            val newId = projectManager.addPhoto(name, lat, lon, createdTime)
             if (newId < 0) continue
+            if (groupId != Project.PhotoRecord.UNGROUPED_ID) {
+                projectManager.updatePhotoGroup(newId, groupId)
+            }
             val destDir = File(mediaDir, newId.toString())
             if (!destDir.exists()) destDir.mkdirs()
 
-            val result = MediaPlacemark(newId, name, lat, lon, createdTime, true, groupId)
             val photos = po.optJSONArray("photos")
             if (photos != null) {
                 for (j in 0 until photos.length()) {
@@ -255,15 +261,10 @@ object MediaPackage {
                     src.copyTo(target, overwrite = true)
                     // 附件时间按序递增，保证导入后照片顺序与打包时一致
                     val attTime = createdTime + j
-                    val attId = store.insertAttachment(
-                        newId, MediaAttachment.TYPE_PHOTO, target.name, target.absolutePath, attTime
-                    )
-                    result.attachments.add(
-                        MediaAttachment(attId, newId, MediaAttachment.TYPE_PHOTO, target.name, target.absolutePath, attTime)
-                    )
+                    projectManager.addPhotoAttachment(newId, target.name, target.absolutePath, attTime)
                 }
             }
-            created.add(result)
+            projectManager.findPhoto(newId)?.let { created.add(it) }
         }
         return created
     }
