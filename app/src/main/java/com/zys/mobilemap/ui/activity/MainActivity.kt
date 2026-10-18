@@ -22,6 +22,7 @@ import com.zys.mobilemap.doc.DocumentManager
 import com.zys.mobilemap.doc.MapDocument
 import com.zys.mobilemap.location.LocationManager
 import com.zys.mobilemap.media.MediaCaptureHelper
+import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.survey.SampleSurveyActivity
 import com.zys.mobilemap.survey.SampleSurveyStore
 import com.zys.mobilemap.ui.dialog.LayerManageDialog
@@ -29,6 +30,7 @@ import com.zys.mobilemap.ui.dialog.MediaManageDialog
 import com.zys.mobilemap.ui.dialog.LocationDetailDialog
 import com.zys.mobilemap.ui.dialog.MoveToDialog
 import com.zys.mobilemap.ui.dialog.PhotoSheetDialog
+import com.zys.mobilemap.ui.dialog.ProjectManageDialog
 import com.zys.mobilemap.ui.map.BusinessOverlayManager
 import com.zys.mobilemap.ui.map.CameraNavigator
 import com.zys.mobilemap.ui.map.ExternalImportHandler
@@ -233,6 +235,10 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         DocumentManager.getInstance().loadOrCreate(this)
         AppLog.i(TAG, "初始化完成，文档已加载 启动耗时 文档=${SystemClock.elapsedRealtime() - t}ms")
 
+        // 工程模块（0.4.0.0）：恢复上次工程 / 首次创建默认工程（旧工作库数据自动吸入）。
+        // 须在 setupMapUi 前完成：打开工程会导入工作库，叠加层首轮重建须读到工程数据。
+        ProjectManager.get(this).ensureLoaded()
+
         t = SystemClock.elapsedRealtime()
         setupMapUi()
         AppLog.i(TAG, "启动耗时 UI装配合计=${SystemClock.elapsedRealtime() - t}ms")
@@ -376,6 +382,8 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
             startActivity(Intent(this, SettingsActivity::class.java))
         }
         findViewById<ImageView>(R.id.jni_map_layer_manage).setOnClickListener { showLayerManageDialog() }
+        // 工程管理入口（0.4.0.0）：新建/打开/导出分享 GeoPackage 工程；工程切换后工作库已换血，重建叠加层
+        findViewById<TextView>(R.id.jni_map_project).setOnClickListener { showProjectManageDialog() }
         locationText.setOnClickListener { LocationDetailDialog.show(this) }
         // 中心坐标文本点击：弹出「移动到」对话框（原左下 GO 按键入口迁移至此）
         centerText.setOnClickListener { showMoveToDialog() }
@@ -470,6 +478,14 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         MoveToDialog(this, initLon, initLat) { lon, lat ->
             navigator.moveToLocation(lat, lon, notify = false)
         }.create().show()
+    }
+
+    /**
+     * 工程管理对话框（0.4.0.0）：新建/打开/删除/重命名/复制/导出分享 GeoPackage 工程。
+     * 工程切换（打开/新建/删除当前）后工作库内容已替换，回调重建业务叠加层显示新工程数据。
+     */
+    private fun showProjectManageDialog() {
+        ProjectManageDialog.show(this) { overlayManager.rebuild() }
     }
 
     /** 拍照菜单入口：拍照（启动相机会话）/ 管理（弹出采集数据管理），对齐原主界面 showPhotoMenu */

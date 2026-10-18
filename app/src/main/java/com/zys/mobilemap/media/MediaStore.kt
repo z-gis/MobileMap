@@ -255,6 +255,15 @@ class MediaStore private constructor(context: Context) {
     }
 
     /**
+     * 清空全部拍照点位与附件记录（打开工程时替换式导入调用）。
+     * 仅删数据库行，**不删附件文件**（本机工程往返时路径仍有效，由导入方按存在性回补）。
+     */
+    fun deleteAllPlacemarks() {
+        db.delete("attachment", null, null)
+        db.delete("placemark", null, null)
+    }
+
+    /**
      * 新建分组，返回自增主键。
      */
     fun insertGroup(name: String, createdTime: Long): Long {

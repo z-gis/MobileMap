@@ -96,6 +96,20 @@
             android:padding="5.0dp"
             android:contentDescription="@string/jni_map_layer_manage"
             android:src="@drawable/nav_overlay_manager" />
+
+        <!-- 工程管理入口（0.4.0.0 工程模块：GeoPackage 工程的新建/打开/导出分享）。
+             文字按钮避免新增图标资源（同指北针按钮做法）。 -->
+        <TextView
+            android:id="@+id/jni_map_project"
+            android:layout_width="@dimen/main_icon_size"
+            android:layout_height="@dimen/main_icon_size"
+            android:layout_marginTop="10dp"
+            android:background="@color/main_icon_bg"
+            android:gravity="center"
+            android:text="工程"
+            android:textColor="@color/white"
+            android:textSize="13sp"
+            android:textStyle="bold" />
     </LinearLayout>
 
     <!-- 右侧中部（对齐主界面 linearLayout2，vertical_bias 0.7）：拍照入口。

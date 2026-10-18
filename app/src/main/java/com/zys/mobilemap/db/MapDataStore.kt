@@ -350,6 +350,20 @@ class MapDataStore private constructor(context: Context) {
         db.delete("measurement", "id = ?", arrayOf(measurementId.toString()))
     }
 
+    /**
+     * 清空已定型业务数据（打开工程时替换式导入调用）：
+     * 删除全部测量与已结束轨迹及其点串；**保留记录中的草稿轨迹**（recording=1）及其点，
+     * 不打断进行中的轨迹采集（恢复机制依赖草稿行）。
+     */
+    fun clearFinishedData() {
+        db.delete("measurement", null, null)
+        db.delete(
+            "track_point",
+            "track_id IN (SELECT id FROM track WHERE recording = 0)", null
+        )
+        db.delete("track", "recording = 0", null)
+    }
+
     private fun pointsToJson(points: List<DoubleArray>): String {
         val array = JSONArray()
         for (point in points) {

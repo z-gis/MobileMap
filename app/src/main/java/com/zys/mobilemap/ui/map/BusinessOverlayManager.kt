@@ -98,6 +98,8 @@ internal class BusinessOverlayManager(
         addSurveyOverlay(plots)
         // 恢复 SQL 查询高亮（若有）：查询结果为临时叠加、不写文档，故缓存 features 于重建后重新渲染
         restoreQueryHighlight()
+        // 数据签名已变化 → 工作库有更新：请求工程镜像防抖自动保存（0.4.0.0 工程模块接线点）
+        com.zys.mobilemap.project.ProjectManager.get(activity).requestAutosave()
     }
 
     /**
