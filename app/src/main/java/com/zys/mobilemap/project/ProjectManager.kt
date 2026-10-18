@@ -135,12 +135,18 @@ class ProjectManager private constructor(context: Context) {
         return p
     }
 
-    /** 新建空工程并落盘、切换为当前工程，返回成功与否。工程管理对话框「新建」入口。 */
+    /** 新建空工程并落盘、切换为当前工程，返回成功与否。工程管理对话框「新建」入口。
+     *  同步落盘：返回 true 时文件已在磁盘，列表刷新立即可见（异步写会让新工程在列表中「隐身」）。
+     *  重名拒绝：同名 .gpkg 已存在时返回 false，防止整文件重建覆盖已有工程数据。 */
     fun createEmptyProject(name: String, description: String): Boolean {
-        // 先把当前工程最新数据落盘，再切换
-        currentProject?.let { saveProject(it) }
+        if (File(projectsDir, sanitizeFileName(name) + ".gpkg").exists()) {
+            Log.w(TAG, "createEmptyProject: 重名拒绝 $name")
+            return false
+        }
+        // 先把当前工程最新数据同步落盘，再切换
+        currentProject?.let { saveNowProject(it) }
         val p = createProject(name, description)
-        val ok = saveProject(p)
+        val ok = saveNowProject(p)
         if (ok) rememberCurrent(null)
         return ok
     }
@@ -148,11 +154,12 @@ class ProjectManager private constructor(context: Context) {
     /** 检查是否有打开的工程 */
     fun hasProject(): Boolean = currentProject != null
 
-    /** 关闭当前工程（自动保存） */
+    /** 关闭当前工程（同步落盘后置空，防止 close 后立即重开读到半成品/丢数据） */
     fun closeProject() {
-        currentProject?.let { saveProject(it) }
+        val p = currentProject ?: return
         currentProject = null
         prefs.edit().remove(KEY_LAST_PROJECT).apply()
+        saveNowProject(p)
         Log.i(TAG, "closeProject")
     }
 
@@ -181,9 +188,11 @@ class ProjectManager private constructor(context: Context) {
     /** 只读读取工程（不切换当前工程，供导出/复制非当前工程用） */
     fun readProject(filePath: String): Project? = gpkgWriter.read(filePath)
 
-    /** 打开工程：当前工程先落盘 → 读 gpkg 切换 [currentProject] → 记为最近工程 */
+    /** 打开工程：当前工程先同步落盘 → 读 gpkg 切换 [currentProject] → 记为最近工程。
+     *  同步落盘防竞态：异步写时「切换到当前工程自身」（或 1.5s 防抖窗口内切换）会读到
+     *  GDAL 整文件重建中的半成品，导致切换失败。 */
     fun openProject(filePath: String): Project? {
-        currentProject?.let { saveProject(it) }
+        currentProject?.let { saveNowProject(it) }
         val p = gpkgWriter.read(filePath)
         if (p != null) {
             currentProject = p
@@ -212,6 +221,30 @@ class ProjectManager private constructor(context: Context) {
     /** 保存任务封装：快照 + 目标路径（同步等待类 API 共用） */
     private fun prepareWrite(project: Project, filePath: String): Pair<String, String> =
         Pair(gpkgWriter.encode(project), filePath)
+
+    /**
+     * 同步落盘指定工程（返回真实写入结果）。适用于「写后立即读文件/枚举列表/分享/删除/重命名」的场景——
+     * 异步 [saveProject] 的「调用返回≠已落盘」在这些流程会产生竞态：读到整文件重建中的半成品、
+     * 列表枚举不到新文件、删除后又被队列尾部的写任务复活。低频文件管理操作可承受同步等待。
+     */
+    fun saveNowProject(project: Project?): Boolean {
+        if (project == null) return false
+        project.updateTime = System.currentTimeMillis()
+        val fileName = sanitizeFileName(project.name ?: "未命名工程") + ".gpkg"
+        val filePath = File(projectsDir, fileName).absolutePath
+        val (json, _) = prepareWrite(project, filePath)
+        return runCatching {
+            saveExecutor.submit(java.util.concurrent.Callable { gpkgWriter.writeEncoded(json, filePath) }).get()
+        }.getOrElse { false }
+    }
+
+    /**
+     * 等待后台保存队列排空（栅栏）：串行池提交空任务并阻塞至其执行，此前所有写任务必已完成。
+     * 供删除/重命名工程文件前调用，防止队列尾部同路径写任务让已删文件复活。
+     */
+    private fun awaitSaveQueue() {
+        runCatching { saveExecutor.submit({}).get() }
+    }
 
     /** 另存为 */
     fun saveProjectAs(project: Project?, newName: String): Boolean {
@@ -248,6 +281,8 @@ class ProjectManager private constructor(context: Context) {
             Log.w(TAG, "deleteProject: 拒绝删除当前工程 $fileName")
             return false
         }
+        // 栅栏：排空后台保存队列，防止队列尾部同路径写任务在删除后把文件复活
+        awaitSaveQueue()
         val f = File(projectsDir, fileName)
         val ok = f.delete()
         if (ok) {
@@ -257,8 +292,10 @@ class ProjectManager private constructor(context: Context) {
         return ok
     }
 
-    /** 重命名工程文件（若重命名的是当前工程，同步改工程名并落盘） */
+    /** 重命名工程文件（若重命名的是当前工程，同步改工程名并落盘）。
+     *  先栅栏排空队列再 renameTo：否则队列尾部旧路径写任务会把旧名文件复活成「副本」。 */
     fun renameProject(oldFileName: String, newName: String): Boolean {
+        awaitSaveQueue()
         val oldFile = File(projectsDir, oldFileName)
         val newFile = File(projectsDir, sanitizeFileName(newName) + ".gpkg")
         val ok = oldFile.renameTo(newFile)
@@ -266,7 +303,7 @@ class ProjectManager private constructor(context: Context) {
         if (ok && cur != null &&
                 sanitizeFileName(cur.name ?: "") == oldFileName.removeSuffix(".gpkg")) {
             cur.name = newName
-            saveProject(cur)
+            saveNowProject(cur)
             rememberCurrent(newFile.absolutePath)
         }
         Log.i(TAG, "renameProject: $oldFileName -> $newName $ok")
@@ -310,19 +347,12 @@ class ProjectManager private constructor(context: Context) {
     }
 
     /**
-     * 立即落盘（跳过防抖）：用于定型类关键写入（轨迹停表入库、拍照入库、退出前兜底），
-     * 调用返回时数据已在磁盘，防抖窗口内进程被杀不丢失。后台池串行排队 + 同步等待实现，
-     * 等待窗口=排队写时长（低频关键点可接受），避免退回主线程重 IO。
+     * 立即同步落盘当前工程（跳过防抖）：定型类关键写入（轨迹停表入库、拍照入库、退出前兜底），
+     * 调用返回时数据已在磁盘，防抖窗口内进程被杀不丢失。
      */
     fun saveNow() {
-        val p = currentProject ?: return
         mainHandler.removeCallbacks(autosaveRunnable)
-        val fileName = sanitizeFileName(p.name ?: "未命名工程") + ".gpkg"
-        val filePath = File(projectsDir, fileName).absolutePath
-        val (json, _) = prepareWrite(p, filePath)
-        runCatching {
-            saveExecutor.submit(java.util.concurrent.Callable { gpkgWriter.writeEncoded(json, filePath) }).get()
-        }.onFailure { Log.e(TAG, "saveNow: 落盘等待失败", it) }
+        saveNowProject(currentProject)
     }
 
     // ---- 记录 ID 分配（gpkg 落表为 fid，须 >0 且集合内唯一）----

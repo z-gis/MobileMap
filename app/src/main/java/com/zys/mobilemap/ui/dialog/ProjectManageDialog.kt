@@ -77,7 +77,7 @@ object ProjectManageDialog {
                     onChanged()
                     dialog?.dismiss()
                 } else {
-                    Toast.makeText(activity, "工程创建失败", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(activity, "创建失败：名称重复或写入出错", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -118,10 +118,10 @@ object ProjectManageDialog {
             .show()
     }
 
-    /** 直接分享工程 .gpkg 文件本体（当前工程先落盘保证最新；gpkg 单文件，QGIS/ArcGIS 可直接读取） */
+    /** 直接分享工程 .gpkg 文件本体（当前工程先同步落盘保证最新；gpkg 单文件，QGIS/ArcGIS 可直接读取） */
     private fun exportAndShare(activity: Activity, pm: ProjectManager, info: ProjectManager.ProjectInfo) {
         if (info.fileName == pm.currentFileName()) {
-            pm.saveProject(pm.currentProject) // 当前工程可能有未落盘的镜像变更
+            pm.saveNow() // 同步落盘：分享的是文件本体，异步写会分享到旧内容
         }
         val path = info.filePath ?: return
         val file = File(path)
