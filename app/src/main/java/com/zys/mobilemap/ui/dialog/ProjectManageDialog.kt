@@ -98,7 +98,7 @@ object ProjectManageDialog {
         dialog: AlertDialog?
     ) {
         val fileName = info.fileName ?: return
-        val actions = arrayOf("导出分享", "复制", "重命名", "删除")
+        val actions = arrayOf("分享", "复制", "重命名", "删除")
         AlertDialog.Builder(activity)
             .setTitle(fileName.removeSuffix(".gpkg"))
             .setItems(actions) { _, which ->
@@ -115,25 +115,27 @@ object ProjectManageDialog {
             .show()
     }
 
-    /** 导出到 Download/调查宝 并调起系统分享（gpkg 单文件，QGIS/ArcGIS 可直接读取） */
+    /** 直接分享工程 .gpkg 文件本体（当前工程先落盘保证最新；gpkg 单文件，QGIS/ArcGIS 可直接读取） */
     private fun exportAndShare(activity: Activity, pm: ProjectManager, info: ProjectManager.ProjectInfo) {
-        val isCurrent = info.fileName == pm.currentFileName()
-        val project = if (isCurrent) pm.currentProject
-        else pm.readProject(info.filePath ?: return)
-        if (project == null) {
-            Toast.makeText(activity, "工程读取失败", Toast.LENGTH_SHORT).show()
+        if (info.fileName == pm.currentFileName()) {
+            pm.saveProject(pm.currentProject) // 当前工程可能有未落盘的镜像变更
+        }
+        val path = info.filePath ?: return
+        val file = File(path)
+        if (!file.exists()) {
+            Toast.makeText(activity, "工程文件不存在", Toast.LENGTH_SHORT).show()
             return
         }
-        val file = pm.exportProject(project)
-        if (file == null) {
-            Toast.makeText(activity, "导出失败", Toast.LENGTH_SHORT).show()
+        val uri = try {
+            FileProvider.getUriForFile(activity, activity.packageName + ".fileprovider", file)
+        } catch (e: IllegalArgumentException) {
+            Toast.makeText(activity, "分享失败：${e.message}", Toast.LENGTH_SHORT).show()
             return
         }
-        val uri = FileProvider.getUriForFile(activity, activity.packageName + ".fileprovider", file)
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "application/octet-stream"
             putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, project.name ?: "工程")
+            putExtra(Intent.EXTRA_SUBJECT, info.fileName?.removeSuffix(".gpkg") ?: "工程")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         activity.startActivity(Intent.createChooser(intent, "分享工程"))
