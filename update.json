@@ -1,9 +1,9 @@
 {
-    "versionCode":  26101703,
-    "versionName":  "0.4.0.1",
-    "apkUrl":  "https://gitee.com/z-gis/MobileMap/releases/download/v0.4.0.1/mobilemap-v0.4.0.1.apk",
+    "versionCode":  26101704,
+    "versionName":  "0.4.0.2",
+    "apkUrl":  "https://gitee.com/z-gis/MobileMap/releases/download/v0.4.0.2/mobilemap-v0.4.0.2.apk",
     "apkSizeBytes":  48309089,
-    "apkSha1":  "048b74a851d60b7ae2ac765db33ab7dfd0d728a9",
-    "changelog":  "1. 删除数据、记录轨迹时平移地图不再卡顿（工程保存转入后台执行）\n2. 首次启动旧数据迁移显示进度提示，不再白屏卡死\n3. 修复切换工程失败、新建工程在列表中不显示、删除或重命名后文件复活的问题\n4. 新建工程增加重名校验，防止误覆盖已有工程数据",
+    "apkSha1":  "04c420fa72dfe6980f40e751cb768379f4b018a3",
+    "changelog":  "1. 修复点击退出后卡顿（工程数据保存转入后台，显示保存进度后自动退出）\n2. 修复从外部拷入的工程文件切换后数据分叉问题（工程名自动对齐文件名）",
     "force":  false
 }
