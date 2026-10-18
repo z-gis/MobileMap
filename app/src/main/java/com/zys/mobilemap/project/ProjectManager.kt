@@ -225,6 +225,12 @@ class ProjectManager private constructor(context: Context) {
         return true
     }
 
+    /** 当前工程 gpkg 文件绝对路径（由 name 推导，与 [saveNowProject] 同规则）；无当前工程返回 null */
+    val currentProjectPath: String?
+        get() = currentProject?.let {
+            File(projectsDir, sanitizeFileName(it.name ?: "未命名工程") + ".gpkg").absolutePath
+        }
+
     /** 保存任务封装：快照 + 目标路径（同步等待类 API 共用） */
     private fun prepareWrite(project: Project, filePath: String): Pair<String, String> =
         Pair(gpkgWriter.encode(project), filePath)
@@ -253,11 +259,67 @@ class ProjectManager private constructor(context: Context) {
         runCatching { saveExecutor.submit({}).get() }
     }
 
+    /**
+     * 退出保存：主线程同步快照 + 立即提交后台队列，**不等待落盘**直接返回。
+     * 退出即刻完成（用户决策：不因保存等待而卡退出）；风险兜底是工程管理的「备份」按钮——
+     * 极端情况（进程瞬间被杀、后台写未及完成）仅丢最后一次保存窗口。
+     */
+    fun saveOnExit() {
+        val p = currentProject ?: return
+        p.updateTime = System.currentTimeMillis()
+        val filePath = File(projectsDir, sanitizeFileName(p.name ?: "未命名工程") + ".gpkg").absolutePath
+        val json = gpkgWriter.encode(p)
+        saveExecutor.submit { gpkgWriter.writeEncoded(json, filePath) }
+    }
+
+    /**
+     * 备份当前工程：先同步落盘保证备份为最新，再把 gpkg 复制到 /sdcard/调查宝/backups/
+     * （文件名带时间戳，不进工程列表）。返回备份文件，失败返回 null。
+     */
+    fun backupCurrentProject(): File? {
+        val p = currentProject ?: return null
+        if (!saveNowProject(p)) return null
+        val src = File(projectsDir, sanitizeFileName(p.name ?: "未命名工程") + ".gpkg")
+        if (!src.exists()) return null
+        val dir = File("/sdcard/调查宝/backups").apply { mkdirs() }
+        val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.CHINA).format(Date())
+        val dst = File(dir, "${sanitizeFileName(p.name ?: "未命名工程")}_$ts.gpkg")
+        return try {
+            src.copyTo(dst, overwrite = false)
+            Log.i(TAG, "backupCurrentProject: ${src.name} -> ${dst.absolutePath}")
+            dst
+        } catch (e: Exception) {
+            Log.e(TAG, "backupCurrentProject: 备份失败", e)
+            null
+        }
+    }
+
     /** 另存为 */
     fun saveProjectAs(project: Project?, newName: String): Boolean {
         if (project == null) return false
         project.name = newName
         return saveProject(project)
+    }
+
+    /**
+     * 备份指定工程文件（非当前工程）：复制到 /sdcard/调查宝/backups/（带时间戳）。
+     * 返回备份文件，失败返回 null。
+     */
+    fun backupProjectFile(fileName: String): File? {
+        val src = File(projectsDir, fileName)
+        if (!src.exists()) return null
+        val dir = File("/sdcard/调查宝/backups").apply { mkdirs() }
+        val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.CHINA).format(Date())
+        val base = fileName.removeSuffix(".gpkg")
+        val dst = File(dir, "${base}_$ts.gpkg")
+        return try {
+            src.copyTo(dst, overwrite = false)
+            Log.i(TAG, "backupProjectFile: $fileName -> ${dst.absolutePath}")
+            dst
+        } catch (e: Exception) {
+            Log.e(TAG, "backupProjectFile: 备份失败", e)
+            null
+        }
     }
 
     /** 导出工程为 GeoPackage（先落盘当前工程，再写到 Download/调查宝/ 供分享）。

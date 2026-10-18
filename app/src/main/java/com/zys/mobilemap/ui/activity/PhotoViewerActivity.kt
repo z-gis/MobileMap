@@ -11,6 +11,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import com.zys.mobilemap.R
+import com.zys.mobilemap.project.GeoPackageWriter
 import com.zys.mobilemap.project.Project
 import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.util.UiUtil
@@ -33,10 +34,8 @@ class PhotoViewerActivity : AppCompatActivity() {
         val placemarkId = intent.getLongExtra(EXTRA_PLACEMARK_ID, -1L)
         val initialIndex = intent.getIntExtra(EXTRA_INITIAL_INDEX, 0)
 
-        val attachments = if (placemarkId < 0) emptyList() else
-            ProjectManager.get(this).findPhoto(placemarkId)
-                ?.attachments
-                ?: emptyList()
+        val photo = if (placemarkId < 0) null else ProjectManager.get(this).findPhoto(placemarkId)
+        val attachments = photo?.attachments ?: emptyList()
 
         if (attachments.isEmpty()) {
             finish()
@@ -45,7 +44,7 @@ class PhotoViewerActivity : AppCompatActivity() {
 
         indexView = findViewById(R.id.photo_viewer_index)
         pager = findViewById(R.id.photo_viewer_pager)
-        pager.adapter = PhotoPageAdapter(attachments)
+        pager.adapter = PhotoPageAdapter(attachments, photo?.id ?: -1L)
         pager.setCurrentItem(initialIndex.coerceIn(0, attachments.size - 1), false)
         pager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
@@ -55,9 +54,11 @@ class PhotoViewerActivity : AppCompatActivity() {
         indexView.text = "${pager.currentItem + 1} / ${attachments.size}"
     }
 
-    /** 单页大图适配器：按屏幕尺寸采样解码，避免大图 OOM；换图时 ZoomableImageView 自动复位缩放态 */
+    /** 单页大图适配器：按屏幕尺寸采样解码，避免大图 OOM；换图时 ZoomableImageView 自动复位缩放态。
+     *  照片文件缺失时从工程 gpkg 的 photo_data BLOB 回退解出（本体被清理仍可查看）。 */
     private class PhotoPageAdapter(
-        private val attachments: List<Project.PhotoAttachment>
+        private val attachments: List<Project.PhotoAttachment>,
+        private val photoId: Long
     ) : RecyclerView.Adapter<PhotoPageAdapter.Holder>() {
 
         class Holder(val image: ImageView) : RecyclerView.ViewHolder(image)
@@ -71,7 +72,10 @@ class PhotoViewerActivity : AppCompatActivity() {
         override fun getItemCount(): Int = attachments.size
 
         override fun onBindViewHolder(holder: Holder, position: Int) {
-            val bitmap = decodeSampled(attachments[position].path, MAX_EDGE)
+            val ctx = holder.image.context
+            val resolved = GeoPackageWriter.resolvePhotoPath(ctx, photoId, attachments[position].path)
+                ?: attachments[position].path
+            val bitmap = decodeSampled(resolved, MAX_EDGE)
             if (bitmap != null) {
                 holder.image.setImageBitmap(bitmap)
             } else {

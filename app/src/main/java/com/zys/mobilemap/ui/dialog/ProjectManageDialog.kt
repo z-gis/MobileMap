@@ -40,6 +40,7 @@ object ProjectManageDialog {
 
         lateinit var adapter: ProjectAdapter
         var dialog: AlertDialog? = null
+        var isOpening = false  // 后台切换进行中：防双击重复打开
 
         fun refreshList() {
             infos.clear()
@@ -58,14 +59,24 @@ object ProjectManageDialog {
                     refreshList()
                     return@ProjectAdapter
                 }
-                val p = pm.openProject(file.absolutePath)
-                if (p != null) {
-                    Toast.makeText(activity, "已打开工程：${p.name}", Toast.LENGTH_SHORT).show()
-                    onChanged()
-                    dialog?.dismiss()
-                } else {
-                    Toast.makeText(activity, "工程读取失败", Toast.LENGTH_SHORT).show()
-                }
+                // 后台切换：openProject 含 GDAL 全量读取 + JSON 组包，大工程秒级，
+                // 主线程同步执行会卡 UI；期间双击防抖（isOpening 标记）
+                if (isOpening) return@ProjectAdapter
+                isOpening = true
+                Toast.makeText(activity, "正在打开工程…", Toast.LENGTH_SHORT).show()
+                Thread {
+                    val p = pm.openProject(file.absolutePath)
+                    activity.runOnUiThread {
+                        isOpening = false
+                        if (p != null) {
+                            Toast.makeText(activity, "已打开工程：${p.name}", Toast.LENGTH_SHORT).show()
+                            onChanged()
+                            dialog?.dismiss()
+                        } else {
+                            Toast.makeText(activity, "工程读取失败", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }.start()
             },
             onMore = { info -> showActionMenu(activity, pm, info, ::refreshList) }
         )
@@ -98,10 +109,11 @@ object ProjectManageDialog {
         val fileName = info.fileName ?: return
         val isCurrent = fileName == pm.currentFileName()
         // 当前工程不可删除（工作库镜像源），其余操作正常
+        // 备份：复制 gpkg（带时间戳）到 /sdcard/调查宝/backups/，当前工程先落盘保证备份为最新
         val actions = if (isCurrent)
-            arrayOf("分享", "复制", "重命名")
+            arrayOf("分享", "复制", "重命名", "备份")
         else
-            arrayOf("分享", "复制", "重命名", "删除")
+            arrayOf("分享", "复制", "重命名", "备份", "删除")
         AlertDialog.Builder(activity)
             .setTitle(fileName.removeSuffix(".gpkg"))
             .setItems(actions) { _, which ->
@@ -112,6 +124,14 @@ object ProjectManageDialog {
                         if (pm.duplicateProject(fileName, newName)) refreshList()
                     }
                     "重命名" -> showRenameDialog(activity, pm, fileName, refreshList)
+                    "备份" -> Thread {
+                        val dst = if (isCurrent) pm.backupCurrentProject() else
+                            pm.backupProjectFile(fileName)
+                        activity.runOnUiThread {
+                            Toast.makeText(activity, if (dst != null)
+                                "已备份：${dst.absolutePath}" else "备份失败", Toast.LENGTH_LONG).show()
+                        }
+                    }.start()
                     "删除" -> showDeleteConfirmDialog(activity, pm, fileName, refreshList)
                 }
             }

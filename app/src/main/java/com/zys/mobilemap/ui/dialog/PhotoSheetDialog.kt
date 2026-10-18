@@ -16,6 +16,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.zys.mobilemap.R
 import com.zys.mobilemap.control.MaxHeightRecyclerView
 import com.zys.mobilemap.media.MediaPackage
+import com.zys.mobilemap.project.GeoPackageWriter
 import com.zys.mobilemap.project.Project
 import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.ui.activity.PhotoViewerActivity
@@ -80,7 +81,7 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
         // 网格高度须由内容驱动（wrap_content）才能形成手势档位，但必须给上限：
         // 无上限时照片过多会测得超过屏高，弹层被父布局截断后网格底部滚不到
         grid.maxHeightPx = listMaxHeightPx()
-        grid.adapter = PhotoThumbAdapter(attachments) { index ->
+        grid.adapter = PhotoThumbAdapter(attachments, placemarkId) { index ->
             val intent = Intent(requireContext(), PhotoViewerActivity::class.java)
             intent.putExtra(PhotoViewerActivity.EXTRA_PLACEMARK_ID, placemarkId)
             intent.putExtra(PhotoViewerActivity.EXTRA_INITIAL_INDEX, index)
@@ -91,9 +92,10 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
         return dialog
     }
 
-    /** 缩略图适配器：采样解码，避免大图 OOM */
+    /** 缩略图适配器：采样解码，避免大图 OOM；照片文件缺失时从 gpkg photo_data BLOB 回退 */
     private class PhotoThumbAdapter(
         private val attachments: List<Project.PhotoAttachment>,
+        private val photoId: Long,
         private val onClick: (Int) -> Unit
     ) : RecyclerView.Adapter<PhotoThumbAdapter.Holder>() {
 
@@ -109,7 +111,10 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
 
         override fun onBindViewHolder(holder: Holder, position: Int) {
             val attachment = attachments[position]
-            val thumbnail = decodeThumbnail(attachment.path, THUMBNAIL_SIZE_PX, THUMBNAIL_SIZE_PX)
+            val resolved = GeoPackageWriter.resolvePhotoPath(
+                holder.image.context, photoId, attachment.path
+            ) ?: attachment.path
+            val thumbnail = decodeThumbnail(resolved, THUMBNAIL_SIZE_PX, THUMBNAIL_SIZE_PX)
             if (thumbnail != null) {
                 holder.image.setImageBitmap(thumbnail)
             } else {
