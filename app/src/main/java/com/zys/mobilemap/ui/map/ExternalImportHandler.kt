@@ -82,7 +82,8 @@ internal class ExternalImportHandler(
         }
         val file = staged.first
         val imported = try {
-            withContext(Dispatchers.IO) { MediaPackage.importPackage(activity, file) }
+            // importPackage 内部已按 IO/Main.immediate 分线程，直接挂起调用
+            MediaPackage.importPackage(activity, file)
         } finally {
             // 仅清理为导入复制出的临时副本（file:// 原件不动）
             if (staged.second) runCatching { file.delete() }

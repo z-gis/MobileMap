@@ -78,7 +78,9 @@ internal class BusinessOverlayManager(
         // 查询高亮层亦被清除：清空其索引记录；选中为瞬态交互，重建后取消选中（对齐原主界面图层重载取消选中）——
         // 两态分属 SqlQuery/Pick 域，经回调一并重置失效索引
         onOverlayLayersCleared()
-        for (record in measures) addMeasurementOverlay(record)
+        for (record in measures) {
+            if (!record.hidden) addMeasurementOverlay(record)
+        }
         for (record in tracks) {
             if (record.visible && record.points.size >= 2) addTrackOverlay(record)
         }
@@ -102,6 +104,7 @@ internal class BusinessOverlayManager(
         for (m in measures) {
             append("|m").append(m.id).append(':').append(m.type).append(':')
                 .append(m.color).append(':').append(m.lineWidth).append(':').append(m.points.size)
+                .append(':').append(if (m.hidden) 1 else 0)
         }
         for (t in tracks) {
             append("|t").append(t.id).append(':').append(if (t.visible) 1 else 0).append(':')
@@ -110,6 +113,7 @@ internal class BusinessOverlayManager(
         for (p in photos) {
             append("|p").append(p.id).append(':').append(if (p.visible) 1 else 0).append(':')
                 .append(p.name).append(':').append(p.lat).append(':').append(p.lon)
+                .append(':').append(p.attachments.size)
         }
         for (s in plots) {
             append("|s").append(s.id).append(':').append(s.plotNo).append(':')

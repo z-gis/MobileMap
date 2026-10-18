@@ -158,6 +158,8 @@ internal class TrackCaptureController(
             return
         }
         ProjectManager.get(activity).addTrack(trackNameOf(createdTime), createdTime, points)
+        // 立即同步落盘后再删草稿：防抖窗口内进程被杀不丢整条轨迹
+        ProjectManager.get(activity).saveNow()
         deleteDraftTrack()
         onTrackSaved()
     }

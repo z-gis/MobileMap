@@ -140,12 +140,14 @@ object TrackSharePackage {
         }
     }
 
-    /** 清理超过一天未动的旧导出包，避免私有目录里累积占用空间（不影响刚生成/在途的包）。 */
+    /** 清理超过一天未动的旧导出包与打包中途被杀遗留的 tmp_ 临时目录（临时目录直接清，避免残留累积）。 */
     private fun cleanStalePackages(shareDir: File) {
         val cutoff = System.currentTimeMillis() - STALE_PACKAGE_MS
         runCatching {
             shareDir.listFiles()?.forEach {
-                if (it.isFile && it.name.endsWith(".$EXT", ignoreCase = true) && it.lastModified() < cutoff) {
+                if (it.isDirectory && it.name.startsWith("tmp_")) {
+                    it.deleteRecursively()
+                } else if (it.isFile && it.name.endsWith(".$EXT", ignoreCase = true) && it.lastModified() < cutoff) {
                     it.delete()
                 }
             }

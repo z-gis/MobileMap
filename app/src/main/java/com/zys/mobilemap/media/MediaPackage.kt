@@ -3,12 +3,17 @@ package com.zys.mobilemap.media
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.zys.mobilemap.project.Project
 import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.util.AppDirectories
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -32,6 +37,9 @@ import java.util.zip.ZipOutputStream
 object MediaPackage {
 
     private const val TAG = "MediaPackage"
+
+    /** 主线程 Handler：后台打包完成后回主线程发起分享/提示 */
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     /** 自定义扩展名（不含点）：数据实为 zip，接收方用本 app 打开触发导入 */
     const val EXT = "mphoto"
@@ -62,7 +70,7 @@ object MediaPackage {
      */
     fun sharePlacemark(context: Context, placemark: Project.PhotoRecord) {
         val subject = (placemark.name ?: "").ifBlank { "拍照点位" }
-        share(context, buildPackage(context, null, listOf(placemark)), subject)
+        shareAsync(context, null, listOf(placemark), subject)
     }
 
     /**
@@ -71,7 +79,35 @@ object MediaPackage {
      */
     fun shareGroup(context: Context, groupName: String?, placemarks: List<Project.PhotoRecord>) {
         val subject = groupName?.takeIf { it.isNotBlank() } ?: "拍照分组"
-        share(context, buildPackage(context, groupName, placemarks), subject)
+        shareAsync(context, groupName, placemarks, subject)
+    }
+
+    /**
+     * 后台打包再分享（对齐 [com.zys.mobilemap.track.TrackSharePackage.shareTrack]）：zip 逐附件复制为
+     * MB 级 IO，放后台线程避免阻塞主线程，完成后回主线程调 [share] 发起分享；打包异常回主线程
+     * Toast 提示（buildPackage 内部已吞 zip 异常返回 null，此时走 [share] 提示无可分享照片）。
+     */
+    private fun shareAsync(
+        context: Context,
+        groupName: String?,
+        placemarks: List<Project.PhotoRecord>,
+        subject: String
+    ) {
+        val app = context.applicationContext
+        Thread {
+            var failed = false
+            val file = try {
+                buildPackage(app, groupName, placemarks)
+            } catch (e: Exception) {
+                Log.e(TAG, "打包拍照数据失败", e)
+                failed = true
+                null
+            }
+            mainHandler.post {
+                if (failed) Toast.makeText(app, "拍照数据包打包失败", Toast.LENGTH_SHORT).show()
+                else share(app, file, subject)
+            }
+        }.start()
     }
 
     private fun share(context: Context, file: File?, subject: String) {
@@ -188,47 +224,64 @@ object MediaPackage {
      * 导入数据包：解包 metadata.json 与照片，按包内坐标/名称新建拍照点位（照片复制到
      * `/调查宝/Media/<新点位id>/`），返回新建点位列表（失败或空包返回空列表）。
      *
-     * 与矢量外部导入一致，本方法只做 IO，须在工作线程调用；[packageFile] 由调用方负责善后。
+     * 线程约定：文件/zip IO 均在 Dispatchers.IO；[ProjectManager] 模型变更/查询均在
+     * Dispatchers.Main.immediate（见 [createPlacemarks]）——与主线程防抖保存（saveProject
+     * 主线程序列化集合）互斥，避免跨线程数据竞争。[packageFile] 由调用方负责善后。
      */
-    fun importPackage(context: Context, packageFile: File): List<Project.PhotoRecord> {
-        if (!packageFile.exists()) return emptyList()
+    suspend fun importPackage(context: Context, packageFile: File): List<Project.PhotoRecord> {
         val tmpDir = File(
             context.getExternalFilesDir(null) ?: context.cacheDir,
             "import_" + System.currentTimeMillis()
         )
         return try {
-            unzipTo(packageFile, tmpDir)
-            val metaFile = File(tmpDir, META_FILE)
-            if (!metaFile.exists()) {
-                Log.w(TAG, "数据包缺少 metadata.json，非本 app 拍照数据包")
+            // 解包与元数据读取为 zip/文件 IO，放 IO 线程；包不存在/缺 metadata.json 返回 null 走空列表
+            val meta = withContext(Dispatchers.IO) {
+                if (!packageFile.exists()) return@withContext null
+                unzipTo(packageFile, tmpDir)
+                val metaFile = File(tmpDir, META_FILE)
+                if (!metaFile.exists()) {
+                    Log.w(TAG, "数据包缺少 metadata.json，非本 app 拍照数据包")
+                    null
+                } else {
+                    JSONObject(metaFile.readText(Charsets.UTF_8))
+                }
+            } ?: return emptyList()
+            if (meta.optString("format") != FORMAT_TAG) {
+                Log.w(TAG, "数据包格式标识不匹配")
                 emptyList()
             } else {
-                val meta = JSONObject(metaFile.readText(Charsets.UTF_8))
-                if (meta.optString("format") != FORMAT_TAG) {
-                    Log.w(TAG, "数据包格式标识不匹配")
-                    emptyList()
-                } else {
-                    createPlacemarks(context, tmpDir, meta)
-                }
+                createPlacemarks(context, tmpDir, meta)
             }
         } catch (e: Exception) {
             Log.e(TAG, "导入拍照数据包失败", e)
             emptyList()
         } finally {
-            tmpDir.deleteRecursively()
+            // NonCancellable：协程被取消（如界面销毁）时也保证临时目录清理
+            withContext(NonCancellable + Dispatchers.IO) { tmpDir.deleteRecursively() }
         }
     }
 
-    /** 按元数据在工程中新建点位并复制照片，返回新建点位（分组包先建同名分组承接）。 */
-    private fun createPlacemarks(context: Context, tmpDir: File, meta: JSONObject): List<Project.PhotoRecord> {
+    /**
+     * 按元数据在工程中新建点位并复制照片，返回新建点位（分组包先建同名分组承接）。
+     * 线程约定：文件/目录 IO 在 Dispatchers.IO；[ProjectManager] 模型变更/查询在
+     * Dispatchers.Main.immediate，与主线程防抖保存（saveProject 主线程序列化集合）互斥。
+     */
+    private suspend fun createPlacemarks(
+        context: Context,
+        tmpDir: File,
+        meta: JSONObject
+    ): List<Project.PhotoRecord> {
         val projectManager = ProjectManager.get(context)
-        val mediaDir = AppDirectories.getMediaDir(context)
+        // 媒体根目录（ensureDir 含 mkdirs 磁盘 IO，归 IO 线程）
+        val mediaDir = withContext(Dispatchers.IO) { AppDirectories.getMediaDir(context) }
 
         // 分组包：复用或新建同名分组承接导入点位；单点位包（无 groupName）归入未分组
         val groupName = meta.optString("groupName", "").takeIf { it.isNotBlank() }
         val groupId = groupName?.let {
-            projectManager.findGroupByName(it)?.id
-                ?: projectManager.addGroup(it, System.currentTimeMillis())
+            withContext(Dispatchers.Main.immediate) {
+                projectManager.findGroupByName(it)?.id
+                    ?: projectManager.addGroup(it, System.currentTimeMillis())
+            }
         } ?: Project.PhotoRecord.UNGROUPED_ID
 
         val created = mutableListOf<Project.PhotoRecord>()
@@ -241,30 +294,45 @@ object MediaPackage {
             val name = po.optString("name", "")
             val createdTime = po.optLong("createdTime", System.currentTimeMillis())
 
-            val newId = projectManager.addPhoto(name, lat, lon, createdTime)
+            // 新建点位分配 id（模型变更在主线程），id 决定照片落盘目录
+            val newId = withContext(Dispatchers.Main.immediate) {
+                projectManager.addPhoto(name, lat, lon, createdTime)
+            }
             if (newId < 0) continue
             if (groupId != Project.PhotoRecord.UNGROUPED_ID) {
-                projectManager.updatePhotoGroup(newId, groupId)
-            }
-            val destDir = File(mediaDir, newId.toString())
-            if (!destDir.exists()) destDir.mkdirs()
-
-            val photos = po.optJSONArray("photos")
-            if (photos != null) {
-                for (j in 0 until photos.length()) {
-                    val rel = photos.optString(j)
-                    if (rel.isNullOrEmpty()) continue
-                    val src = File(tmpDir, rel)
-                    // 防 zip-slip：解包后的照片必须落在临时目录内
-                    if (!src.exists() || !src.canonicalPath.startsWith(tmpDir.canonicalPath)) continue
-                    val target = uniqueFile(destDir, src.name)
-                    src.copyTo(target, overwrite = true)
-                    // 附件时间按序递增，保证导入后照片顺序与打包时一致
-                    val attTime = createdTime + j
-                    projectManager.addPhotoAttachment(newId, target.name, target.absolutePath, attTime)
+                withContext(Dispatchers.Main.immediate) {
+                    projectManager.updatePhotoGroup(newId, groupId)
                 }
             }
-            projectManager.findPhoto(newId)?.let { created.add(it) }
+
+            // 按 id 建目录复制照片文件（IO），先收集结果，回主线程再挂附件
+            val copied = withContext(Dispatchers.IO) {
+                val destDir = File(mediaDir, newId.toString())
+                if (!destDir.exists()) destDir.mkdirs()
+                val out = mutableListOf<Triple<String, String, Long>>()
+                val photos = po.optJSONArray("photos")
+                if (photos != null) {
+                    for (j in 0 until photos.length()) {
+                        val rel = photos.optString(j)
+                        if (rel.isNullOrEmpty()) continue
+                        val src = File(tmpDir, rel)
+                        // 防 zip-slip：解包后的照片必须落在临时目录内
+                        if (!src.exists() || !src.canonicalPath.startsWith(tmpDir.canonicalPath)) continue
+                        val target = uniqueFile(destDir, src.name)
+                        src.copyTo(target, overwrite = true)
+                        // 附件时间按序递增，保证导入后照片顺序与打包时一致
+                        out.add(Triple(target.name, target.absolutePath, createdTime + j))
+                    }
+                }
+                out
+            }
+            // 挂附件并回填新建点位（模型变更/查询在主线程）
+            withContext(Dispatchers.Main.immediate) {
+                for ((attName, attPath, attTime) in copied) {
+                    projectManager.addPhotoAttachment(newId, attName, attPath, attTime)
+                }
+                projectManager.findPhoto(newId)?.let { created.add(it) }
+            }
         }
         return created
     }

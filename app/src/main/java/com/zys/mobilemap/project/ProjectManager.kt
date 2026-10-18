@@ -55,7 +55,19 @@ class ProjectManager private constructor(context: Context) {
         val moved = legacy.listFiles { _, n -> n.endsWith(".gpkg") } ?: return
         for (f in moved) {
             val target = File(projectsDir, f.name)
-            val ok = if (!target.exists()) f.renameTo(target) else f.delete()
+            // 同名冲突（上次迁移已搬过）：改带序号的名字保留，绝不删除既有工程文件
+            val ok: Boolean
+            if (!target.exists()) {
+                ok = f.renameTo(target)
+            } else {
+                var i = 1
+                var alt = File(projectsDir, "${f.nameWithoutExtension}_$i.gpkg")
+                while (alt.exists()) {
+                    i++
+                    alt = File(projectsDir, "${f.nameWithoutExtension}_$i.gpkg")
+                }
+                ok = f.renameTo(alt)
+            }
             Log.i(TAG, "迁移旧工程文件 ${f.name} -> $ok")
         }
         val last = prefs.getString(KEY_LAST_PROJECT, null)
@@ -219,14 +231,16 @@ class ProjectManager private constructor(context: Context) {
         return null
     }
 
-    /** 删除工程 */
+    /** 删除工程（API 层防线：当前工程禁止删除，防调用方绕过 UI 的隐藏逻辑） */
     fun deleteProject(fileName: String): Boolean {
+        val cur = currentProject
+        if (cur != null && fileName == sanitizeFileName(cur.name ?: "") + ".gpkg") {
+            Log.w(TAG, "deleteProject: 拒绝删除当前工程 $fileName")
+            return false
+        }
         val f = File(projectsDir, fileName)
         val ok = f.delete()
-        val cur = currentProject
-        if (ok && cur != null &&
-                sanitizeFileName(cur.name ?: "") == fileName.removeSuffix(".gpkg")) {
-            currentProject = null
+        if (ok) {
             prefs.edit().remove(KEY_LAST_PROJECT).apply()
         }
         Log.i(TAG, "deleteProject: $fileName -> $ok")
@@ -274,6 +288,15 @@ class ProjectManager private constructor(context: Context) {
         if (currentProject == null) return
         mainHandler.removeCallbacks(autosaveRunnable)
         mainHandler.postDelayed(autosaveRunnable, AUTOSAVE_DELAY_MS)
+    }
+
+    /**
+     * 立即同步落盘（跳过防抖）：用于定型类关键写入（轨迹停表入库、拍照入库等），
+     * 调用返回时数据已在磁盘，防抖窗口内进程被杀不丢失。
+     */
+    fun saveNow() {
+        val p = currentProject ?: return
+        saveProject(p)  // 内部已取消待执行防抖，避免重复重写
     }
 
     // ---- 记录 ID 分配（gpkg 落表为 fid，须 >0 且集合内唯一）----
@@ -490,6 +513,12 @@ class ProjectManager private constructor(context: Context) {
         if (plot.id <= 0) {
             plot.id = nextId(p.surveyPlots.map { it.id })
             if (plot.createdAt <= 0) plot.createdAt = now
+            // 取号冲突复核：两个未保存草稿可能在表单装载时取到同一编号，插入前重排
+            if (plot.plotNo > 0 &&
+                p.surveyPlots.any { it.sourcePath == plot.sourcePath && it.sourceFid == plot.sourceFid && it.plotNo == plot.plotNo }
+            ) {
+                plot.plotNo = nextSurveyPlotNo(plot.sourcePath, plot.sourceFid)
+            }
             p.surveyPlots.add(plot)
         } else if (p.surveyPlots.none { it.id == plot.id }) {
             p.surveyPlots.add(plot)

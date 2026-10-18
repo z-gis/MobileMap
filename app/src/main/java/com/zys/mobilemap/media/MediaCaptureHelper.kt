@@ -175,6 +175,8 @@ class MediaCaptureHelper(
             file.absolutePath,
             capturedAt
         )
+        // 照片文件已在磁盘，立即落盘记录防止防抖窗口内被杀产生孤儿文件
+        ProjectManager.get(activity).saveNow()
         onMediaChanged()
         Toast.makeText(activity, "照片已保存并标注", Toast.LENGTH_SHORT).show()
         clearPendingCapture()

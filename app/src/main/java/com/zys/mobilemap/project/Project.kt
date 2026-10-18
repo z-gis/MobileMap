@@ -393,6 +393,7 @@ class Project {
 
         fun toJson(): JSONObject {
             val o = JSONObject()
+            if (id > 0) o.put("id", id)  // 行 id 落盘保留（仅有效 id 写入，避免噪声）
             o.put("sortNo", sortNo)
             o.put("treeSpecies", treeSpecies ?: JSONObject.NULL)
             o.put("dbh", dbh ?: JSONObject.NULL)
@@ -406,6 +407,7 @@ class Project {
             @JvmStatic
             fun fromJson(o: JSONObject): SurveyRow {
                 val r = SurveyRow()
+                r.id = o.optLong("id", 0L)
                 r.sortNo = o.optInt("sortNo")
                 r.treeSpecies = o.optString("treeSpecies", null)
                 r.dbh = o.optString("dbh", null)

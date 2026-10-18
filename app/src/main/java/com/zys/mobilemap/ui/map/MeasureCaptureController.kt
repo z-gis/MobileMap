@@ -306,9 +306,12 @@ internal class MeasureCaptureController(
             measureModeDisplayName(measureMode), Date(now)
         )
         val points = measurePoints.map { doubleArrayOf(it[0], it[1], it.getOrElse(2) { 0.0 }) }
-        val id = ProjectManager.get(activity)
-            .addMeasure(name, type, defaultColorForMode(measureMode), now, points)
-        if (id >= 0) Toast.makeText(activity, "测量已保存", Toast.LENGTH_SHORT).show()
+        val pm = ProjectManager.get(activity)
+        val id = pm.addMeasure(name, type, defaultColorForMode(measureMode), now, points)
+        if (id >= 0) {
+            pm.saveNow()  // 定型写入立即落盘，不依赖防抖窗口
+            Toast.makeText(activity, "测量已保存", Toast.LENGTH_SHORT).show()
+        }
         exitMeasureMode()
     }
 

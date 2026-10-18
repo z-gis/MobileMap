@@ -77,6 +77,30 @@ object LegacyMigration {
             p.measures.add(r)
             migrated = true
         }
+
+        // 「记录中」草稿轨迹：loadDraftTrack 不受 recording=0 过滤，写入新方案的草稿文件，
+        // 升级后恢复记录会话（restoreDraftTrack 读回），避免升级瞬间进行中的轨迹滞留旧库丢失
+        val draft = store.loadDraftTrack()
+        if (draft != null && draft.points.isNotEmpty()) {
+            val draftFile = File(AppDirectories.getProjectDir(context), ".track_draft.json")
+            if (!draftFile.exists()) {
+                val pts = org.json.JSONArray()
+                for (pt in draft.points) {
+                    pts.put(org.json.JSONArray().apply {
+                        put(pt[0]); put(pt[1]); put(if (pt.size > 2) pt[2] else 0.0)
+                    })
+                }
+                draftFile.writeText(
+                    org.json.JSONObject()
+                        .put("name", draft.name)
+                        .put("createdTime", draft.createdTime)
+                        .put("points", pts)
+                        .toString()
+                )
+                migrated = true
+                Log.i(TAG, "迁移「记录中」草稿轨迹: ${draft.points.size} 点")
+            }
+        }
         return migrated
     }
 

@@ -94,7 +94,11 @@ internal class FeaturePickController(
             clearSelectedHighlight()
             return
         }
-        if (hit.size < 2) return
+        if (hit.size < 2) {
+            // 命中结果无有效图层/要素：同点击空白取消选中高亮，防黄色高亮残留
+            clearSelectedHighlight()
+            return
+        }
         val layerIndex = hit[0].toInt()
         val fid = hit[1]
         // 业务叠加命中（测量/轨迹/拍照/查询高亮/选中高亮）：按 overlay 索引映射分流并消费点击（叠加层逆序优先于文件矢量）
