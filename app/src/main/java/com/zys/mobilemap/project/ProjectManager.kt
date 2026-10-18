@@ -8,6 +8,7 @@ import android.util.Log
 import com.zys.mobilemap.db.MapDataStore
 import com.zys.mobilemap.media.MediaStore
 import com.zys.mobilemap.survey.SampleSurveyStore
+import com.zys.mobilemap.util.AppDirectories
 import com.zys.mobilemap.util.GeoCalc
 import org.json.JSONObject
 import java.io.File
@@ -19,7 +20,8 @@ import java.util.Locale
  * 工程管理器（0.4.0.0）
  *
  * 负责工程的 CRUD、打开/保存/导出、与 Document 的关联。
- * 工程文件存储在 <项目根>/projects/<工程名>.gpkg（GeoPackage 格式）。
+ * 工程文件存储在 /调查宝/projects/<工程名>.gpkg（GeoPackage 格式，公共目录，
+ * 卸载不清除、文件管理器可直接取走，FileProvider 已由 shared_root 覆盖可直接分享）。
  *
  * 数据流（镜像同步架构）：
  *  - 采集/管理功能仍写既有工作库（map.db / media.db / sample_survey.db），叠加层显示链路不变；
@@ -42,10 +44,33 @@ class ProjectManager private constructor(context: Context) {
     var currentProject: Project? = null
         private set
 
-    val projectsDir: File = File(appContext.getExternalFilesDir(null), "projects")
+    val projectsDir: File = AppDirectories.getProjectDir(appContext)
 
     init {
-        if (!projectsDir.exists()) projectsDir.mkdirs()
+        migrateLegacyProjectsDir()
+    }
+
+    /**
+     * 一次性迁移：0.4.0.0 早期构建把工程放在应用私有目录（Android/data/<pkg>/files/projects），
+     * 现已统一到 /调查宝/projects/（卸载不清除、文件管理器可见）。迁移同挂载点 rename 秒级完成；
+     * 最近工程路径同步重映射，迁移后旧目录文件清空则删除空目录。
+     */
+    private fun migrateLegacyProjectsDir() {
+        val legacy = File(appContext.getExternalFilesDir(null) ?: return, "projects")
+        if (legacy.absolutePath == projectsDir.absolutePath || !legacy.isDirectory) return
+        val moved = legacy.listFiles { _, n -> n.endsWith(".gpkg") } ?: return
+        for (f in moved) {
+            val target = File(projectsDir, f.name)
+            val ok = if (!target.exists()) f.renameTo(target) else f.delete()
+            Log.i(TAG, "迁移旧工程文件 ${f.name} -> $ok")
+        }
+        val last = prefs.getString(KEY_LAST_PROJECT, null)
+        if (last != null && last.startsWith(legacy.absolutePath)) {
+            prefs.edit()
+                .putString(KEY_LAST_PROJECT, File(projectsDir, File(last).name).absolutePath)
+                .apply()
+        }
+        runCatching { legacy.delete() } // 空目录才删得掉
     }
 
     // ---- 启动装载 ----

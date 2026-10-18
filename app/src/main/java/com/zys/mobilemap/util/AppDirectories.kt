@@ -16,6 +16,7 @@ import java.io.File
  * - [CONFIG_DIR_NAME] 地图文档 document.json
  * - [TILES_DIR_NAME]  底图与栅格瓦片离线缓存（按图源分子目录）
  * - [LOG_DIR_NAME]    运行日志
+ * - [PROJECT_DIR_NAME] 工程 GeoPackage 文件（0.4.0.0 工程模块）
  *
  * 各 getXxxDir 会顺带建目录（见 [ensureDir]）。基目录（含 `/调查宝/` 根）在首次
  * 触达时做一次「探测写」校验（见 [effectiveBaseDir]）：外部存储根不可写（如个别
@@ -40,6 +41,8 @@ object AppDirectories {
     const val TILES_DIR_NAME = "tiles"
 
     const val LOG_DIR_NAME = "log"
+
+    const val PROJECT_DIR_NAME = "projects"
 
     private const val TAG = "AppDirectories"
 
@@ -69,6 +72,9 @@ object AppDirectories {
 
     fun getLogDir(context: Context): File = ensureDir(File(getRootDir(context), LOG_DIR_NAME))
 
+    /** 工程 GeoPackage 文件目录（/调查宝/projects/，卸载不清除、文件管理器可直接取走） */
+    fun getProjectDir(context: Context): File = ensureDir(File(getRootDir(context), PROJECT_DIR_NAME))
+
     /** 启动时一次性建齐全部子目录，避免各处首次写入时才各自建目录 */
     fun ensureAll(context: Context) {
         ensureDir(getRootDir(context))
@@ -80,6 +86,7 @@ object AppDirectories {
         getConfigDir(context)
         getTileCacheDir(context)
         getLogDir(context)
+        getProjectDir(context)
     }
 
     /**
