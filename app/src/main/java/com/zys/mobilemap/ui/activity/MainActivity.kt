@@ -684,10 +684,13 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
 
     override fun onResume() {
         super.onResume()
-        // 权限页返回复检：“所有文件访问”已授予则续跑启动初始化（幂等）
+        // 权限页返回复检：“所有文件访问”已授予则重建 Activity 走正常冷启动初始化。
+        // 不能直接在 onResume 里续跑 initializeAndSetup()：其内部 registerForActivityResult
+        // （MediaCaptureHelper.register 等）在 STARTED 状态下调用会抛 IllegalStateException。
         if (waitingForAllFilesPermission && startup.hasAllFilesPermission()) {
             waitingForAllFilesPermission = false
-            initializeAndSetup()
+            recreate()
+            return
         }
         // 未完成初始化时地图尚未装配（mapView 无图层），跳过依赖它的刷新逻辑
         if (!initialized) return

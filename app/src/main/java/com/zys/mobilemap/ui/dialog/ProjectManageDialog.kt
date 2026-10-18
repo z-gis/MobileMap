@@ -21,7 +21,7 @@ import java.io.File
 /**
  * 工程管理对话框（0.4.0.0，主界面「工程」入口，仿轨迹管理）：
  * 列出 projects 目录全部 .gpkg 工程，点击打开（替换工作库并刷新叠加层）；
- * 长按弹出操作菜单（导出分享 / 复制 / 重命名 / 删除）；右上角新建工程。
+ * 右侧 ⋮ 按钮弹出操作菜单（导出分享 / 复制 / 重命名 / 删除）；右上角新建工程。
  * 打开/新建/删除当前工程后工作库内容已切换，经 [onChanged] 回调刷新地图叠加层。
  */
 object ProjectManageDialog {
@@ -67,10 +67,9 @@ object ProjectManageDialog {
                     Toast.makeText(activity, "工程读取失败", Toast.LENGTH_SHORT).show()
                 }
             },
-            onLongPress = { info -> showActionMenu(activity, pm, info, ::refreshList, onChanged, dialog) }
+            onMore = { info -> showActionMenu(activity, pm, info, ::refreshList, onChanged, dialog) }
         )
         list.adapter = adapter
-
         view.findViewById<TextView>(R.id.project_manage_new).setOnClickListener {
             showNewProjectDialog(activity) { name, desc ->
                 if (pm.createEmptyProject(name, desc)) {
@@ -234,18 +233,19 @@ object ProjectManageDialog {
         return name
     }
 
-    /** 工程列表适配器：名称（当前工程带蓝底标记）+ 副标题（时间 · 大小），点击打开、长按操作 */
+    /** 工程列表适配器：名称（当前工程带蓝底标记）+ 副标题（时间 · 大小），点击打开、右侧按钮弹操作菜单 */
     private class ProjectAdapter(
         private val infos: List<ProjectManager.ProjectInfo>,
         private val currentFileName: () -> String?,
         private val onOpen: (ProjectManager.ProjectInfo) -> Unit,
-        private val onLongPress: (ProjectManager.ProjectInfo) -> Unit
+        private val onMore: (ProjectManager.ProjectInfo) -> Unit
     ) : RecyclerView.Adapter<ProjectAdapter.Holder>() {
 
         class Holder(view: View) : RecyclerView.ViewHolder(view) {
             val name: TextView = view.findViewById(R.id.item_project_name)
             val subtitle: TextView = view.findViewById(R.id.item_project_subtitle)
             val currentBadge: TextView = view.findViewById(R.id.item_project_current)
+            val more: TextView = view.findViewById(R.id.item_project_more)
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder =
@@ -260,7 +260,7 @@ object ProjectManageDialog {
             holder.currentBadge.visibility =
                 if (info.fileName == currentFileName()) View.VISIBLE else View.GONE
             holder.itemView.setOnClickListener { onOpen(info) }
-            holder.itemView.setOnLongClickListener { onLongPress(info); true }
+            holder.more.setOnClickListener { onMore(info) }
         }
     }
 }

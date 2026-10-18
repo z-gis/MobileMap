@@ -59,4 +59,19 @@
             android:textSize="12sp"/>
     </LinearLayout>
 
+    <!-- 操作入口：点击弹出 导出分享/复制/重命名/删除 菜单（替代长按，可发现性更好） -->
+    <TextView
+        android:id="@+id/item_project_more"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="?android:attr/selectableItemBackground"
+        android:paddingStart="14dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="10dp"
+        android:text="⋮"
+        android:textColor="#666666"
+        android:textSize="20sp"
+        android:textStyle="bold"/>
+
 </LinearLayout>
