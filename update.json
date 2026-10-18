@@ -1,9 +1,9 @@
 {
-    "versionCode":  26101704,
-    "versionName":  "0.4.0.2",
-    "apkUrl":  "https://gitee.com/z-gis/MobileMap/releases/download/v0.4.0.2/mobilemap-v0.4.0.2.apk",
-    "apkSizeBytes":  48309089,
-    "apkSha1":  "04c420fa72dfe6980f40e751cb768379f4b018a3",
-    "changelog":  "1. 修复点击退出后卡顿（工程数据保存转入后台，显示保存进度后自动退出）\n2. 修复从外部拷入的工程文件切换后数据分叉问题（工程名自动对齐文件名）",
+    "versionCode":  26101705,
+    "versionName":  "0.4.0.3",
+    "apkUrl":  "https://gitee.com/z-gis/MobileMap/releases/download/v0.4.0.3/mobilemap-v0.4.0.3.apk",
+    "apkSizeBytes":  48309137,
+    "apkSha1":  "a6553ca71d359d1ccf361979a6416b700e16d599",
+    "changelog":  "1. 照片随工程入库：工程文件自带全部照片，分享单文件即可，照片文件被清理后仍可查看\n2. 切换工程不再卡顿\n3. 退出不再等待保存\n4. 工程管理新增「备份」按钮，备份至 /sdcard/调查宝/backups/\n提示：升级后旧工程首次保存时照片自动入库，建议在照片文件齐全时完成一次保存或备份",
     "force":  false
 }
