@@ -86,6 +86,19 @@ class ProjectManager private constructor(context: Context) {
             }
             Log.w(TAG, "ensureLoaded: 上次工程读取失败，重建默认工程 $last")
         }
+        // 重装/清数据后最近工程 pref 丢失，但默认工程文件仍在：直接打开，避免重建触发旧库重迁并覆盖既有数据
+        if (last == null) {
+            val defaultFile = File(projectsDir, "$DEFAULT_PROJECT_NAME.gpkg")
+            if (defaultFile.exists()) {
+                val p = gpkgWriter.read(defaultFile.absolutePath)
+                if (p != null) {
+                    currentProject = p
+                    rememberCurrent(defaultFile.absolutePath)
+                    Log.i(TAG, "ensureLoaded: 默认工程文件已存在，直接打开")
+                    return
+                }
+            }
+        }
         val p = createProject(DEFAULT_PROJECT_NAME, "自动创建，收纳现有采集数据")
         val migrated = LegacyMigration.migrateInto(appContext, p)
         saveProject(p)
