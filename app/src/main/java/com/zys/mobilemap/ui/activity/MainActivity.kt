@@ -703,7 +703,7 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
 
     override fun onPause() {
         super.onPause()
-        navigator.stopPolling()
+        if (::navigator.isInitialized) navigator.stopPolling()
         // 未完成初始化时地图尚未装配，跳过相机保存与 GL 暂停
         if (!initialized) return
         // 把当前视角存到本界面独立的 SharedPreferences（不碰共享文档相机），最后暂停 GL 线程
