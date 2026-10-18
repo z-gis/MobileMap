@@ -173,15 +173,19 @@ object ProjectManageDialog {
         activity: Activity, pm: ProjectManager, fileName: String,
         refreshList: () -> Unit, onChanged: () -> Unit
     ) {
+        val isCurrent = fileName == pm.currentFileName()
+        val msg = if (isCurrent)
+            "这是当前工程：删除后地图上的轨迹/测量/拍照将一并清空，并自动新建空「默认工程」。该操作不可恢复，是否继续？"
+        else
+            "删除后该工程文件（.gpkg）不可恢复，是否继续？"
         AlertDialog.Builder(activity)
             .setTitle("删除工程")
-            .setMessage("删除后该工程文件（.gpkg）不可恢复，是否继续？")
+            .setMessage(msg)
             .setPositiveButton("删除") { _, _ ->
-                val wasCurrent = fileName == pm.currentFileName()
                 if (pm.deleteProject(fileName)) {
-                    if (wasCurrent) {
-                        // 当前工程被删：回退到默认工程（ensureLoaded 会重建并导入工作库）
-                        pm.ensureLoaded()
+                    if (isCurrent) {
+                        // 当前工程被删：重置为空默认工程（数据随删除清空，工作库同步清空）
+                        pm.resetToEmptyDefault()
                         onChanged()
                     }
                     refreshList()
