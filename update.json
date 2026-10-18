@@ -1,8 +1,9 @@
 {
-    "versionCode":  26101702,
-    "versionName":  "0.4.0.0",
-    "apkUrl":  "https://gitee.com/z-gis/MobileMap/releases/download/v0.4.0.0/mobilemap-v0.4.0.0.apk",
-    "apkSizeBytes":  48292249,
-    "changelog":  "1. 工程模块重构为 GeoPackage 单文件格式，旧测量/照片/轨迹数据库首次启动自动迁移，历史数据不丢失\n2. 工程文件统一存放于 /sdcard/调查宝/projects，旧目录工程自动一次性迁移\n3. 工程列表改为右侧三点操作菜单，重命名/删除/分享更直观，禁止删除当前工程\n4. 工程分享直接调用系统分享，无需先复制\n5. 瓦片缓存改为 MBTiles 单文件存储（每图源一个 .mbtiles），旧散装瓦片自动迁入并记录入库时间\n6. 权限申请过程应用保持存活，授权后自动恢复使用",
+    "versionCode":  26101703,
+    "versionName":  "0.4.0.1",
+    "apkUrl":  "https://gitee.com/z-gis/MobileMap/releases/download/v0.4.0.1/mobilemap-v0.4.0.1.apk",
+    "apkSizeBytes":  48309089,
+    "apkSha1":  "048b74a851d60b7ae2ac765db33ab7dfd0d728a9",
+    "changelog":  "1. 删除数据、记录轨迹时平移地图不再卡顿（工程保存转入后台执行）\n2. 首次启动旧数据迁移显示进度提示，不再白屏卡死\n3. 修复切换工程失败、新建工程在列表中不显示、删除或重命名后文件复活的问题\n4. 新建工程增加重名校验，防止误覆盖已有工程数据",
     "force":  false
 }
