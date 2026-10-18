@@ -1,8 +1,8 @@
 {
-    "versionCode":  26101701,
-    "versionName":  "0.3.0.6",
-    "apkUrl":  "https://gitee.com/z-gis/MobileMap/releases/download/0.3.0.6/mobilemap-v0.3.0.6.apk",
-    "apkSizeBytes":  48179292,
-    "changelog":  "1. 修复外部打开 zip（内含 shp）时数据在子目录下无法正确解压加载的问题，现递归查找并解压全部 shp，多 shp 文件自动全部加载\n2. 照片浏览器支持双指缩放（1~8 倍）、双击放大、拖动平移，照片列表新增重命名按键\n3. 轨迹详情新增分享按键，导出为标准 ESRI Shapefile（.shp/.shx/.dbf/.prj/.cpg）打包为 zip 分享",
+    "versionCode":  26101702,
+    "versionName":  "0.4.0.0",
+    "apkUrl":  "https://gitee.com/z-gis/MobileMap/releases/download/v0.4.0.0/mobilemap-v0.4.0.0.apk",
+    "apkSizeBytes":  48292249,
+    "changelog":  "1. 工程模块重构为 GeoPackage 单文件格式，旧测量/照片/轨迹数据库首次启动自动迁移，历史数据不丢失\n2. 工程文件统一存放于 /sdcard/调查宝/projects，旧目录工程自动一次性迁移\n3. 工程列表改为右侧三点操作菜单，重命名/删除/分享更直观，禁止删除当前工程\n4. 工程分享直接调用系统分享，无需先复制\n5. 瓦片缓存改为 MBTiles 单文件存储（每图源一个 .mbtiles），旧散装瓦片自动迁入并记录入库时间\n6. 权限申请过程应用保持存活，授权后自动恢复使用",
     "force":  false
 }
