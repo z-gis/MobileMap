@@ -265,13 +265,16 @@ class ProjectManager private constructor(context: Context) {
         val createTime = project.createTime; val updateTime = project.updateTime
         val filePath = File(projectsDir, sanitizeFileName(name ?: "未命名工程") + ".gpkg").absolutePath
         if (!File(filePath).exists()) return writeProjectFileSync(project, filePath)
-        return runCatching {
+        val t0 = android.os.SystemClock.elapsedRealtime()
+        val ok = runCatching {
             saveExecutor.submit(java.util.concurrent.Callable {
                 runCatching { GeoPackageDml.syncMeta(filePath, name, desc, srs, createTime, updateTime) }
                     .onFailure { Log.e(TAG, "saveNowProject: 元数据同步失败 $filePath", it) }
                     .isSuccess
             }).get()
         }.getOrElse { false }
+        Log.i(TAG, "saveNowProject: 栅栏排空+元数据落盘 cost=${android.os.SystemClock.elapsedRealtime() - t0}ms")
+        return ok
     }
 
     /**

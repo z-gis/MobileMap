@@ -1,9 +1,9 @@
 {
-    "versionCode":  26101705,
-    "versionName":  "0.4.0.3",
-    "apkUrl":  "https://gitee.com/z-gis/MobileMap/releases/download/v0.4.0.3/mobilemap-v0.4.0.3.apk",
+    "versionCode":  26101706,
+    "versionName":  "0.4.0.4",
+    "apkUrl":  "https://gitee.com/z-gis/MobileMap/releases/download/v0.4.0.4/mobilemap-v0.4.0.4.apk",
     "apkSizeBytes":  48309137,
     "apkSha1":  "a6553ca71d359d1ccf361979a6416b700e16d599",
-    "changelog":  "1. 照片随工程入库：工程文件自带全部照片，分享单文件即可，照片文件被清理后仍可查看\n2. 切换工程不再卡顿\n3. 退出不再等待保存\n4. 工程管理新增「备份」按钮，备份至 /sdcard/调查宝/backups/\n提示：升级后旧工程首次保存时照片自动入库，建议在照片文件齐全时完成一次保存或备份",
+    "changelog":  "1. 采集写入改 app 端 SQLite 增量直写，轨迹/拍照入库毫秒级落盘，不再卡顿\n2. 照片本体直接入库为工程 gpkg BLOB（主照片 photos.photo_data、附件 photo_att_data），不再保留磁盘照片文件\n3. 启动清扫自动收库历史磁盘照片原件后删除\n提示：升级后新采集照片不再落盘 /sdcard/调查宝/media/，老照片文件随启动清扫自动入库删除",
     "force":  false
 }

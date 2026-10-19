@@ -13,6 +13,7 @@ import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.track.TrackSharePackage
 import com.zys.mobilemap.ui.dialog.MeasureDetailDialog
 import com.zys.mobilemap.ui.dialog.TrackManageDialog
+import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.util.GeoCalc
 import com.zys.globecore.NativeMapView
 import com.zys.globecore.VectorStyle as NativeVectorStyle
@@ -157,9 +158,11 @@ internal class TrackCaptureController(
             Toast.makeText(activity, "轨迹点不足，未生成轨迹线", Toast.LENGTH_SHORT).show()
             return
         }
+        val t0 = android.os.SystemClock.elapsedRealtime()
         ProjectManager.get(activity).addTrack(trackNameOf(createdTime), createdTime, points)
         // 立即同步落盘后再删草稿：防抖窗口内进程被杀不丢整条轨迹
         ProjectManager.get(activity).saveNow()
+        AppLog.i(TAG, "轨迹入库耗时 addTrack+saveNow=${android.os.SystemClock.elapsedRealtime() - t0}ms points=${points.size}")
         deleteDraftTrack()
         onTrackSaved()
     }
@@ -396,6 +399,8 @@ internal class TrackCaptureController(
     }
 
     companion object {
+        private const val TAG = "TrackCapture"
+
         /** 轨迹草稿文件名（崩溃恢复用，存于工程目录下，隐藏文件不参与工程列表） */
         private const val DRAFT_FILE_NAME = ".track_draft.json"
     }

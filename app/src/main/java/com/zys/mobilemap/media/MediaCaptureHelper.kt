@@ -20,6 +20,7 @@ import com.zys.mobilemap.location.LocationManager
 import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.ui.dialog.MediaEditDialog
 import com.zys.mobilemap.util.AppDirectories
+import com.zys.mobilemap.util.AppLog
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -158,6 +159,7 @@ class MediaCaptureHelper(
         }
 
         val capturedAt = System.currentTimeMillis()
+        val t0 = android.os.SystemClock.elapsedRealtime()
 
         // 按设置添加坐标水印
         val watermarkEnabled =
@@ -167,6 +169,7 @@ class MediaCaptureHelper(
         ) {
             Toast.makeText(activity, "照片已保存，但添加坐标水印失败", Toast.LENGTH_SHORT).show()
         }
+        val t1 = android.os.SystemClock.elapsedRealtime()
 
         // 写入附件记录（照片本体增量入库 gpkg BLOB，库提交成功后源文件自动删除）
         ProjectManager.get(activity).addPhotoAttachment(
@@ -177,6 +180,11 @@ class MediaCaptureHelper(
         )
         // 栅栏排空增量队列：调用返回时记录与照片 BLOB 已落库，进程被杀不丢
         ProjectManager.get(activity).saveNow()
+        AppLog.i(
+            "MediaCapture",
+            "照片入库耗时 水印=${t1 - t0}ms 读文件+BLOB落库+栅栏=${android.os.SystemClock.elapsedRealtime() - t1}ms " +
+                    "合计=${android.os.SystemClock.elapsedRealtime() - t0}ms bytes=${file.length()}"
+        )
         onMediaChanged()
         Toast.makeText(activity, "照片已保存并标注", Toast.LENGTH_SHORT).show()
         clearPendingCapture()

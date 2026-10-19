@@ -2,6 +2,7 @@ package com.zys.mobilemap.project
 
 import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
+import android.os.SystemClock
 import android.util.Log
 import org.json.JSONArray
 import java.io.File
@@ -126,8 +127,10 @@ internal object GeoPackageDml {
 
     // ---- 通用骨架 ----
 
-    /** 独立连接 + 事务包裹；异常吞掉记日志返回 null（增量写失败不致命，下次整文件重建可兜底） */
-    private inline fun <T> withDb(path: String, block: (SQLiteDatabase) -> T): T? {
+    /** 独立连接 + 事务包裹；异常吞掉记日志返回 null（增量写失败不致命，下次整文件重建可兜底）。
+     *  每次操作计时打点（open+事务+close 总耗时），[op] 为操作名便于 logcat 定位。 */
+    private inline fun <T> withDb(path: String, op: String = "", block: (SQLiteDatabase) -> T): T? {
+        val t0 = SystemClock.elapsedRealtime()
         return try {
             val db = SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READWRITE)
             try {
@@ -142,6 +145,8 @@ internal object GeoPackageDml {
         } catch (e: Exception) {
             Log.e(TAG, "gpkg 增量写失败: $path", e)
             null
+        } finally {
+            Log.d(TAG, "DML $op ${File(path).name} cost=${SystemClock.elapsedRealtime() - t0}ms")
         }
     }
 
@@ -219,7 +224,7 @@ internal object GeoPackageDml {
      * 纯 SQLite 执行 INSERT 会失败）、清理 gpkg_extensions 登记项、补建附件 BLOB 附加表。
      */
     fun prepareSchema(path: String): Boolean =
-        withDb(path) { db ->
+        withDb(path, "prepareSchema") { db ->
             val names = ArrayList<String>()
             db.rawQuery("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'rtree_%'", null).use { c ->
                 while (c.moveToNext()) names.add(c.getString(0))
@@ -275,7 +280,7 @@ internal object GeoPackageDml {
         path: String, id: Long, name: String?, date: String?, color: String?,
         hidden: Boolean, lineWidth: Int, pts: List<DoubleArray>
     ): Boolean =
-        withDb(path) { db ->
+        withDb(path, "insertTrack") { db ->
             val cv = ContentValues()
             cv.put("fid", id)
             putStr(cv, "name", name); putStr(cv, "date", date); putStr(cv, "color", color)
@@ -355,7 +360,7 @@ internal object GeoPackageDml {
         path: String, id: Long, name: String?, lat: Double, lon: Double, alt: Double,
         timestamp: Long, visible: Boolean, groupId: Long
     ): Boolean =
-        withDb(path) { db ->
+        withDb(path, "insertPhoto") { db ->
             val cv = ContentValues()
             cv.put("fid", id)
             putStr(cv, "name", name)
@@ -377,7 +382,7 @@ internal object GeoPackageDml {
         path: String, fid: Long, idx: Long, attachmentsJson: String?, mainPath: String?, srcFile: String
     ): Boolean {
         val bytes = File(srcFile).takeIf { it.exists() && it.length() > 0 }?.readBytes()
-        val ok = withDb(path) { db ->
+        val ok = withDb(path, "addPhotoAttachment") { db ->
             val cv = ContentValues()
             putStr(cv, "attachments", attachmentsJson)
             putStr(cv, "photo_path", mainPath)
@@ -455,7 +460,7 @@ internal object GeoPackageDml {
     fun sweepPhotoFiles(path: String, mediaRoot: String): Boolean {
         if (!schemaCurrent(path)) return false  // 列不齐时先整文件重建，photo_data 列可能不存在
         val root = runCatching { File(mediaRoot).canonicalPath }.getOrNull() ?: return false
-        return withDb(path) { db ->
+        return withDb(path, "sweepPhotoFiles") { db ->
             data class Row(val fid: Long, val photoPath: String?, val attachments: String?, val hasMain: Boolean)
             val rows = ArrayList<Row>()
             db.rawQuery("SELECT fid, photo_path, attachments, photo_data IS NOT NULL FROM photos", null).use { c ->
@@ -583,7 +588,7 @@ internal object GeoPackageDml {
         path: String, name: String?, description: String?, srs: String?,
         createTime: Long, updateTime: Long
     ): Boolean =
-        withDb(path) { db ->
+        withDb(path, "syncMeta") { db ->
             upsertMeta(db, "name", name)
             upsertMeta(db, "description", description)
             upsertMeta(db, "srs", srs)
