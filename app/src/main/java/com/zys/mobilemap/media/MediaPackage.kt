@@ -8,6 +8,7 @@ import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import androidx.core.content.FileProvider
+import com.zys.mobilemap.project.GeoPackageDml
 import com.zys.mobilemap.project.Project
 import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.util.AppDirectories
@@ -137,13 +138,21 @@ object MediaPackage {
     }
 
     /**
-     * 构建数据包：仅打包有照片的点位（附件即照片，过滤失效文件），写入 metadata.json 与各点位照片，
-     * 返回 `.[EXT]` 文件；无任何照片时返回 null（调用方提示）。
+     * 构建数据包：仅打包有照片的点位。附件来源二选一：磁盘原件（旧数据尚未清扫）或
+     * 工程 gpkg 照片 BLOB（增量落盘后照片不再保留文件，主照片 photo_data / 附件 photo_att_data），
+     * 写入 metadata.json 与各点位照片，返回 `.[EXT]` 文件；无任何照片时返回 null（调用方提示）。
      */
     private fun buildPackage(context: Context, groupName: String?, placemarks: List<Project.PhotoRecord>): File? {
+        val gpkg = ProjectManager.get(context).currentProjectPath
         val entries = placemarks.mapNotNull { p ->
-            val photos = p.attachments.filter {
-                File(it.path).let { f -> f.exists() && f.length() > 0 }
+            val photos = p.attachments.mapIndexedNotNull { idx, att ->
+                val f = File(att.path)
+                when {
+                    f.exists() && f.length() > 0 -> att to f as Any
+                    gpkg != null -> GeoPackageDml.readPhotoBlob(gpkg, p.id, idx.toLong())
+                        ?.takeIf { it.isNotEmpty() }?.let { att to it as Any }
+                    else -> null
+                }
             }
             if (photos.isEmpty()) null else p to photos
         }
@@ -164,10 +173,12 @@ object MediaPackage {
                 zip.closeEntry()
 
                 entries.forEachIndexed { index, entry ->
-                    entry.second.forEach { att ->
-                        val src = File(att.path)
-                        zip.putNextEntry(ZipEntry(index.toString() + "/" + src.name))
-                        src.inputStream().buffered().use { it.copyTo(zip) }
+                    entry.second.forEach { (att, src) ->
+                        zip.putNextEntry(ZipEntry(index.toString() + "/" + File(att.path).name))
+                        when (src) {
+                            is File -> src.inputStream().buffered().use { it.copyTo(zip) }
+                            is ByteArray -> zip.write(src)
+                        }
                         zip.closeEntry()
                     }
                 }
@@ -183,7 +194,7 @@ object MediaPackage {
     /** 组装 metadata.json：格式标识/版本/导出时间 + 可选分组名 + 各点位与其照片相对路径。 */
     private fun buildMetadata(
         groupName: String?,
-        entries: List<Pair<Project.PhotoRecord, List<Project.PhotoAttachment>>>,
+        entries: List<Pair<Project.PhotoRecord, List<Pair<Project.PhotoAttachment, Any>>>>,
         stamp: Long
     ): JSONObject {
         val meta = JSONObject()
@@ -200,7 +211,7 @@ object MediaPackage {
             po.put("longitude", p.lon)
             po.put("createdTime", p.timestamp)
             val names = JSONArray()
-            entry.second.forEach { names.put(index.toString() + "/" + File(it.path).name) }
+            entry.second.forEach { names.put(index.toString() + "/" + File(it.first.path).name) }
             po.put("photos", names)
             arr.put(po)
         }

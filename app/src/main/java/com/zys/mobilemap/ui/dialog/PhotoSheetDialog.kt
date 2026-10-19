@@ -112,7 +112,7 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
         override fun onBindViewHolder(holder: Holder, position: Int) {
             val attachment = attachments[position]
             val resolved = GeoPackageWriter.resolvePhotoPath(
-                holder.image.context, photoId, attachment.path
+                holder.image.context, photoId, attachment.path, position.toLong()
             ) ?: attachment.path
             val thumbnail = decodeThumbnail(resolved, THUMBNAIL_SIZE_PX, THUMBNAIL_SIZE_PX)
             if (thumbnail != null) {

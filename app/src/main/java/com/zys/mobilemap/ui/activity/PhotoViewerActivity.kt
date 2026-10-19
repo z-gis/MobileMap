@@ -73,7 +73,7 @@ class PhotoViewerActivity : AppCompatActivity() {
 
         override fun onBindViewHolder(holder: Holder, position: Int) {
             val ctx = holder.image.context
-            val resolved = GeoPackageWriter.resolvePhotoPath(ctx, photoId, attachments[position].path)
+            val resolved = GeoPackageWriter.resolvePhotoPath(ctx, photoId, attachments[position].path, position.toLong())
                 ?: attachments[position].path
             val bitmap = decodeSampled(resolved, MAX_EDGE)
             if (bitmap != null) {

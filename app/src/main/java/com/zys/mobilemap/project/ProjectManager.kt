@@ -2,30 +2,37 @@ package com.zys.mobilemap.project
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import com.zys.mobilemap.util.AppDirectories
 import com.zys.mobilemap.util.GeoCalc
+import org.json.JSONArray
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
- * 工程管理器（0.4.0.0 单库版）
+ * 工程管理器（0.5.0 增量落盘版）
  *
  * 工程 gpkg 是采集数据（轨迹/测量/拍照/样地）的唯一数据本体，旧工作库
  * （map.db / media.db / sample_survey.db）已废弃，仅在首启由 [LegacyMigration]
  * 一次性迁入「默认工程」（旧文件保留不删）。
  *
  * 数据流：
- *  - 采集/管理功能直接读写 [currentProject] 内存模型，变更经 [requestSave] 防抖落盘 gpkg；
- *  - 打开工程 = 读 gpkg 替换 [currentProject]，叠加层随后按签名重建；
- *  - 分享 = 先落盘再直接分享 gpkg 文件本体（QGIS/ArcGIS 可读）。
+ *  - 采集/管理功能改 [currentProject] 内存模型，每次 mutation 同步提交毫秒级增量 DML
+ *    （app 端 SQLite 直写 gpkg 业务表，见 [GeoPackageDml]）到后台串行队列；
+ *  - 定型写入（停表/拍照/退出）用 [saveNow] 做队列栅栏——只等排队的增量任务，毫秒级返回；
+ *  - 整文件重建（JNI GDAL）仅用于：新建工程文件、老库 schema 升级（[ensureProjectReady] 内触发）；
+ *  - 分享/导出/复制 = 队列栅栏后直接复制 gpkg 文件本体（单文件自包含，QGIS/ArcGIS 可读）；
+ *  - 打开工程 = 读 gpkg 替换 [currentProject]，随后 [ensureProjectReady] 后台做 schema 检查、
+ *    RTree 触发器清理与照片文件清扫（BLOB 已入库的磁盘原件退役）。
+ *
+ * 照片策略：拍照/导入的照片本体增量写入 gpkg BLOB（主照片 photos.photo_data，其余附件
+ * photo_att_data 附加表），源文件在入库成功后删除，不再长期保留。
  *
  * 工程文件存储在 /调查宝/projects/<工程名>.gpkg（公共目录，卸载不清除、文件管理器可直接取走）。
- * 内存模型坐标序为 [lat,lon,alt]（与采集/叠加层一致），gpkg 轴序转换在 [Project.toJson] 边界完成。
+ * 内存模型坐标序为 [lat,lon,alt]（与采集/叠加层一致），gpkg 轴序 [lon,lat,alt] 转换在
+ * [Project.toJson] 与 [GeoPackageDml.GpkgGeom] 边界完成。
  */
 class ProjectManager private constructor(context: Context) {
 
@@ -33,7 +40,6 @@ class ProjectManager private constructor(context: Context) {
     private val gpkgWriter = GeoPackageWriter(appContext)
     private val prefs: SharedPreferences =
         appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    private val mainHandler = Handler(Looper.getMainLooper())
 
     var currentProject: Project? = null
         private set
@@ -94,6 +100,7 @@ class ProjectManager private constructor(context: Context) {
             if (p != null) {
                 currentProject = p
                 Log.i(TAG, "ensureLoaded: 恢复上次工程 ${p.name}")
+                ensureProjectReady(p, last)
                 return
             }
             Log.w(TAG, "ensureLoaded: 上次工程读取失败，重建默认工程 $last")
@@ -106,6 +113,7 @@ class ProjectManager private constructor(context: Context) {
                 if (p != null) {
                     currentProject = p
                     rememberCurrent(defaultFile.absolutePath)
+                    ensureProjectReady(p, defaultFile.absolutePath)
                     Log.i(TAG, "ensureLoaded: 默认工程文件已存在，直接打开")
                     return
                 }
@@ -113,7 +121,9 @@ class ProjectManager private constructor(context: Context) {
         }
         val p = createProject(DEFAULT_PROJECT_NAME, "自动创建，收纳现有采集数据")
         val migrated = LegacyMigration.migrateInto(appContext, p)
-        saveProject(p)
+        val filePath = File(projectsDir, "$DEFAULT_PROJECT_NAME.gpkg").absolutePath
+        writeProjectFileSync(p, filePath)
+        ensureProjectReady(p, filePath)
         rememberCurrent(null)
         val migText = if (migrated) "有" else "无"
         Log.i(TAG, "ensureLoaded: 已创建默认工程（旧库迁移 ${migText}数据）")
@@ -146,8 +156,12 @@ class ProjectManager private constructor(context: Context) {
         // 先把当前工程最新数据同步落盘，再切换
         currentProject?.let { saveNowProject(it) }
         val p = createProject(name, description)
-        val ok = saveNowProject(p)
-        if (ok) rememberCurrent(null)
+        val filePath = File(projectsDir, sanitizeFileName(name) + ".gpkg").absolutePath
+        val ok = writeProjectFileSync(p, filePath)
+        if (ok) {
+            rememberCurrent(null)
+            ensureProjectReady(p, filePath)
+        }
         return ok
     }
 
@@ -188,9 +202,8 @@ class ProjectManager private constructor(context: Context) {
     /** 只读读取工程（不切换当前工程，供导出/复制非当前工程用） */
     fun readProject(filePath: String): Project? = gpkgWriter.read(filePath)
 
-    /** 打开工程：当前工程先同步落盘 → 读 gpkg 切换 [currentProject] → 记为最近工程。
-     *  同步落盘防竞态：异步写时「切换到当前工程自身」（或 1.5s 防抖窗口内切换）会读到
-     *  GDAL 整文件重建中的半成品，导致切换失败。
+    /** 打开工程：当前工程先同步落盘 → 读 gpkg 切换 [currentProject] → 记为最近工程 → 后台就绪检查。
+     *  同步落盘（增量队列栅栏）防竞态：切回当前工程自身时先排空队列再读文件。
      *  工程名以文件名为准：gpkg 内 name 与文件名不一致（外部拷贝/文件管理器改名所致）时
      *  回填文件名，否则按内部 name 落盘会另生成新文件，同名数据分叉成两份。 */
     fun openProject(filePath: String): Project? {
@@ -204,6 +217,7 @@ class ProjectManager private constructor(context: Context) {
             }
             currentProject = p
             rememberCurrent(filePath)
+            ensureProjectReady(p, filePath)
             Log.i(TAG, "openProject: $filePath -> ${p.name}")
         } else {
             Log.e(TAG, "openProject: 读取失败 $filePath")
@@ -211,17 +225,16 @@ class ProjectManager private constructor(context: Context) {
         return p
     }
 
-    /** 保存工程（主线程快照 + 后台线程落盘：GDAL 整文件重写不再阻塞主线程，删除/记录轨迹时平移地图不卡顿）
-     *  返回 true 表示已提交落盘任务（写入结果异步，失败仅记日志；需确定性落盘用 [saveNow]） */
+    /** 异步同步工程元数据（name/description/createTime/updateTime）到 gpkg project_meta。
+     *  业务数据已由各 mutation 增量落盘，此处仅元数据；需确定性落盘用 [saveNow]。 */
     fun saveProject(project: Project?): Boolean {
         if (project == null) return false
-        mainHandler.removeCallbacks(autosaveRunnable)
         project.updateTime = System.currentTimeMillis()
-        val fileName = sanitizeFileName(project.name ?: "未命名工程") + ".gpkg"
-        val filePath = File(projectsDir, fileName).absolutePath
-        val json = gpkgWriter.encode(project) // 主线程快照，此后内存工程可继续改
-        saveExecutor.execute { gpkgWriter.writeEncoded(json, filePath) }
-        Log.i(TAG, "saveProject(异步): ${project.name} 已提交")
+        val name = project.name; val desc = project.description; val srs = project.srs
+        val createTime = project.createTime; val updateTime = project.updateTime
+        val filePath = File(projectsDir, sanitizeFileName(name ?: "未命名工程") + ".gpkg").absolutePath
+        saveExecutor.execute { runCatching { GeoPackageDml.syncMeta(filePath, name, desc, srs, createTime, updateTime) } }
+        Log.i(TAG, "saveProject(异步元数据): $name 已提交")
         return true
     }
 
@@ -231,23 +244,33 @@ class ProjectManager private constructor(context: Context) {
             File(projectsDir, sanitizeFileName(it.name ?: "未命名工程") + ".gpkg").absolutePath
         }
 
-    /** 保存任务封装：快照 + 目标路径（同步等待类 API 共用） */
-    private fun prepareWrite(project: Project, filePath: String): Pair<String, String> =
-        Pair(gpkgWriter.encode(project), filePath)
+    /** 主线程快照 + 后台整文件重建（JNI GDAL）：仅用于新建工程文件；老库升级见 [ensureProjectReady] */
+    private fun writeProjectFileSync(project: Project, filePath: String): Boolean {
+        project.updateTime = System.currentTimeMillis()
+        val json = gpkgWriter.encode(project)
+        return runCatching {
+            saveExecutor.submit(java.util.concurrent.Callable { gpkgWriter.writeEncoded(json, filePath) }).get()
+        }.getOrElse { false }
+    }
 
     /**
-     * 同步落盘指定工程（返回真实写入结果）。适用于「写后立即读文件/枚举列表/分享/删除/重命名」的场景——
-     * 异步 [saveProject] 的「调用返回≠已落盘」在这些流程会产生竞态：读到整文件重建中的半成品、
-     * 列表枚举不到新文件、删除后又被队列尾部的写任务复活。低频文件管理操作可承受同步等待。
+     * 同步落盘指定工程：先排空增量写队列（栅栏），再同步 project_meta 元数据。
+     * 排队的增量任务都是毫秒级 DML，整体不再有 GDAL 整文件重建的秒级阻塞。
+     * 目标文件不存在（新建流程外异常缺失）时退回整文件重建。
      */
     fun saveNowProject(project: Project?): Boolean {
         if (project == null) return false
         project.updateTime = System.currentTimeMillis()
-        val fileName = sanitizeFileName(project.name ?: "未命名工程") + ".gpkg"
-        val filePath = File(projectsDir, fileName).absolutePath
-        val (json, _) = prepareWrite(project, filePath)
+        val name = project.name; val desc = project.description; val srs = project.srs
+        val createTime = project.createTime; val updateTime = project.updateTime
+        val filePath = File(projectsDir, sanitizeFileName(name ?: "未命名工程") + ".gpkg").absolutePath
+        if (!File(filePath).exists()) return writeProjectFileSync(project, filePath)
         return runCatching {
-            saveExecutor.submit(java.util.concurrent.Callable { gpkgWriter.writeEncoded(json, filePath) }).get()
+            saveExecutor.submit(java.util.concurrent.Callable {
+                runCatching { GeoPackageDml.syncMeta(filePath, name, desc, srs, createTime, updateTime) }
+                    .onFailure { Log.e(TAG, "saveNowProject: 元数据同步失败 $filePath", it) }
+                    .isSuccess
+            }).get()
         }.getOrElse { false }
     }
 
@@ -260,16 +283,32 @@ class ProjectManager private constructor(context: Context) {
     }
 
     /**
-     * 退出保存：主线程同步快照 + 立即提交后台队列，**不等待落盘**直接返回。
-     * 退出即刻完成（用户决策：不因保存等待而卡退出）；风险兜底是工程管理的「备份」按钮——
-     * 极端情况（进程瞬间被杀、后台写未及完成）仅丢最后一次保存窗口。
+     * 退出保存：提交元数据同步后**不等待**直接返回。业务数据此前已随 mutation 增量落盘，
+     * 退出即刻完成（用户决策：不因保存等待而卡退出）；风险兜底是工程管理的「备份」按钮。
      */
     fun saveOnExit() {
-        val p = currentProject ?: return
-        p.updateTime = System.currentTimeMillis()
-        val filePath = File(projectsDir, sanitizeFileName(p.name ?: "未命名工程") + ".gpkg").absolutePath
-        val json = gpkgWriter.encode(p)
-        saveExecutor.submit { gpkgWriter.writeEncoded(json, filePath) }
+        saveProject(currentProject)
+    }
+
+    /**
+     * 工程打开/新建后的后台就绪流程（幂等）：
+     *  1. schema 检查——老库缺列时整文件重建升级（快照在此前的主线程 encode 完成）；
+     *  2. 移除 RTree 触发器/索引表（GDAL 专属 ST_* 函数纯 SQLite 不可执行）并补建附件 BLOB 附加表；
+     *  3. 照片文件清扫——BLOB 已入库的磁盘原件退役，BLOB 缺失的从文件补收后删原件。
+     */
+    private fun ensureProjectReady(project: Project, filePath: String) {
+        val json = if (GeoPackageDml.schemaCurrent(filePath)) null else gpkgWriter.encode(project)
+        saveExecutor.execute {
+            if (json != null) {
+                gpkgWriter.writeEncoded(json, filePath)
+                Log.i(TAG, "ensureProjectReady: 老库 schema 升级重建 $filePath")
+            }
+            runCatching { GeoPackageDml.prepareSchema(filePath) }
+                .onFailure { Log.e(TAG, "ensureProjectReady: prepareSchema 失败 $filePath", it) }
+            runCatching {
+                GeoPackageDml.sweepPhotoFiles(filePath, AppDirectories.getMediaDir(appContext).absolutePath)
+            }.onFailure { Log.e(TAG, "ensureProjectReady: 照片文件清扫失败 $filePath", it) }
+        }
     }
 
     /**
@@ -322,25 +361,24 @@ class ProjectManager private constructor(context: Context) {
         }
     }
 
-    /** 导出工程为 GeoPackage（先落盘当前工程，再写到 Download/调查宝/ 供分享）。
-     *  导出文件由 [ok] 路径直接交给系统分享，调用返回时文件必须已在磁盘——同步等待写完。 */
+    /** 导出工程到 Download/调查宝/ 供分享：栅栏排空增量队列后直接复制 gpkg 文件本体
+     *  （单文件自包含，含照片 BLOB，QGIS/ArcGIS 可读）。调用返回时文件已在磁盘。 */
     fun exportProject(project: Project?): File? {
         if (project == null) return null
-        project.updateTime = System.currentTimeMillis()
+        val src = File(projectsDir, sanitizeFileName(project.name ?: "未命名工程") + ".gpkg")
+        saveNowProject(project)
+        if (!src.exists()) return null
         val exportDir = File("/sdcard/Download/调查宝")
         if (!exportDir.exists()) exportDir.mkdirs()
-        val fileName = "${sanitizeFileName(project.name ?: "未命名工程")}_${System.currentTimeMillis()}.gpkg"
-        val filePath = File(exportDir, fileName).absolutePath
-        val (json, _) = prepareWrite(project, filePath)
-        val ok = runCatching {
-            saveExecutor.submit(java.util.concurrent.Callable { gpkgWriter.writeEncoded(json, filePath) }).get()
-        }.getOrElse { false }
-        if (ok) {
-            Log.i(TAG, "exportProject: $filePath")
-            return File(filePath)
+        val dst = File(exportDir, "${sanitizeFileName(project.name ?: "未命名工程")}_${System.currentTimeMillis()}.gpkg")
+        return try {
+            src.copyTo(dst, overwrite = false)
+            Log.i(TAG, "exportProject: ${dst.absolutePath}")
+            dst
+        } catch (e: Exception) {
+            Log.e(TAG, "exportProject: 导出失败 ${project.name}", e)
+            null
         }
-        Log.e(TAG, "exportProject: 导出失败 ${project.name}")
-        return null
     }
 
     /** 删除工程（API 层防线：当前工程禁止删除，防调用方绕过 UI 的隐藏逻辑） */
@@ -361,8 +399,8 @@ class ProjectManager private constructor(context: Context) {
         return ok
     }
 
-    /** 重命名工程文件（若重命名的是当前工程，同步改工程名并落盘）。
-     *  先栅栏排空队列再 renameTo：否则队列尾部旧路径写任务会把旧名文件复活成「副本」。 */
+    /** 重命名工程文件（若重命名的是当前工程，同步改工程名并异步同步元数据）。
+     *  先栅栏排空队列再 renameTo：防止队列尾部旧路径写任务把旧名文件复活成「副本」。 */
     fun renameProject(oldFileName: String, newName: String): Boolean {
         awaitSaveQueue()
         val oldFile = File(projectsDir, oldFileName)
@@ -372,55 +410,61 @@ class ProjectManager private constructor(context: Context) {
         if (ok && cur != null &&
                 sanitizeFileName(cur.name ?: "") == oldFileName.removeSuffix(".gpkg")) {
             cur.name = newName
-            saveNowProject(cur)
+            saveProject(cur) // project_meta.name 随文件名对齐（异步元数据同步）
             rememberCurrent(newFile.absolutePath)
         }
         Log.i(TAG, "renameProject: $oldFileName -> $newName $ok")
         return ok
     }
 
-    /** 复制工程（直读文件，不切换当前工程；写盘同步等待——复制完成的提示须以真实落盘为准） */
+    /** 复制工程：栅栏排空队列后直接复制 gpkg 文件本体（保留照片 BLOB/记录 id，快于整文件重建）。
+     *  新工程名在打开时按文件名回填，无需改库内元数据。 */
     fun duplicateProject(fileName: String, newName: String): Boolean {
-        val p = gpkgWriter.read(File(projectsDir, fileName).absolutePath) ?: return false
-        p.name = newName
-        p.createTime = System.currentTimeMillis()
-        p.updateTime = System.currentTimeMillis()
-        val path = File(projectsDir, sanitizeFileName(newName) + ".gpkg").absolutePath
-        val (json, _) = prepareWrite(p, path)
-        return runCatching {
-            saveExecutor.submit(java.util.concurrent.Callable { gpkgWriter.writeEncoded(json, path) }).get()
-        }.getOrElse { false }
+        val cur = currentProject
+        if (cur != null && fileName == sanitizeFileName(cur.name ?: "") + ".gpkg") {
+            saveNowProject(cur) // 当前工程先排空增量队列，保证复制到最新
+        }
+        val src = File(projectsDir, fileName)
+        if (!src.exists()) return false
+        val dst = File(projectsDir, sanitizeFileName(newName) + ".gpkg")
+        return try {
+            src.copyTo(dst, overwrite = false)
+            Log.i(TAG, "duplicateProject: $fileName -> ${dst.name}")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "duplicateProject: 复制失败 $fileName", e)
+            false
+        }
     }
 
-    // ---- 防抖自动保存 ----
+    // ---- 落盘线程池与增量写提交 ----
 
-    /** GeoPackage 写盘线程池（单线程串行）：GDAL 整文件重写是重 IO，全部离开主线程；
-     *  串行保证写写不并发，队列按序写最终以最新快照收尾（防抖已合并连续变更，队列深度 1~2）。 */
+    /** GeoPackage 写盘线程池（单线程串行）：增量 DML 与整文件重建全部离开主线程；
+     *  串行保证写写不并发，任务按提交序落库（mutation 先于 saveNow 栅栏任务执行）。 */
     private val saveExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
         Thread(r, "gpkg-save").apply { priority = Thread.NORM_PRIORITY - 1 }
     }
 
-    private val autosaveRunnable = Runnable {
-        val p = currentProject ?: return@Runnable
-        saveProject(p)
-    }
-
     /**
-     * 请求自动保存（防抖 1.5s）：工程数据变更后由各 mutation API 触发。
-     * 合并窗口内的连续变化（轨迹逐点、连拍），避免频繁整文件重写。
+     * 提交增量写任务：单线程串行队列，路径取自当前工程（rename/delete 前有队列栅栏保护）。
+     * 各 mutation 先改内存模型再提交快照参数，主线程只做序列化不碰 IO。
      */
-    fun requestSave() {
-        if (currentProject == null) return
-        mainHandler.removeCallbacks(autosaveRunnable)
-        mainHandler.postDelayed(autosaveRunnable, AUTOSAVE_DELAY_MS)
+    private fun enqueueDml(op: (String) -> Boolean) {
+        val path = currentProjectPath ?: return
+        saveExecutor.execute {
+            try {
+                op(path)
+            } catch (e: Exception) {
+                Log.e(TAG, "增量写盘异常 $path", e)
+            }
+        }
     }
 
     /**
-     * 立即同步落盘当前工程（跳过防抖）：定型类关键写入（轨迹停表入库、拍照入库、退出前兜底），
-     * 调用返回时数据已在磁盘，防抖窗口内进程被杀不丢失。
+     * 立即同步落盘当前工程（定型类关键写入：轨迹停表入库、拍照入库、退出前兜底）。
+     * 语义 = 增量队列栅栏 + 元数据同步：只等排队的毫秒级 DML，调用返回时数据已在磁盘。
      */
     fun saveNow() {
-        mainHandler.removeCallbacks(autosaveRunnable)
         saveNowProject(currentProject)
     }
 
@@ -452,28 +496,42 @@ class ProjectManager private constructor(context: Context) {
         r.lineWidth = lineWidth
         r.points.addAll(points)
         p.tracks.add(r)
-        requestSave()
+        pushTrackInsert(r)
         return r.id
+    }
+
+    /** 提交轨迹增量插入（停表入库路径，saveNow 栅栏保证定型落盘） */
+    private fun pushTrackInsert(t: Project.TrackRecord) {
+        val id = t.id; val nm = t.name; val dt = t.date; val cl = t.color
+        val hd = t.hidden; val lw = t.lineWidth; val pts = t.points
+        enqueueDml { GeoPackageDml.insertTrack(it, id, nm, dt, cl, hd, lw, pts) }
+    }
+
+    /** 提交轨迹属性增量更新（可见性/样式/改名共用整行属性更新） */
+    private fun pushTrackUpdate(t: Project.TrackRecord) {
+        val id = t.id; val nm = t.name; val cl = t.color
+        val hd = t.hidden; val lw = t.lineWidth
+        enqueueDml { GeoPackageDml.updateTrack(it, id, nm, cl, hd, lw) }
     }
 
     fun removeTrack(id: Long) {
         val p = currentProject ?: return
-        if (p.tracks.removeAll { it.id == id }) requestSave()
+        if (p.tracks.removeAll { it.id == id }) enqueueDml { GeoPackageDml.deleteTrack(it, id) }
     }
 
     fun updateTrackName(id: Long, name: String) {
-        findTrack(id)?.let { it.name = name; requestSave() }
+        findTrack(id)?.let { it.name = name; pushTrackUpdate(it) }
     }
 
     fun updateTrackVisible(id: Long, visible: Boolean) {
-        findTrack(id)?.let { it.hidden = !visible; requestSave() }
+        findTrack(id)?.let { it.hidden = !visible; pushTrackUpdate(it) }
     }
 
     fun updateTrackStyle(id: Long, colorInt: Int, lineWidth: Int) {
         findTrack(id)?.let {
             it.color = colorToHex(colorInt)
             it.lineWidth = lineWidth
-            requestSave()
+            pushTrackUpdate(it)
         }
     }
 
@@ -503,20 +561,30 @@ class ProjectManager private constructor(context: Context) {
         r.lineWidth = lineWidth
         r.points.addAll(points)
         p.measures.add(r)
-        requestSave()
+        pushMeasureInsert(r)
         return r.id
+    }
+
+    /** 提交测量增量插入 */
+    private fun pushMeasureInsert(m: Project.MeasureRecord) {
+        val id = m.id; val nm = m.name; val dt = m.date; val ty = m.type; val rs = m.result
+        val cl = m.color; val hd = m.hidden; val cd = m.closed; val lw = m.lineWidth; val pts = m.points
+        enqueueDml {
+            GeoPackageDml.insertMeasure(it, id, nm, dt, ty, rs, cl, hd, cd, lw, pts)
+        }
     }
 
     fun removeMeasure(id: Long) {
         val p = currentProject ?: return
-        if (p.measures.removeAll { it.id == id }) requestSave()
+        if (p.measures.removeAll { it.id == id }) enqueueDml { GeoPackageDml.deleteMeasure(it, id) }
     }
 
     fun updateMeasureStyle(id: Long, colorInt: Int, lineWidth: Int) {
         findMeasure(id)?.let {
             it.color = colorToHex(colorInt)
             it.lineWidth = lineWidth
-            requestSave()
+            val mid = it.id; val mcl = it.color; val mlw = it.lineWidth
+            enqueueDml { GeoPackageDml.updateMeasureStyle(it, mid, mcl, mlw) }
         }
     }
 
@@ -535,33 +603,56 @@ class ProjectManager private constructor(context: Context) {
         r.lon = lon
         r.timestamp = timestamp
         p.photos.add(r)
-        requestSave()
+        pushPhotoInsert(r)
         return r.id
     }
 
-    /** 为拍照点位追加一个照片附件 */
+    private fun pushPhotoInsert(ph: Project.PhotoRecord) {
+        val id = ph.id; val nm = ph.name; val la = ph.lat; val lo = ph.lon; val al = ph.alt
+        val ts = ph.timestamp; val vis = ph.visible; val gid = ph.groupId
+        enqueueDml { GeoPackageDml.insertPhoto(it, id, nm, la, lo, al, ts, vis, gid) }
+    }
+
+    /**
+     * 为拍照点位追加一个照片附件：内存模型追加后提交增量落盘——附件整行重写
+     * （attachments JSON + photo_path），同时把照片本体读入 gpkg BLOB（主照片 photo_data /
+     * 其余附件附加表），库提交成功后删除源文件（照片不再长期保留文件）。
+     */
     fun addPhotoAttachment(photoId: Long, name: String, path: String, time: Long) {
-        findPhoto(photoId)?.let {
-            it.attachments.add(Project.PhotoAttachment(name, path, time))
-            requestSave()
-        }
+        val photo = findPhoto(photoId) ?: return
+        photo.attachments.add(Project.PhotoAttachment(name, path, time))
+        val idx = photo.attachments.size - 1L
+        val attsJson = JSONArray().apply {
+            for (a in photo.attachments) put(a.toJson())
+        }.toString()
+        val mainPath = photo.attachments.firstOrNull()?.path
+        enqueueDml { GeoPackageDml.addPhotoAttachment(it, photoId, idx, attsJson, mainPath, path) }
     }
 
     fun removePhoto(id: Long) {
         val p = currentProject ?: return
-        if (p.photos.removeAll { it.id == id }) requestSave()
+        if (p.photos.removeAll { it.id == id }) enqueueDml { GeoPackageDml.deletePhoto(it, id) }
     }
 
     fun updatePhotoName(id: Long, name: String) {
-        findPhoto(id)?.let { it.name = name; requestSave() }
+        findPhoto(id)?.let {
+            it.name = name
+            enqueueDml { GeoPackageDml.updatePhotoColumns(it, id, name, null, null) }
+        }
     }
 
     fun updatePhotoGroup(id: Long, groupId: Long) {
-        findPhoto(id)?.let { it.groupId = groupId; requestSave() }
+        findPhoto(id)?.let {
+            it.groupId = groupId
+            enqueueDml { GeoPackageDml.updatePhotoColumns(it, id, null, groupId, null) }
+        }
     }
 
     fun updatePhotoVisible(id: Long, visible: Boolean) {
-        findPhoto(id)?.let { it.visible = visible; requestSave() }
+        findPhoto(id)?.let {
+            it.visible = visible
+            enqueueDml { GeoPackageDml.updatePhotoColumns(it, id, null, null, visible) }
+        }
     }
 
     // ---- 拍照分组 ----
@@ -579,13 +670,17 @@ class ProjectManager private constructor(context: Context) {
         g.name = name
         g.createdTime = createdTime
         p.mediaGroups.add(g)
-        requestSave()
+        val gid = g.id; val gname = g.name; val gct = g.createdTime; val gvis = g.visible
+        enqueueDml { GeoPackageDml.insertGroup(it, gid, gname, gct, gvis) }
         return g.id
     }
 
     fun renameGroup(id: Long, name: String) {
         currentProject?.mediaGroups?.firstOrNull { it.id == id }
-            ?.let { it.name = name; requestSave() }
+            ?.let {
+                it.name = name
+                enqueueDml { GeoPackageDml.updateGroup(it, id, name) }
+            }
     }
 
     /** 删除分组：组内点位不删除，移到未分组 */
@@ -595,7 +690,7 @@ class ProjectManager private constructor(context: Context) {
             for (photo in p.photos) {
                 if (photo.groupId == id) photo.groupId = Project.PhotoRecord.UNGROUPED_ID
             }
-            requestSave()
+            enqueueDml { GeoPackageDml.deleteGroup(it, id) }
         }
     }
 
@@ -609,7 +704,7 @@ class ProjectManager private constructor(context: Context) {
                 changed = true
             }
         }
-        if (changed) requestSave()
+        if (changed) enqueueDml { GeoPackageDml.setGroupPhotosVisible(it, groupId, visible) }
     }
 
     // ---- 样地调查 ----
@@ -628,7 +723,7 @@ class ProjectManager private constructor(context: Context) {
         (findSurveyPlots(sourcePath, sourceFid).maxOfOrNull { it.plotNo } ?: 0) + 1
 
     /**
-     * 保存样地（新增或更新）：id<=0 分配新 id 插入，否则按 id 原位更新。
+     * 保存样地（新增或更新）：id<=0 分配新 id 插入，否则按 id 原位更新（INSERT OR REPLACE 增量落盘）。
      * 返回保存后的样地（含 id），无当前工程返回 null。
      */
     fun saveSurveyPlot(plot: Project.SurveyPlot): Project.SurveyPlot? {
@@ -648,7 +743,9 @@ class ProjectManager private constructor(context: Context) {
         } else if (p.surveyPlots.none { it.id == plot.id }) {
             p.surveyPlots.add(plot)
         }
-        requestSave()
+        val id = plot.id; val nm = plot.name; val pty = plot.plotType
+        val attrs = plot.attributesToJson().toString(); val pts = plot.points
+        enqueueDml { GeoPackageDml.upsertSurveyPlot(it, id, nm, pty, attrs, pts) }
         return plot
     }
 
@@ -676,9 +773,6 @@ class ProjectManager private constructor(context: Context) {
         private const val PREFS_NAME = "project_manager"
         private const val KEY_LAST_PROJECT = "last_project_path"
         private const val DEFAULT_PROJECT_NAME = "默认工程"
-
-        /** 自动保存防抖窗口（毫秒） */
-        private const val AUTOSAVE_DELAY_MS = 1500L
 
         /** 工程记录 date 字段格式（人读友好，QGIS 中直接可读） */
         private val TIME_FORMAT = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())

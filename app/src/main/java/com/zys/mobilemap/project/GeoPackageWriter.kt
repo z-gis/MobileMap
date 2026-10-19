@@ -108,33 +108,21 @@ class GeoPackageWriter(context: Context) {
         }
 
         /**
-         * 惰性读取单张主照片 BLOB（photos.photo_data，按 fid）。
-         * 库无该列（老库未重写）或无记录返回 null。仅在照片文件缺失回退时调用，
-         * 打开工程不读 BLOB。
+         * 照片显示路径解析：文件本体存在 → 直接用；缺失 → 从当前工程 gpkg 读照片 BLOB
+         * （[attIndex]=0 主照片 photos.photo_data，≥1 附件 photo_att_data）解出到缓存目录后
+         * 返回缓存路径（照片本体入库不再保留文件后仍可查看）。全部不可得返回 null。
          */
-        private external fun nativeReadPhotoBlob(filePath: String, fid: Long): ByteArray?
-
-        /**
-         * 照片显示路径解析：文件本体存在 → 直接用；缺失 → 从当前工程 gpkg 的 photo_data
-         * BLOB 解出到缓存目录后返回缓存路径（照片本体被清理后仍可查看）。
-         * 全部不可得返回 null。
-         */
-        fun resolvePhotoPath(context: Context, photoId: Long, originalPath: String): String? {
+        fun resolvePhotoPath(context: Context, photoId: Long, originalPath: String, attIndex: Long = 0L): String? {
             if (originalPath.isNotEmpty() && File(originalPath).exists()) return originalPath
             val gpkg = ProjectManager.get(context).currentProjectPath ?: return null
-            val blob = try {
-                nativeReadPhotoBlob(gpkg, photoId)
-            } catch (e: Exception) {
-                Log.e(TAG, "resolvePhotoPath: BLOB 读取失败 fid=$photoId", e)
-                null
-            } ?: return null
+            val blob = GeoPackageDml.readPhotoBlob(gpkg, photoId, attIndex) ?: return null
             val cacheDir = File(context.cacheDir, "photo_blob").apply { mkdirs() }
             val name = originalPath.substringAfterLast('/').ifEmpty { "photo.jpg" }
-            val out = File(cacheDir, "${photoId}_$name")
+            val out = File(cacheDir, "${photoId}_$attIndex$name")
             try {
                 FileOutputStream(out).use { it.write(blob) }
             } catch (e: IOException) {
-                Log.e(TAG, "resolvePhotoPath: 缓存写出失败 fid=$photoId", e)
+                Log.e(TAG, "resolvePhotoPath: 缓存写出失败 fid=$photoId idx=$attIndex", e)
                 return null
             }
             return out.absolutePath

@@ -168,14 +168,14 @@ class MediaCaptureHelper(
             Toast.makeText(activity, "照片已保存，但添加坐标水印失败", Toast.LENGTH_SHORT).show()
         }
 
-        // 写入附件记录
+        // 写入附件记录（照片本体增量入库 gpkg BLOB，库提交成功后源文件自动删除）
         ProjectManager.get(activity).addPhotoAttachment(
             sessionPlacemarkId,
             file.name,
             file.absolutePath,
             capturedAt
         )
-        // 照片文件已在磁盘，立即落盘记录防止防抖窗口内被杀产生孤儿文件
+        // 栅栏排空增量队列：调用返回时记录与照片 BLOB 已落库，进程被杀不丢
         ProjectManager.get(activity).saveNow()
         onMediaChanged()
         Toast.makeText(activity, "照片已保存并标注", Toast.LENGTH_SHORT).show()

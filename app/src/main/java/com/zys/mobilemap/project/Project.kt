@@ -463,7 +463,7 @@ class Project {
             return o
         }
 
-        private fun attributesToJson(): JSONObject {
+        internal fun attributesToJson(): JSONObject {
             val a = JSONObject()
             a.put("sourcePath", sourcePath)
             a.put("sourceFid", sourceFid)
