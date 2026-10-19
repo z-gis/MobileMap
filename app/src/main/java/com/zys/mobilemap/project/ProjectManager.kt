@@ -12,7 +12,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 工程管理器（0.5.0 增量落盘版）
+ * 工程管理器（0.4.0.4 增量落盘版）
  *
  * 工程 gpkg 是采集数据（轨迹/测量/拍照/样地）的唯一数据本体，旧工作库
  * （map.db / media.db / sample_survey.db）已废弃，仅在首启由 [LegacyMigration]

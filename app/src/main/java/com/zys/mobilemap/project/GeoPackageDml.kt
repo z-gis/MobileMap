@@ -14,7 +14,7 @@ import java.util.Locale
 import java.util.TimeZone
 
 /**
- * GeoPackage 增量直写层（0.5.0）
+ * GeoPackage 增量直写层（0.4.0.4）
  *
  * gpkg 本体是 SQLite 文件，业务七表（tracks/measures/photos/media_groups/survey_plots/
  * project_meta/layer_refs）为自定义表。日常业务写入不再经 C++ GDAL 整文件重建（照片多时
