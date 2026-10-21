@@ -8,7 +8,7 @@ GIS field survey software. Supports online map browsing (2D plane / 3D globe mod
 - **Basic map module**: map browsing, positioning (with altitude display), tracking, photos, measurement, visual SQL query filtering, etc.
 - **Survey module**: sample plot survey (per-tree inventory).
 
-Current version: v0.4.0.0. Per-version changes (Chinese): [doc/版本迭代.md](doc/版本迭代.md).
+Current version: v0.4.0.5. Per-version changes (Chinese): [doc/版本迭代.md](doc/版本迭代.md).
 
 #### Data directories (/sdcard/调查宝/)
 
