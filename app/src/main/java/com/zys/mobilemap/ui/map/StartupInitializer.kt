@@ -53,28 +53,6 @@ internal class StartupInitializer(private val activity: AppCompatActivity) {
         overlay.postDelayed(loadingOverlayTimeout, LOADING_OVERLAY_TIMEOUT_MS)
     }
 
-    /**
-     * 迁移阶段进入：首启旧数据迁移（旧三库→GeoPackage、旧瓦片目录→MBTiles）在后台执行，耗时可达数分钟，
-     * 8s 安全超时兜底不适用（强制淡出会露出白屏假死）——移除超时回调，遮罩文案切「正在迁移旧数据」。
-     * 迁移完成后必须调 [endMigrationPhase] 恢复常规超时与文案。
-     */
-    fun beginMigrationPhase(overlay: View) {
-        loadingOverlay = overlay
-        overlay.removeCallbacks(loadingOverlayTimeout)
-        overlay.findViewById<TextView>(R.id.main_loading_status)?.text =
-            activity.getString(R.string.migration_loading_hint)
-        AppLog.i(TAG, "启动遮罩进入迁移阶段（超时兜底暂停）")
-    }
-
-    /** 迁移阶段结束：恢复遮罩默认文案并重挂常规安全超时（后续装配/首屏加载仍受兜底保护） */
-    fun endMigrationPhase(overlay: View) {
-        overlay.findViewById<TextView>(R.id.main_loading_status)?.text =
-            activity.getString(R.string.vector_loading_hint)
-        overlay.removeCallbacks(loadingOverlayTimeout)
-        overlay.postDelayed(loadingOverlayTimeout, LOADING_OVERLAY_TIMEOUT_MS)
-        AppLog.i(TAG, "启动遮罩迁移阶段结束（超时兜底恢复）")
-    }
-
     /** 恢复常态：非首装（recreate/恢复）场景直接隐藏遮罩、挂到字段上但不显示、不挂超时 */
     fun skipLoadingOverlay(overlay: View) {
         loadingOverlay = overlay

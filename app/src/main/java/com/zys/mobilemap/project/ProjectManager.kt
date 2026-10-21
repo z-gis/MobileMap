@@ -12,20 +12,17 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 工程管理器（0.4.0.4 增量落盘版）
+ * 工程管理器（0.4.0.5 增量落盘版）
  *
- * 工程 gpkg 是采集数据（轨迹/测量/拍照/样地）的唯一数据本体，旧工作库
- * （map.db / media.db / sample_survey.db）已废弃，仅在首启由 [LegacyMigration]
- * 一次性迁入「默认工程」（旧文件保留不删）。
+ * 工程 gpkg 是采集数据（轨迹/测量/拍照/样地）的唯一数据本体。
  *
  * 数据流：
  *  - 采集/管理功能改 [currentProject] 内存模型，每次 mutation 同步提交毫秒级增量 DML
  *    （app 端 SQLite 直写 gpkg 业务表，见 [GeoPackageDml]）到后台串行队列；
  *  - 定型写入（停表/拍照/退出）用 [saveNow] 做队列栅栏——只等排队的增量任务，毫秒级返回；
- *  - 整文件重建（JNI GDAL）仅用于：新建工程文件、老库 schema 升级（[ensureProjectReady] 内触发）；
+ *  - 整文件重建（JNI GDAL）仅用于：新建工程文件；
  *  - 分享/导出/复制 = 队列栅栏后直接复制 gpkg 文件本体（单文件自包含，QGIS/ArcGIS 可读）；
- *  - 打开工程 = 读 gpkg 替换 [currentProject]，随后 [ensureProjectReady] 后台做 schema 检查、
- *    RTree 触发器清理与照片文件清扫（BLOB 已入库的磁盘原件退役）。
+ *  - 打开工程 = 读 gpkg 替换 [currentProject]。
  *
  * 照片策略：拍照/导入的照片本体增量写入 gpkg BLOB（主照片 photos.photo_data，其余附件
  * photo_att_data 附加表），源文件在入库成功后删除，不再长期保留。
@@ -46,51 +43,11 @@ class ProjectManager private constructor(context: Context) {
 
     val projectsDir: File = AppDirectories.getProjectDir(appContext)
 
-    init {
-        migrateLegacyProjectsDir()
-    }
-
-    /**
-     * 一次性迁移：0.4.0.0 早期构建把工程放在应用私有目录（Android/data/<pkg>/files/projects），
-     * 现已统一到 /调查宝/projects/（卸载不清除、文件管理器可见）。迁移同挂载点 rename 秒级完成；
-     * 最近工程路径同步重映射，迁移后旧目录文件清空则删除空目录。
-     */
-    private fun migrateLegacyProjectsDir() {
-        val legacy = File(appContext.getExternalFilesDir(null) ?: return, "projects")
-        if (legacy.absolutePath == projectsDir.absolutePath || !legacy.isDirectory) return
-        val moved = legacy.listFiles { _, n -> n.endsWith(".gpkg") } ?: return
-        for (f in moved) {
-            val target = File(projectsDir, f.name)
-            // 同名冲突（上次迁移已搬过）：改带序号的名字保留，绝不删除既有工程文件
-            val ok: Boolean
-            if (!target.exists()) {
-                ok = f.renameTo(target)
-            } else {
-                var i = 1
-                var alt = File(projectsDir, "${f.nameWithoutExtension}_$i.gpkg")
-                while (alt.exists()) {
-                    i++
-                    alt = File(projectsDir, "${f.nameWithoutExtension}_$i.gpkg")
-                }
-                ok = f.renameTo(alt)
-            }
-            Log.i(TAG, "迁移旧工程文件 ${f.name} -> $ok")
-        }
-        val last = prefs.getString(KEY_LAST_PROJECT, null)
-        if (last != null && last.startsWith(legacy.absolutePath)) {
-            prefs.edit()
-                .putString(KEY_LAST_PROJECT, File(projectsDir, File(last).name).absolutePath)
-                .apply()
-        }
-        runCatching { legacy.delete() } // 空目录才删得掉
-    }
-
     // ---- 启动装载 ----
 
     /**
      * 确保已装载工程（App 启动时调用一次，幂等）：
-     * 上次打开的工程文件仍在 → 读入；否则创建「默认工程」，并由 [LegacyMigration]
-     * 把旧工作库（map.db / media.db / sample_survey.db，若存在）一次性迁入后落盘。
+     * 上次打开的工程文件仍在 → 读入；否则创建「默认工程」并落盘。
      */
     fun ensureLoaded() {
         if (currentProject != null) return
@@ -100,12 +57,10 @@ class ProjectManager private constructor(context: Context) {
             if (p != null) {
                 currentProject = p
                 Log.i(TAG, "ensureLoaded: 恢复上次工程 ${p.name}")
-                ensureProjectReady(p, last)
                 return
             }
             Log.w(TAG, "ensureLoaded: 上次工程读取失败，重建默认工程 $last")
         }
-        // 重装/清数据后最近工程 pref 丢失，但默认工程文件仍在：直接打开，避免重建触发旧库重迁并覆盖既有数据
         if (last == null) {
             val defaultFile = File(projectsDir, "$DEFAULT_PROJECT_NAME.gpkg")
             if (defaultFile.exists()) {
@@ -113,20 +68,16 @@ class ProjectManager private constructor(context: Context) {
                 if (p != null) {
                     currentProject = p
                     rememberCurrent(defaultFile.absolutePath)
-                    ensureProjectReady(p, defaultFile.absolutePath)
                     Log.i(TAG, "ensureLoaded: 默认工程文件已存在，直接打开")
                     return
                 }
             }
         }
         val p = createProject(DEFAULT_PROJECT_NAME, "自动创建，收纳现有采集数据")
-        val migrated = LegacyMigration.migrateInto(appContext, p)
         val filePath = File(projectsDir, "$DEFAULT_PROJECT_NAME.gpkg").absolutePath
         writeProjectFileSync(p, filePath)
-        ensureProjectReady(p, filePath)
         rememberCurrent(null)
-        val migText = if (migrated) "有" else "无"
-        Log.i(TAG, "ensureLoaded: 已创建默认工程（旧库迁移 ${migText}数据）")
+        Log.i(TAG, "ensureLoaded: 已创建默认工程")
     }
 
     /** 当前工程文件名（列表高亮用），无工程返回 null */
@@ -160,7 +111,6 @@ class ProjectManager private constructor(context: Context) {
         val ok = writeProjectFileSync(p, filePath)
         if (ok) {
             rememberCurrent(null)
-            ensureProjectReady(p, filePath)
         }
         return ok
     }
@@ -202,7 +152,7 @@ class ProjectManager private constructor(context: Context) {
     /** 只读读取工程（不切换当前工程，供导出/复制非当前工程用） */
     fun readProject(filePath: String): Project? = gpkgWriter.read(filePath)
 
-    /** 打开工程：当前工程先同步落盘 → 读 gpkg 切换 [currentProject] → 记为最近工程 → 后台就绪检查。
+    /** 打开工程：当前工程先同步落盘 → 读 gpkg 切换 [currentProject] → 记为最近工程。
      *  同步落盘（增量队列栅栏）防竞态：切回当前工程自身时先排空队列再读文件。
      *  工程名以文件名为准：gpkg 内 name 与文件名不一致（外部拷贝/文件管理器改名所致）时
      *  回填文件名，否则按内部 name 落盘会另生成新文件，同名数据分叉成两份。 */
@@ -217,7 +167,6 @@ class ProjectManager private constructor(context: Context) {
             }
             currentProject = p
             rememberCurrent(filePath)
-            ensureProjectReady(p, filePath)
             Log.i(TAG, "openProject: $filePath -> ${p.name}")
         } else {
             Log.e(TAG, "openProject: 读取失败 $filePath")
@@ -244,7 +193,7 @@ class ProjectManager private constructor(context: Context) {
             File(projectsDir, sanitizeFileName(it.name ?: "未命名工程") + ".gpkg").absolutePath
         }
 
-    /** 主线程快照 + 后台整文件重建（JNI GDAL）：仅用于新建工程文件；老库升级见 [ensureProjectReady] */
+    /** 主线程快照 + 后台整文件重建（JNI GDAL）：仅用于新建工程文件 */
     private fun writeProjectFileSync(project: Project, filePath: String): Boolean {
         project.updateTime = System.currentTimeMillis()
         val json = gpkgWriter.encode(project)
@@ -291,27 +240,6 @@ class ProjectManager private constructor(context: Context) {
      */
     fun saveOnExit() {
         saveProject(currentProject)
-    }
-
-    /**
-     * 工程打开/新建后的后台就绪流程（幂等）：
-     *  1. schema 检查——老库缺列时整文件重建升级（快照在此前的主线程 encode 完成）；
-     *  2. 移除 RTree 触发器/索引表（GDAL 专属 ST_* 函数纯 SQLite 不可执行）并补建附件 BLOB 附加表；
-     *  3. 照片文件清扫——BLOB 已入库的磁盘原件退役，BLOB 缺失的从文件补收后删原件。
-     */
-    private fun ensureProjectReady(project: Project, filePath: String) {
-        val json = if (GeoPackageDml.schemaCurrent(filePath)) null else gpkgWriter.encode(project)
-        saveExecutor.execute {
-            if (json != null) {
-                gpkgWriter.writeEncoded(json, filePath)
-                Log.i(TAG, "ensureProjectReady: 老库 schema 升级重建 $filePath")
-            }
-            runCatching { GeoPackageDml.prepareSchema(filePath) }
-                .onFailure { Log.e(TAG, "ensureProjectReady: prepareSchema 失败 $filePath", it) }
-            runCatching {
-                GeoPackageDml.sweepPhotoFiles(filePath, AppDirectories.getMediaDir(appContext).absolutePath)
-            }.onFailure { Log.e(TAG, "ensureProjectReady: 照片文件清扫失败 $filePath", it) }
-        }
     }
 
     /**

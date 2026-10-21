@@ -2,7 +2,6 @@ package com.zys.mobilemap.ui.map
 
 import android.app.Activity
 import android.content.Context
-import android.database.sqlite.SQLiteDatabase
 import android.view.View
 import android.widget.ImageView
 import android.widget.Toast
@@ -349,10 +348,6 @@ internal class MapLayerManager(
             val rasterName = File(path).name.substringBeforeLast('.')
             val cacheDir = if (rasterTileCacheEnabled()) {
                 val mbtiles = tileCacheFile("raster/${sanitizeDirName(rasterName)}")
-                migrateLegacyTileDir(
-                    File(AppDirectories.getTileCacheDir(activity), "raster/${sanitizeDirName(rasterName)}"),
-                    mbtiles
-                )
                 mbtiles.absolutePath
             } else {
                 // 空串 = 本层不碰磁盘缓存（既不读也不写），每块可见瓦片都即时生成
@@ -556,7 +551,6 @@ internal class MapLayerManager(
     private fun addLayer(src: MapSource, overlay: Boolean) {
         val name = sanitizeDirName(src.name ?: "")
         val mbtiles = tileCacheFile(name)
-        migrateLegacyTileDir(File(AppDirectories.getTileCacheDir(activity), name), mbtiles)
         val urlTemplate = if (tileOfflineOnly()) "" else (resolveUrl(src) ?: "")
         mapView.addTileLayer(mbtiles.absolutePath, urlTemplate, src.maxLevel, overlay)
         AppLog.i(TAG, "图层[${src.name}] overlay=$overlay 缓存文件=${mbtiles.absolutePath} 联网=${urlTemplate.isNotEmpty()} maxLevel=${src.maxLevel} url=$urlTemplate")
@@ -568,13 +562,6 @@ internal class MapLayerManager(
     /** 图源缓存文件：`/调查宝/tiles/<净化名>.mbtiles`（引擎 TileCache 路径以 .mbtiles 结尾即走单文件 SQLite 后端） */
     private fun tileCacheFile(name: String): File =
         File(AppDirectories.getTileCacheDir(activity), "$name.mbtiles")
-
-    /**
-     * 旧目录式瓦片缓存一次性迁入单文件 MBTiles（静态实现见 [Companion.migrateLegacyTileDirStatic]）：
-     * `<dir>/<z>/<x>_<y>.tile` → [mbtiles]。迁移在加层前执行，native 打开即命中；
-     * 幂等（INSERT OR REPLACE），无旧目录时零开销返回。
-     */
-    private fun migrateLegacyTileDir(dir: File, mbtiles: File) = migrateLegacyTileDirStatic(dir, mbtiles)
 
     /**
      * 将 URL 中的 Token 占位符替换为实际 Token（复刻原主界面 BaseMapActivity.resolveUrl 逻辑）。
@@ -724,79 +711,10 @@ internal class MapLayerManager(
         // 胶囊显示后的状态轮询间隔（250ms 粒度足以平滑收尾，轮询 JNI 为纯查询不触发重绘）
         private const val VECTOR_LOADING_POLL_MS = 250L
 
-        /** 旧目录式缓存瓦片文件名 `<x>_<y>.tile`（迁移时解析坐标用） */
-        private val TILE_FILE_REGEX = Regex("(\\d+)_(\\d+)\\.tile")
-
-        /** 缓存子目录名净化（复刻原主界面 TileCacheManager 的 sanitizeDirName，保证目录一致；静态供启动期迁移用） */
+        /** 缓存子目录名净化（复刻原主界面 TileCacheManager 的 sanitizeDirName，保证目录一致） */
         private fun sanitizeDirNameStatic(name: String): String {
             val clean = name.replace("[\\\\/:*?\"<>|]".toRegex(), "_").trim()
             return clean.ifEmpty { "unknown" }
-        }
-
-        /**
-         * 旧目录式瓦片缓存一次性迁入单文件 MBTiles：`<dir>/<z>/<x>_<y>.tile` → [mbtiles]
-         * （INSERT OR REPLACE 幂等，TMS y 翻转与引擎 TileCache 同构，schema 逐字一致）。
-         * 全部迁完才删旧目录；中途失败保留旧目录回滚事务，下次启动重迁。无旧目录时零开销返回。
-         * 纯静态（File/SQLite/Log，不触实例状态）：可在任意线程跑（启动期由后台迁移阶段调用）。
-         */
-        private fun migrateLegacyTileDirStatic(dir: File, mbtiles: File) {
-            if (!dir.isDirectory) return
-            var migrated = 0
-            try {
-                mbtiles.parentFile?.mkdirs()
-                SQLiteDatabase.openOrCreateDatabase(mbtiles.absolutePath, null).use { db ->
-                    db.execSQL("CREATE TABLE IF NOT EXISTS tiles (zoom_level INTEGER, tile_column INTEGER, tile_row INTEGER, tile_data BLOB, added_at INTEGER, PRIMARY KEY (zoom_level, tile_column, tile_row))")
-                    db.execSQL("CREATE TABLE IF NOT EXISTS metadata (name TEXT, value TEXT)")
-                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_tiles ON tiles (zoom_level, tile_column, tile_row)")
-                    db.beginTransaction()
-                    try {
-                        val sql = "INSERT OR REPLACE INTO tiles (zoom_level, tile_column, tile_row, tile_data, added_at) VALUES (?,?,?,?,?)"
-                        val nowSec = System.currentTimeMillis() / 1000
-                        val zDirs = dir.listFiles(java.io.FileFilter { it.isDirectory }) ?: emptyArray()
-                        for (zDir in zDirs) {
-                            val z = zDir.name.toIntOrNull() ?: continue
-                            val tmsRow = (1 shl z) - 1
-                            val tiles = zDir.listFiles() ?: emptyArray()
-                            for (f in tiles) {
-                                val m = TILE_FILE_REGEX.matchEntire(f.name) ?: continue
-                                val x = m.groupValues[1].toIntOrNull() ?: continue
-                                val y = m.groupValues[2].toIntOrNull() ?: continue
-                                if (!f.exists() || f.length() == 0L) continue
-                                val stmt = db.compileStatement(sql)
-                                stmt.bindLong(1, z.toLong())
-                                stmt.bindLong(2, x.toLong())
-                                stmt.bindLong(3, (tmsRow - y).toLong())
-                                stmt.bindBlob(4, f.readBytes())
-                                // 入库时间沿用旧瓦片文件的最后修改时间（≈原下载落盘时刻），缺失回退当前
-                                stmt.bindLong(5, f.lastModified().takeIf { it > 0 }?.let { it / 1000 } ?: nowSec)
-                                stmt.executeInsert()
-                                migrated++
-                            }
-                        }
-                        db.setTransactionSuccessful()
-                    } finally {
-                        db.endTransaction()
-                    }
-                }
-                dir.deleteRecursively()
-                AppLog.i(TAG, "瓦片缓存迁移完成: ${dir.absolutePath} → ${mbtiles.name} 共$migrated 块")
-            } catch (e: Exception) {
-                AppLog.w(TAG, "瓦片缓存迁移失败（保留旧目录，下次重试）: ${dir.absolutePath}: ${e.message}")
-            }
-        }
-
-        /**
-         * 启动期批量迁移底图/注记图源的旧瓦片目录（MainActivity 后台迁移阶段调用，先于 setupMapUi 的 addLayer）：
-         * 把主线程逐图源迁移的开销整体挪到后台，避免首启大量瓦片时白屏卡顿。
-         * addLayer 内的迁移调用保留作兜底（幂等 no-op）；栅格层瓦片量小，仍留在 syncRasterLayers 就地迁移。
-         */
-        fun migrateBaseTileCaches(context: Context, doc: MapDocument?) {
-            if (doc == null) return
-            val cacheRoot = AppDirectories.getTileCacheDir(context)
-            for (src in doc.mapSources) { // 底图 + 注记
-                val name = sanitizeDirNameStatic(src.name ?: "")
-                migrateLegacyTileDirStatic(File(cacheRoot, name), File(cacheRoot, "$name.mbtiles"))
-            }
         }
     }
 }

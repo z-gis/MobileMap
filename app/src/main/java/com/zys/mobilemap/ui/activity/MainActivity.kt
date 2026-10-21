@@ -21,7 +21,6 @@ import com.zys.mobilemap.doc.DocumentManager
 import com.zys.mobilemap.doc.MapDocument
 import com.zys.mobilemap.location.LocationManager
 import com.zys.mobilemap.media.MediaCaptureHelper
-import com.zys.mobilemap.project.LegacyMigration
 import com.zys.mobilemap.project.Project
 import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.survey.SampleSurveyActivity
@@ -246,27 +245,20 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         DocumentManager.getInstance().loadOrCreate(this)
         AppLog.i(TAG, "初始化完成，文档已加载 启动耗时 文档=${SystemClock.elapsedRealtime() - t}ms")
 
-        // 工程模块（0.4.0.0）：恢复上次工程 / 首次创建默认工程（旧工作库数据自动吸入）。
-        // 须在 setupMapUi 前完成：打开工程会导入工作库，叠加层首轮重建须读到工程数据。
-        // 后台化：首启旧数据迁移（旧三库→GeoPackage + 旧瓦片目录→MBTiles）可达数分钟，全部挪后台，
-        // 期间遮罩显示「正在迁移旧版数据」并暂停 8s 超时兜底；完成后主线程继续装配地图。
+        // 工程模块：恢复上次工程 / 首次创建默认工程。
+        // 须在 setupMapUi 前完成：叠加层首轮重建须读到工程数据。
         val pm = ProjectManager.get(this)
-        val doc = DocumentManager.getInstance().getDocument()
-        val migrating = LegacyMigration.hasLegacyStores(this)
-        if (coldStartOverlay && migrating) startup.beginMigrationPhase(loadingOverlay)
         val t0 = SystemClock.elapsedRealtime()
         Thread {
             pm.ensureLoaded()
-            MapLayerManager.migrateBaseTileCaches(this, doc)
-            AppLog.i(TAG, "启动耗时 工程装载+旧数据迁移=${SystemClock.elapsedRealtime() - t0}ms")
+            AppLog.i(TAG, "启动耗时 工程装载=${SystemClock.elapsedRealtime() - t0}ms")
             runOnUiThread {
-                if (coldStartOverlay && migrating) startup.endMigrationPhase(loadingOverlay)
                 continueSetupAfterProject()
             }
         }.start()
     }
 
-    /** 工程装载（含旧数据迁移）完成后的主线程续段：地图装配与启动收尾（自 initializeAndSetup 拆出） */
+    /** 工程装载完成后的主线程续段：地图装配与启动收尾（自 initializeAndSetup 拆出） */
     private fun continueSetupAfterProject() {
         if (isFinishing || isDestroyed) return
         val t = SystemClock.elapsedRealtime()

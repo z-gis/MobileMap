@@ -24,12 +24,12 @@ import java.util.TimeZone
  *  - 几何列直接写 GPKG 二进制（GP 头 + XYZ 包络 + ISO WKB 含 Z），与 GDAL 写入等价；
  *  - gpkg_contents.last_change / bbox 与 gpkg_ogr_contents 要素计数随写随更，QGIS/ArcGIS 兼容；
  *  - GDAL 建库默认创建的 RTree 空间索引触发器引用 ST_* 扩展函数（仅 GDAL 运行时注册，
- *    纯 SQLite 客户端执行 INSERT 会报 no such function）→ 建库后一次性移除触发器与索引表
- *    （空间索引是可选优化，移除不影响读取；若后续触发整文件重建会再次出现，prepareSchema 幂等移除）；
+ *    纯 SQLite 客户端执行 INSERT 会报 no such function）→ 建库后由 C++ 侧移除触发器与索引表
+ *    （空间索引是可选优化，移除不影响读取）；
  *  - 附加表 photo_att_data(fid, idx, data) 保存第 2..N 张附件的照片 BLOB（表不注册进
  *    gpkg_contents，GDAL/QGIS 不可见）；主照片仍在 photos.photo_data。
  *
- * 整文件重建（JNI writeEncoded）仅保留给：新建工程文件、老库 schema 升级；导出/复制改用文件复制。
+ * 整文件重建（JNI writeEncoded）仅保留给：新建工程文件；导出/复制改用文件复制。
  * 每次操作独立 open/beginTransaction/close，不持长连接，避免与重建 tmp+rename 换文件产生句柄竞态。
  */
 internal object GeoPackageDml {
@@ -38,14 +38,6 @@ internal object GeoPackageDml {
 
     /** 附件 BLOB 附加表（非主照片，第 2..N 张） */
     private const val ATT_TABLE = "photo_att_data"
-
-    /** photos 表增量写所要求的完整列（缺任一 → 走整文件重建升级） */
-    private val PHOTOS_COLUMNS =
-        listOf("name", "photo_path", "photo_data", "timestamp", "attachments", "visible", "group_id")
-
-    /** 增量写所要求的全部业务表 */
-    private val REQUIRED_TABLES =
-        listOf("tracks", "measures", "photos", "media_groups", "survey_plots", "project_meta", "layer_refs")
 
     // ---- 几何编码 ----
 
@@ -197,93 +189,6 @@ internal object GeoPackageDml {
             if (y < miny) miny = y; if (y > maxy) maxy = y
         }
         return doubleArrayOf(minx, maxx, miny, maxy)
-    }
-
-    // ---- schema 检查 / 准备 ----
-
-    /** 业务表与列是否齐备（齐备即可增量写；文件不存在返回 true，由新建流程负责建库） */
-    fun schemaCurrent(path: String): Boolean {
-        if (!File(path).exists()) return true
-        return try {
-            val db = SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READONLY)
-            try {
-                for (t in REQUIRED_TABLES) {
-                    if (!tableExists(db, t)) return false
-                }
-                columnsOf(db, "photos").containsAll(PHOTOS_COLUMNS) &&
-                        columnsOf(db, "tracks").containsAll(listOf("name", "date", "color", "hidden", "line_width")) &&
-                        columnsOf(db, "measures")
-                            .containsAll(listOf("name", "date", "type", "result", "color", "hidden", "closed", "line_width"))
-            } finally {
-                db.close()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "schemaCurrent 检查失败: $path", e)
-            false
-        }
-    }
-
-    /**
-     * 写前准备（幂等）：移除 RTree 触发器与索引表（触发器引用 GDAL 运行时注册的 ST_* 函数，
-     * 纯 SQLite 执行 INSERT 会失败）、清理 gpkg_extensions 登记项、补建附件 BLOB 附加表。
-     */
-    fun prepareSchema(path: String): Boolean =
-        withDb(path, "prepareSchema") { db ->
-            val names = ArrayList<String>()
-            db.rawQuery("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'rtree_%'", null).use { c ->
-                while (c.moveToNext()) names.add(c.getString(0))
-            }
-            for (t in names) runCatching { db.execSQL("DROP TRIGGER IF EXISTS \"$t\"") }
-            names.clear()
-            db.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'rtree_%'", null).use { c ->
-                while (c.moveToNext()) names.add(c.getString(0))
-            }
-            // 影子表（_node/_rowid/_parent）为普通表可直接 DROP；虚拟表本体 DROP 需 rtree 模块
-            // 参与析构，无该模块的环境抛 no such module → 降级 writable_schema 删 sqlite_master 条目
-            val dropFailed = ArrayList<String>()
-            for (t in names) {
-                try {
-                    db.execSQL("DROP TABLE IF EXISTS \"$t\"")
-                } catch (e: Exception) {
-                    dropFailed.add(t)
-                }
-            }
-            if (dropFailed.isNotEmpty()) {
-                runCatching {
-                    db.rawQuery("PRAGMA writable_schema=ON", null).use { }
-                    for (t in dropFailed) {
-                        db.execSQL("DELETE FROM sqlite_master WHERE type='table' AND name=?", arrayOf<Any>(t))
-                    }
-                    db.rawQuery("PRAGMA writable_schema=OFF", null).use { }
-                }.onFailure { Log.e(TAG, "writable_schema 清理 rtree 虚拟表失败: $dropFailed", it) }
-            }
-            // GDAL 登记名为 gpkg_rtree_index（非 gpkg_rtree），LIKE 前缀匹配确保清干净
-            runCatching { db.execSQL("DELETE FROM gpkg_extensions WHERE extension_name LIKE 'gpkg_rtree%'") }
-            // gpkg_geometry_columns.z 为 BOOLEAN（只允许 0/1）：老库把混装表写成 z=2、带 Z 的表写成 0，
-            // 与实际三维几何不符；四张业务表的几何均带 Z，统一修正为 1（OGC 一致性检查不报警）。
-            runCatching {
-                db.execSQL(
-                    "UPDATE gpkg_geometry_columns SET z=1 WHERE (z IS NULL OR z<>1) " +
-                            "AND table_name IN ('tracks','measures','photos','survey_plots')"
-                )
-            }
-            db.execSQL("CREATE TABLE IF NOT EXISTS $ATT_TABLE (fid INTEGER NOT NULL, idx INTEGER NOT NULL, " +
-                    "data BLOB NOT NULL, PRIMARY KEY (fid, idx))")
-            true
-        } != null
-
-    private fun tableExists(db: SQLiteDatabase, table: String): Boolean {
-        db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", arrayOf(table)).use { c ->
-            return c.moveToFirst()
-        }
-    }
-
-    private fun columnsOf(db: SQLiteDatabase, table: String): List<String> {
-        val cols = ArrayList<String>()
-        db.rawQuery("PRAGMA table_info(\"$table\")", null).use { c ->
-            while (c.moveToNext()) cols.add(c.getString(1))
-        }
-        return cols
     }
 
     // ---- 轨迹 ----
@@ -470,74 +375,6 @@ internal object GeoPackageDml {
             Log.e(TAG, "readPhotoBlob 失败 fid=$fid idx=$idx", e)
             null
         }
-    }
-
-    /**
-     * 照片文件清扫（幂等，打开工程时后台执行）：
-     *  - BLOB 已在库 → 删除磁盘原件（历史版本的照片文件退役）；
-     *  - BLOB 缺失且磁盘原件存在 → 读入库（主照片 photo_data / 附件附加表）后删除文件。
-     * 仅处理 [mediaRoot] 目录下的文件（/调查宝/Media），其它路径的引用文件不动。
-     * @return 是否发生任何清扫
-     */
-    fun sweepPhotoFiles(path: String, mediaRoot: String): Boolean {
-        if (!schemaCurrent(path)) return false  // 列不齐时先整文件重建，photo_data 列可能不存在
-        val root = runCatching { File(mediaRoot).canonicalPath }.getOrNull() ?: return false
-        return withDb(path, "sweepPhotoFiles") { db ->
-            data class Row(val fid: Long, val photoPath: String?, val attachments: String?, val hasMain: Boolean)
-            val rows = ArrayList<Row>()
-            db.rawQuery("SELECT fid, photo_path, attachments, photo_data IS NOT NULL FROM photos", null).use { c ->
-                while (c.moveToNext()) rows.add(Row(c.getLong(0), c.getString(1), c.getString(2), c.getInt(3) != 0))
-            }
-            var swept = false
-            for (row in rows) {
-                for ((idx, p) in attachmentPathsOf(row.photoPath, row.attachments)) {
-                    val f = File(p)
-                    if (p.isEmpty() || !f.exists()) continue
-                    val managed = runCatching { f.canonicalPath.startsWith(root) }.getOrDefault(false)
-                    if (!managed) continue
-                    val has = if (idx == 0L) row.hasMain else auxHas(db, row.fid, idx)
-                    if (has) {
-                        f.delete(); swept = true
-                        continue
-                    }
-                    val bytes = f.takeIf { it.length() > 0 }?.readBytes() ?: continue
-                    if (idx == 0L) {
-                        val cv = ContentValues()
-                        cv.put("photo_data", bytes)
-                        db.update("photos", cv, "fid=?", arrayOf(row.fid.toString()))
-                    } else {
-                        val acv = ContentValues()
-                        acv.put("fid", row.fid); acv.put("idx", idx); acv.put("data", bytes)
-                        db.insertWithOnConflict(ATT_TABLE, null, acv, SQLiteDatabase.CONFLICT_REPLACE)
-                    }
-                    f.delete()
-                    swept = true
-                }
-            }
-            swept
-        } != null
-    }
-
-    /** 解析某照片全部附件 (idx, path)：attachments JSON 优先，回退 photo_path 单附件 */
-    private fun attachmentPathsOf(photoPath: String?, attachments: String?): List<Pair<Long, String>> {
-        val out = ArrayList<Pair<Long, String>>()
-        if (!attachments.isNullOrEmpty()) {
-            runCatching {
-                val arr = JSONArray(attachments)
-                for (i in 0 until arr.length()) {
-                    val o = arr.optJSONObject(i) ?: continue
-                    val p = o.optString("path", "")
-                    if (p.isNotEmpty()) out.add(i.toLong() to p)
-                }
-            }
-        }
-        if (out.isEmpty() && !photoPath.isNullOrEmpty()) out.add(0L to photoPath)
-        return out
-    }
-
-    private fun auxHas(db: SQLiteDatabase, fid: Long, idx: Long): Boolean {
-        db.rawQuery("SELECT 1 FROM $ATT_TABLE WHERE fid=? AND idx=?",
-            arrayOf(fid.toString(), idx.toString())).use { c -> return c.moveToFirst() }
     }
 
     // ---- 分组 ----

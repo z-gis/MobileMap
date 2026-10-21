@@ -8,11 +8,6 @@
     <!-- 大数据矢量加载提示胶囊（MapLayerManager 轮询 native hasVectorLoading 显隐） -->
     <string name="vector_loading_hint">矢量数据加载中，请稍候…</string>
 
-    <!-- 首启旧数据迁移阶段（MainActivity 启动遮罩文案）：旧三库→GeoPackage、旧瓦片目录→MBTiles -->
-    <string name="migration_loading_hint">正在迁移旧版数据，请稍候（仅首次启动）…</string>
-
-
-
 
     <!-- Update module -->
     <string name="update_config_missing">未配置更新地址，请在 BuildConfig.UPDATE_METADATA_URL 中配置</string>
