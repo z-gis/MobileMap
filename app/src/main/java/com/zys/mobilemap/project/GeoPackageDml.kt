@@ -2,6 +2,7 @@ package com.zys.mobilemap.project
 
 import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
+import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.util.Log
 import org.json.JSONArray
@@ -54,9 +55,11 @@ internal object GeoPackageDml {
      */
     internal object GpkgGeom {
 
-        private const val WKB_POINT_Z = 0x80000001L
-        private const val WKB_LINESTRING_Z = 0x80000002L
-        private const val WKB_POLYGON_Z = 0x80000003L
+        // ISO WKB 类型码（类型 + 1000）。不能用 OGC 99-402 的 0x8000000N 2.5D 标志位：
+        // GDAL 整文件重建写的是 ISO 族，同表混存两族时 ArcMap 10.8 对 OGC 族记录静默跳过（不报错，表现为少图斑）。
+        private const val WKB_POINT_Z = 1001L
+        private const val WKB_LINESTRING_Z = 1002L
+        private const val WKB_POLYGON_Z = 1003L
         private const val SRS_ID = 4326
 
         fun point(lat: Double, lon: Double, alt: Double): ByteArray {
@@ -110,9 +113,9 @@ internal object GeoPackageDml {
             return doubleArrayOf(minx, maxx, miny, maxy, minz, maxz)
         }
 
-        /** GP 头（flags 0x05 = LE 头 + XYZ 包络）+ 包络 + WKB 体 */
+        /** GP 头（flags 0x05 = LE 头 + XYZ 包络）+ 包络 + WKB 体（头块恰 8 字节，尾部不得有填充） */
         private fun pack(body: ByteBuffer, env: DoubleArray): ByteArray {
-            val buf = ByteBuffer.allocate(8 + 4 + env.size * 8 + body.capacity())
+            val buf = ByteBuffer.allocate(8 + env.size * 8 + body.capacity())
                 .order(ByteOrder.LITTLE_ENDIAN)
             buf.put('G'.code.toByte())
             buf.put('P'.code.toByte())
@@ -120,8 +123,9 @@ internal object GeoPackageDml {
             buf.put(0x05)    // flags: LE 头 + 包络指示 2 (xyz)
             buf.putInt(SRS_ID)
             for (d in env) buf.putDouble(d)
-            buf.put(body.array())
-            return buf.array()
+            // 只拷已写入的 WKB 体（body.array() 含容量尾零），末条同样只取已写部分
+            buf.put(body.array(), 0, body.position())
+            return buf.array().copyOf(buf.position())
         }
     }
 
@@ -255,6 +259,14 @@ internal object GeoPackageDml {
             }
             // GDAL 登记名为 gpkg_rtree_index（非 gpkg_rtree），LIKE 前缀匹配确保清干净
             runCatching { db.execSQL("DELETE FROM gpkg_extensions WHERE extension_name LIKE 'gpkg_rtree%'") }
+            // gpkg_geometry_columns.z 为 BOOLEAN（只允许 0/1）：老库把混装表写成 z=2、带 Z 的表写成 0，
+            // 与实际三维几何不符；四张业务表的几何均带 Z，统一修正为 1（OGC 一致性检查不报警）。
+            runCatching {
+                db.execSQL(
+                    "UPDATE gpkg_geometry_columns SET z=1 WHERE (z IS NULL OR z<>1) " +
+                            "AND table_name IN ('tracks','measures','photos','survey_plots')"
+                )
+            }
             db.execSQL("CREATE TABLE IF NOT EXISTS $ATT_TABLE (fid INTEGER NOT NULL, idx INTEGER NOT NULL, " +
                     "data BLOB NOT NULL, PRIMARY KEY (fid, idx))")
             true
@@ -425,21 +437,31 @@ internal object GeoPackageDml {
             true
         } != null
 
-    /** 读照片 BLOB：idx=0 主照片（photos.photo_data），idx≥1 附件（photo_att_data） */
+    /**
+     * 读照片 BLOB：idx=0 主照片（photos.photo_data），idx≥1 附件（photo_att_data）。
+     * 走 simpleQueryForBlobFileDescriptor 流式读取——rawQuery+getBlob 受 CursorWindow 单行
+     * 2MB 上限，真机照片（加水印后常 2~8MB）必抛 "Failed to read row"，表现为对话框无图
+     * （入库后源文件已删，无文件可回退）。
+     */
     fun readPhotoBlob(path: String?, fid: Long, idx: Long): ByteArray? {
         if (path.isNullOrEmpty() || fid <= 0) return null
         return try {
             val db = SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READONLY)
             try {
-                if (idx <= 0L) {
-                    db.rawQuery("SELECT photo_data FROM photos WHERE fid=?", arrayOf(fid.toString())).use { c ->
-                        if (c.moveToFirst() && !c.isNull(0)) c.getBlob(0) else null
-                    }
+                val sql = if (idx <= 0L) {
+                    "SELECT photo_data FROM photos WHERE fid=?"
                 } else {
-                    db.rawQuery("SELECT data FROM $ATT_TABLE WHERE fid=? AND idx=?",
-                        arrayOf(fid.toString(), idx.toString())).use { c ->
-                        if (c.moveToFirst() && !c.isNull(0)) c.getBlob(0) else null
-                    }
+                    "SELECT data FROM $ATT_TABLE WHERE fid=? AND idx=?"
+                }
+                db.compileStatement(sql).use { stmt ->
+                    stmt.bindLong(1, fid)
+                    if (idx > 0L) stmt.bindLong(2, idx)
+                    runCatching {
+                        stmt.simpleQueryForBlobFileDescriptor()?.let { pfd ->
+                            ParcelFileDescriptor.AutoCloseInputStream(pfd).use { it.readBytes() }
+                        }
+                    }.onFailure { Log.e(TAG, "readPhotoBlob 读取失败 fid=$fid idx=$idx", it) }
+                        .getOrNull()
                 }
             } finally {
                 db.close()
