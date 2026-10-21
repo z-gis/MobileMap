@@ -1,9 +1,9 @@
 {
-    "versionCode":  26101706,
-    "versionName":  "0.4.0.4",
-    "apkUrl":  "https://gitee.com/z-gis/MobileMap/releases/download/0.4.0.4/mobilemap-v0.4.0.4.apk",
+    "versionCode":  26102101,
+    "versionName":  "0.4.0.5",
+    "apkUrl":  "https://gitee.com/z-gis/MobileMap/releases/download/v0.4.0.5/mobilemap-v0.4.0.5.apk",
     "apkSizeBytes":  48325521,
-    "apkSha1":  "f98ca8bfafe5debc298ba423e213eac5950dce3b",
-    "changelog":  "1. 采集写入改 app 端 SQLite 增量直写，轨迹/拍照入库毫秒级落盘，不再卡顿\n2. 照片本体直接入库为工程 gpkg BLOB（主照片 photos.photo_data、附件 photo_att_data），不再保留磁盘照片文件\n3. 启动清扫自动收库历史磁盘照片原件后删除\n提示：升级后新采集照片不再落盘 /sdcard/调查宝/media/，老照片文件随启动清扫自动入库删除",
+    "apkSha1":  "094605a5f28735c7d495ba6c0ec8bbecdde97fd3",
+    "changelog":  "1. GeoPackage 写入改进：增量直写逻辑优化，提升采集数据落盘稳定性\n2. 渲染内核 GlobeCore 保持 0.1.4.0",
     "force":  false
 }
