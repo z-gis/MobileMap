@@ -519,6 +519,14 @@ class ProjectManager private constructor(context: Context) {
         }
     }
 
+    fun updateMeasureName(id: Long, name: String) {
+        findMeasure(id)?.let {
+            it.name = name
+            val mid = it.id; val mn = it.name
+            enqueueDml { GeoPackageDml.updateMeasureName(it, mid, mn) }
+        }
+    }
+
     // ---- 拍照标识 ----
 
     fun findPhoto(id: Long): Project.PhotoRecord? =

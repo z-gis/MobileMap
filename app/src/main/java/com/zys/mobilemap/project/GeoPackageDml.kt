@@ -271,6 +271,15 @@ internal object GeoPackageDml {
             true
         } != null
 
+    fun updateMeasureName(path: String, id: Long, name: String?): Boolean =
+        withDb(path) { db ->
+            val cv = ContentValues()
+            putStr(cv, "name", name)
+            db.update("measures", cv, "fid=?", arrayOf(id.toString()))
+            finish(db, "measures")
+            true
+        } != null
+
     // ---- 拍照 ----
 
     fun insertPhoto(

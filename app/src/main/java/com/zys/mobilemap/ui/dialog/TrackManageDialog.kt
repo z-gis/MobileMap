@@ -4,8 +4,6 @@ import android.app.Activity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.EditText
-import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
@@ -79,30 +77,7 @@ object TrackManageDialog {
 
     /** 重命名对话框：预填当前名称，空名称不保存。 */
     private fun showRenameDialog(activity: Activity, track: Project.TrackRecord, onRenamed: (String) -> Unit) {
-        val edit = EditText(activity).apply {
-            setText(track.name)
-            isSingleLine = true
-        }
-        val container = FrameLayout(activity).apply {
-            val density = activity.resources.displayMetrics.density
-            val horizontal = (PADDING_H_DP * density).toInt()
-            val vertical = (PADDING_V_DP * density).toInt()
-            setPadding(horizontal, vertical, horizontal, 0)
-            addView(edit, FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ))
-        }
-        AlertDialog.Builder(activity)
-            .setTitle("修改名称")
-            .setView(container)
-            .setPositiveButton("确定") { _, _ ->
-                val newName = edit.text.toString().trim()
-                if (newName.isNotEmpty()) {
-                    onRenamed(newName)
-                }
-            }
-            .setNegativeButton("取消", null)
-            .show()
+        NameEditDialog.show(activity, "修改名称", track.name ?: "", "轨迹名称", onRenamed)
     }
 
     /** 删除确认：轨迹记录及其坐标点将一并删除。 */
@@ -160,10 +135,6 @@ object TrackManageDialog {
 
         private fun formatTime(time: Long): String = timeFormat.format(Date(time))
     }
-
-    /** 重命名对话框输入框的左右/上内边距（dp） */
-    private const val PADDING_H_DP = 16
-    private const val PADDING_V_DP = 8
 
     /** 轨迹创建时间的副标题格式 */
     private const val TIME_PATTERN = "yyyy-MM-dd HH:mm"

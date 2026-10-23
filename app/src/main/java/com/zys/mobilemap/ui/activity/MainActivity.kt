@@ -452,6 +452,10 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         supportFragmentManager.setFragmentResultListener(PhotoSheetDialog.RESULT_RENAMED, this) { _, _ ->
             overlayManager.rebuild()
         }
+        // 照片列表弹层内删除拍照点位：删除后重建业务叠加层（地图标注移除）
+        supportFragmentManager.setFragmentResultListener(PhotoSheetDialog.RESULT_DELETED, this) { _, _ ->
+            overlayManager.rebuild()
+        }
     }
 
     /**

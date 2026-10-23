@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:padding="12dp">
 
+    <!-- 顶部：名称 + 操作图标（编辑/分享/删除/关闭） -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -18,10 +20,9 @@
             android:layout_weight="1"
             android:ellipsize="end"
             android:maxLines="1"
-            android:text="照片"
-            android:textColor="#131313"
+            android:textColor="#212121"
             android:textSize="16sp"
-            android:textStyle="bold"/>
+            android:textStyle="bold" />
 
         <!-- 重命名：弹「编辑拍照标识」对话框（名称+分组），无点位时隐藏 -->
         <ImageView
@@ -32,7 +33,7 @@
             android:background="?android:attr/selectableItemBackground"
             android:contentDescription="重命名"
             android:padding="6dp"
-            android:src="@drawable/ic_edit"/>
+            android:src="@drawable/ic_edit" />
 
         <ImageView
             android:id="@+id/photo_sheet_share"
@@ -42,7 +43,29 @@
             android:background="?android:attr/selectableItemBackground"
             android:contentDescription="分享"
             android:padding="6dp"
-            android:src="@drawable/ic_share"/>
+            android:src="@drawable/ic_share" />
+
+        <ImageView
+            android:id="@+id/photo_sheet_delete"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginStart="8dp"
+            android:background="?android:attr/selectableItemBackground"
+            android:contentDescription="删除"
+            android:padding="6dp"
+            android:src="@drawable/ic_delete" />
+
+        <!-- 关闭（文本 ✕，与其他详情弹层一致） -->
+        <TextView
+            android:id="@+id/photo_sheet_close"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginStart="8dp"
+            android:gravity="center"
+            android:text="✕"
+            android:textColor="#757575"
+            android:textSize="18sp"
+            tools:ignore="HardcodedText" />
     </LinearLayout>
 
     <com.zys.mobilemap.control.MaxHeightRecyclerView

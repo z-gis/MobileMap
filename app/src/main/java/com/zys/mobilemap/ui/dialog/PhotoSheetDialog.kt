@@ -10,6 +10,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
+import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.FragmentManager
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -24,8 +26,7 @@ import com.zys.mobilemap.ui.activity.PhotoViewerActivity
 /**
  * 照片列表 BottomSheet：显示某拍照点位（Placemark）的全部照片，
  * 点击照片进入全屏查看（左右滑动切换，仅本点位附件）。
- * 标题栏提供「重命名」（弹 [MediaEditDialog] 修改名称与分组，保存后经
- * [RESULT_RENAMED] FragmentResult 通知宿主刷新地图标注）与「分享」（打包发出）。
+ * 标题栏提供「重命名」「分享」「删除」「关闭」操作图标，与轨迹/测量详情弹层样式统一。
  */
 class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
 
@@ -49,9 +50,14 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
         }
         val attachments = placemark?.attachments ?: emptyList()
 
-        // 重命名按钮：弹「编辑拍照标识」对话框（名称+分组），保存后就地刷新标题并经 FragmentResult 通知宿主重建叠加层
+        // 标题
         val titleView = sheet.findViewById<TextView>(R.id.photo_sheet_title)
         titleView.text = placemarkName
+
+        // 关闭按钮
+        sheet.findViewById<TextView>(R.id.photo_sheet_close).setOnClickListener { dismiss() }
+
+        // 重命名按钮：弹「编辑拍照标识」对话框（名称+分组），保存后就地刷新标题并经 FragmentResult 通知宿主重建叠加层
         val renameButton = sheet.findViewById<ImageView>(R.id.photo_sheet_rename)
         if (placemark == null) {
             renameButton.visibility = View.GONE
@@ -72,10 +78,21 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
             shareButton.setOnClickListener { MediaPackage.sharePlacemark(requireContext(), placemark) }
         }
 
+        // 删除按钮：删除整个拍照点位（含其全部照片），确认后经 FragmentResult 通知宿主重建叠加层
+        val deleteButton = sheet.findViewById<ImageView>(R.id.photo_sheet_delete)
+        if (placemark == null) {
+            deleteButton.visibility = View.GONE
+        } else {
+            deleteButton.setOnClickListener {
+                confirmDeletePlacemark(placemark)
+            }
+        }
+
         // 无照片时显示空提示，避免仅剩标题无内容
         sheet.findViewById<TextView>(R.id.photo_sheet_empty).visibility =
             if (attachments.isEmpty()) View.VISIBLE else View.GONE
 
+        // 照片网格
         val grid = sheet.findViewById<MaxHeightRecyclerView>(R.id.photo_sheet_grid)
         grid.layoutManager = GridLayoutManager(requireContext(), GRID_SPAN_COUNT)
         // 网格高度须由内容驱动（wrap_content）才能形成手势档位，但必须给上限：
@@ -90,6 +107,21 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
 
         // 圆角背景与可手势调整的高度档位由基类统一配置（见 BaseBottomSheetDialog）
         return dialog
+    }
+
+    /** 删除拍照点位确认：库内主照片与附件一并删除，点位标注从地图移除 */
+    private fun confirmDeletePlacemark(placemark: Project.PhotoRecord) {
+        AlertDialog.Builder(requireContext())
+            .setTitle("删除确认")
+            .setMessage("确定删除拍照点位：${placemark.name ?: ""} ？删除后该点位及全部照片将一并删除。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("删除") { _, _ ->
+                ProjectManager.get(requireContext()).removePhoto(placemark.id)
+                parentFragmentManager.setFragmentResult(RESULT_DELETED, Bundle.EMPTY)
+                Toast.makeText(requireContext(), "已删除", Toast.LENGTH_SHORT).show()
+                dismiss()
+            }
+            .show()
     }
 
     /** 缩略图适配器：采样解码，避免大图 OOM；照片文件缺失时从 gpkg photo_data BLOB 回退 */
@@ -148,6 +180,9 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
 
         /** 重命名保存后的 FragmentResult 键：宿主（MainActivity）监听并重建业务叠加层（刷新标注名称） */
         const val RESULT_RENAMED = "photo_sheet_renamed"
+
+        /** 删除后的 FragmentResult 键：宿主监听并重建业务叠加层（移除点位标注） */
+        const val RESULT_DELETED = "photo_sheet_deleted"
 
         /** 缩略图网格列数 */
         private const val GRID_SPAN_COUNT = 3

@@ -9,6 +9,7 @@ import androidx.fragment.app.FragmentManager
 import com.zys.mobilemap.project.Project
 import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.ui.dialog.MeasureDetailDialog
+import com.zys.mobilemap.ui.dialog.NameEditDialog
 import com.zys.mobilemap.util.GeoCalc
 import com.zys.globecore.NativeMapView
 import com.zys.globecore.VectorStyle as NativeVectorStyle
@@ -352,8 +353,20 @@ internal class MeasureCaptureController(
                 rebuildOverlays()
                 Toast.makeText(activity, "样式已更新", Toast.LENGTH_SHORT).show()
             },
-            onDelete = { confirmDeleteMeasurement(record) }
+            onDelete = { confirmDeleteMeasurement(record) },
+            onRename = { promptRenameMeasure(record) }
         ).show(fm, "MeasureDetailDialog")
+    }
+
+    /** 测量重命名：弹输入框修改名称，保存后重建叠加层（标注名称同步刷新） */
+    private fun promptRenameMeasure(record: Project.MeasureRecord) {
+        NameEditDialog.show(
+            activity, "重命名测量", record.name ?: "", "测量名称"
+        ) { newName ->
+            ProjectManager.get(activity).updateMeasureName(record.id, newName)
+            rebuildOverlays()
+            Toast.makeText(activity, "已重命名", Toast.LENGTH_SHORT).show()
+        }
     }
 
     /** 删除测量确认：删库并重建叠加层 */

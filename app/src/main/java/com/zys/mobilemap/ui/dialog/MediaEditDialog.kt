@@ -3,11 +3,9 @@ package com.zys.mobilemap.ui.dialog
 import android.app.Activity
 import android.view.LayoutInflater
 import android.view.View
-import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.EditText
-import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.Spinner
 import androidx.appcompat.app.AlertDialog
@@ -96,33 +94,7 @@ object MediaEditDialog {
         title: String,
         initial: String,
         onConfirm: (String) -> Unit
-    ) {
-        val edit = EditText(activity).apply {
-            setText(initial)
-            setSelection(text?.length ?: 0)
-            isSingleLine = true
-            hint = "分组名称"
-        }
-        val container = FrameLayout(activity).apply {
-            val horizontal = (20 * activity.resources.displayMetrics.density).toInt()
-            val vertical = (12 * activity.resources.displayMetrics.density).toInt()
-            setPadding(horizontal, vertical, horizontal, 0)
-            addView(
-                edit, FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-            )
-        }
-        AlertDialog.Builder(activity)
-            .setTitle(title)
-            .setView(container)
-            .setPositiveButton("确定") { _, _ ->
-                val name = edit.text.toString().trim()
-                if (name.isNotEmpty()) onConfirm(name)
-            }
-            .setNegativeButton("取消", null)
-            .show()
-    }
+    ) = NameEditDialog.show(activity, title, initial, "分组名称", onConfirm)
 
     /** Spinner 选项文本：首项"未分组" + 各分组名。 */
     private fun groupLabels(groups: List<Project.MediaGroupRecord>): List<String> =

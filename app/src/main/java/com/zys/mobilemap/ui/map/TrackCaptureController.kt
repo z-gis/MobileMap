@@ -12,6 +12,7 @@ import com.zys.mobilemap.project.Project
 import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.track.TrackSharePackage
 import com.zys.mobilemap.ui.dialog.MeasureDetailDialog
+import com.zys.mobilemap.ui.dialog.NameEditDialog
 import com.zys.mobilemap.ui.dialog.TrackManageDialog
 import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.util.GeoCalc
@@ -344,7 +345,8 @@ internal class TrackCaptureController(
                 Toast.makeText(activity, "样式已更新", Toast.LENGTH_SHORT).show()
             },
             onDelete = { confirmDeleteTrack(record) },
-            onShare = { TrackSharePackage.shareTrack(activity, record) }
+            onShare = { TrackSharePackage.shareTrack(activity, record) },
+            onRename = { promptRenameTrack(record) }
         ).show(fm, "TrackDetailDialog")
     }
 
@@ -367,6 +369,17 @@ internal class TrackCaptureController(
                 Toast.makeText(activity, "已删除", Toast.LENGTH_SHORT).show()
             }
             .show()
+    }
+
+    /** 轨迹重命名：弹输入框修改名称，保存后重建叠加层 */
+    private fun promptRenameTrack(record: Project.TrackRecord) {
+        NameEditDialog.show(
+            activity, "重命名轨迹", record.name ?: "", "轨迹名称"
+        ) { newName ->
+            ProjectManager.get(activity).updateTrackName(record.id, newName)
+            rebuildOverlays()
+            Toast.makeText(activity, "已重命名", Toast.LENGTH_SHORT).show()
+        }
     }
 
     /** 轨迹默认名称：轨迹 yyyy-MM-dd HH:mm:ss（取采集起始时间） */
