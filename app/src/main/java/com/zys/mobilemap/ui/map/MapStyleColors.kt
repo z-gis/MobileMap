@@ -42,8 +42,7 @@ internal object MapStyleColors {
     const val MEASURE_LIVE_WIDTH = 3.0f              // 测量采集过程线宽（对齐原主界面 LIVE_LINE_WIDTH）
     val TRACK_ACTIVE_COLOR = 0xFFFF5933.toInt()      // 活动轨迹=红（Color(1,0.35,0.2,1)）
     const val TRACK_ACTIVE_WIDTH = 4.0f
-    // 轨迹点最小间距（米）：与上一点距离小于此值视为 GPS 抖动/步走摆动，不记录（对齐 TrackModel）
-    const val MIN_TRACK_POINT_DISTANCE_METERS = 5.0
+    // 轨迹点最小间距已迁至采集门控 TrackPointGate.MIN_DISTANCE_METERS（门控统一持有五判据阈值）
 
     // SQL 查询高亮样式（对齐原主界面 LocalVectorLoader.QUERY_FILL/OUTLINE_COLOR）：洋红半透明填充 + 洋红粗描边
     const val QUERY_FILL_COLOR = 0x59FF00FF

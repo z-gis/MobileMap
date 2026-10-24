@@ -48,8 +48,12 @@ internal class LocationFollowController(
     /** 最近一次有效移动方位角（度）：位移不足阈值时沿用，避免箭头抖动；null 表示尚无方向 */
     private var lastHeading: Double? = null
 
-    /** 定位更新时的轨迹追加回调（记录中且未暂停时触发）；由 Activity 接线到 TrackCaptureController */
-    var onTrackLocation: ((lat: Double, lon: Double, alt: Double) -> Unit)? = null
+    /**
+     * 定位更新时的轨迹追加回调（记录中且未暂停时触发）；由 Activity 接线到 TrackCaptureController。
+     * 传整条 [Location] 而非只传经纬度：轨迹侧要按 provider/accuracy/单调时间戳做采集门控
+     * （见 [com.zys.mobilemap.location.TrackPointGate]），只给 lat/lon 就没有判据可用。
+     */
+    var onTrackLocation: ((Location) -> Unit)? = null
 
     /** 定位更新监听：回调在主线程（[LocationManager] 以主 Looper 注册），直接刷新罗盘定位标记与定位文本 */
     private val locationListener = LocationManager.OnLocationChangedListener { location ->
@@ -107,8 +111,8 @@ internal class LocationFollowController(
             navigator.moveToLocation(location.latitude, location.longitude, notify = false)
         }
 
-        // 轨迹采集：记录中且未暂停时把定位点追加为活动轨迹点（对齐原主界面 TrackModel 定位监听追加：实时落库 + live 层渲染）
-        onTrackLocation?.invoke(location.latitude, location.longitude, location.altitude)
+        // 轨迹采集：记录中且未暂停时把整条定位交给轨迹侧门控后追加（蓝点/文本/相机跟随仍吃全部来源）
+        onTrackLocation?.invoke(location)
     }
 
     /**

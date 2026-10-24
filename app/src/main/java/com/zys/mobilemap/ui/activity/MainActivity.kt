@@ -356,7 +356,7 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
             this, supportFragmentManager, lifecycleScope
         )
         locationController = LocationFollowController(this, mapView, locationText, locateButton, navigator)
-        locationController.onTrackLocation = { lat, lon, alt -> trackController.onLocation(lat, lon, alt) }
+        locationController.onTrackLocation = { loc -> trackController.onLocation(loc) }
         // 轨迹记录态驱动定位跟随：开始/恢复记录→锁定跟随并换锁定图标，停止记录→解锁（对齐需求：轨迹模式下地图中心随定位移动）
         trackController.onRecordingStateChanged = { recording -> locationController.setFollowEnabled(recording) }
         importHandler = ExternalImportHandler(this, navigator, lifecycleScope) { overlayManager.rebuild() }

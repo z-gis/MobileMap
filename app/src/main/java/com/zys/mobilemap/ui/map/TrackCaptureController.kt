@@ -1,5 +1,7 @@
 package com.zys.mobilemap.ui.map
 
+import android.location.Location
+import android.os.SystemClock
 import android.view.View
 import android.widget.ImageView
 import android.widget.Toast
@@ -7,7 +9,11 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.FragmentManager
 import com.zys.mobilemap.location.BackgroundLocationController
+import com.zys.mobilemap.location.GateInput
 import com.zys.mobilemap.location.LocationManager
+import com.zys.mobilemap.location.RejectReason
+import com.zys.mobilemap.location.TrackPointGate
+import com.zys.mobilemap.location.Verdict
 import com.zys.mobilemap.project.Project
 import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.track.TrackSharePackage
@@ -30,8 +36,12 @@ import java.util.concurrent.Executors
  * live 红线层实时渲染，以及轨迹详情/删除对话框。
  *
  * 采集态 [capturing] 由宿主组合进 [BusinessOverlayManager.rebuild] 门控。定位追加点经 [onLocation] 由宿主把
- * [LocationFollowController] 的 location 回调转接进来（记录中且未暂停时追加）。落库走独立单线程队列，
- * [onDestroy] 时关闭。live 渲染/缩放复用 [BusinessOverlayManager.Companion.flattenLonLat] 与 [CameraNavigator.zoomToExtent]。
+ * [LocationFollowController] 的 location 回调转接进来（记录中且未暂停时经 [TrackPointGate] 门控后才追加）。
+ * 落库走独立单线程队列，[onDestroy] 时关闭。live 渲染/缩放复用 [BusinessOverlayManager.Companion.flattenLonLat]
+ * 与 [CameraNavigator.zoomToExtent]。
+ *
+ * 起点不直接吃 `getLastLocation()` 缓存（历史版本的第一根甩出长线就来自它）：开始/恢复记录都置 [awaitingFirstFix]，
+ * 由门控挑首个可信定位落起点，等待超 [FIRST_FIX_TIMEOUT_MS] 才退化用最佳候选点兜底。
  */
 internal class TrackCaptureController(
     private val activity: AppCompatActivity,
@@ -52,6 +62,28 @@ internal class TrackCaptureController(
     private var trackLiveIndex = -1
     private var trackDraftCreatedTime = 0L
     private val trackDbExecutor = Executors.newSingleThreadExecutor()
+
+    // ── 采集门控状态（一个记录会话一套，开始/恢复记录时重置；判据口径见 [TrackPointGate]）──────────
+    /** 门控实例：持有"连续被拒簇"计数，会话起点/恢复点须 reset 以免沿用上一次的簇状态 */
+    private val trackGate = TrackPointGate()
+
+    /** 上一个已接受点的单调时间戳（毫秒）；-1 表示无可靠时间基准（起录后首点、恢复历史草稿），此时不判速度 */
+    private var lastAcceptedElapsedMs = -1L
+
+    /** 等待首个可信定位（开始记录/恢复记录后为 true）：此期间拒掉的点不落库，仅攒兜底候选 */
+    private var awaitingFirstFix = false
+
+    /** 等待首点的起始时刻（[SystemClock.elapsedRealtime]），用于 [FIRST_FIX_TIMEOUT_MS] 兜底 */
+    private var firstFixWaitStartedMs = 0L
+
+    /** 等待首点期间质量最好的候选（精度半径最小）：超时后据它落起点，胜过完全没有起点 */
+    private var bestWaitCandidate: Location? = null
+
+    /** 本次记录会话被门控拒掉的定位条数（停止记录时随日志报出，供现场校准阈值） */
+    private var rejectedPointCount = 0
+
+    /** 本次记录会话的间隙次数（连续被拒后升级接受 / 恢复记录后位移过大） */
+    private var gapCount = 0
 
     /** 轨迹记录进行中：宿主据此组合 capturing，保护 live 红线层不被 rebuild 清除 */
     val capturing: Boolean
@@ -90,7 +122,8 @@ internal class TrackCaptureController(
     }
 
     /**
-     * 开始轨迹记录：定位检查后清空活动点、建 live 红线层、置记录态（capturing 转 true）、建立草稿轨迹并落起点。
+     * 开始轨迹记录：定位检查后清空活动点、建 live 红线层、置记录态（capturing 转 true）、建立草稿轨迹，
+     * 并进入"等待首个可信定位"状态落起点（不吃 `getLastLocation()` 的历史缓存）。
      */
     fun startTrackRecording() {
         if (trackRecording) {
@@ -108,11 +141,30 @@ internal class TrackCaptureController(
         ensureTrackLiveLayer()
         trackDraftCreatedTime = System.currentTimeMillis()
         writeDraftTrack()  // 建立草稿文件（进程崩溃可恢复）
-        lm.getLastLocation()?.let { appendTrackPoint(it.latitude, it.longitude, it.altitude) }
+        beginAwaitingFirstFix(fromCache = lm.getLastLocation())
         // 记录开始 → 后台定位保活服务随记录态启动（仅当开关为开，由 Controller 门控）——息屏后仍持续定位不缺点
         BackgroundLocationController.onTrackRecordingChanged(activity, true)
         updateTrackControlButtons()
-        Toast.makeText(activity, "开始记录轨迹", Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * 进入等待首个可信定位状态并尝试用缓存定位立即落起点：缓存够新、来源可信、精度达标就当场有起点，
+     * 否则挂 [awaitingFirstFix] 等后续回调，超 [FIRST_FIX_TIMEOUT_MS] 才用最佳候选兜底。
+     */
+    private fun beginAwaitingFirstFix(fromCache: Location?) {
+        trackGate.reset()
+        lastAcceptedElapsedMs = -1L
+        awaitingFirstFix = true
+        firstFixWaitStartedMs = SystemClock.elapsedRealtime()
+        bestWaitCandidate = null
+        rejectedPointCount = 0
+        gapCount = 0
+        if (fromCache != null) onLocation(fromCache)
+        if (trackActivePoints.isEmpty()) {
+            Toast.makeText(activity, "开始记录轨迹（等待可信定位中…）", Toast.LENGTH_LONG).show()
+        } else {
+            Toast.makeText(activity, "开始记录轨迹", Toast.LENGTH_SHORT).show()
+        }
     }
 
     /** 暂停轨迹记录：置暂停态（定位监听据 trackPaused 停止追加）并刷新控件 */
@@ -123,17 +175,24 @@ internal class TrackCaptureController(
         Toast.makeText(activity, "轨迹记录已暂停", Toast.LENGTH_SHORT).show()
     }
 
-    /** 继续轨迹记录：解除暂停并以当前定位为恢复后首点 */
+    /**
+     * 继续轨迹记录：解除暂停后重新等一个可信定位作恢复点——不再直接补 `getLastLocation()`：暂停期间人可能
+     * 已经移动/漂移，硬连上就是一根斜穿的尖角（成因方案里的根因 4）。恢复位移过大时只记日志与提示，
+     * 断段留待阶段 2（TrackRecord 加 parts）。
+     */
     fun resumeTrackRecording() {
         if (!trackRecording || !trackPaused) return
         trackPaused = false
-        LocationManager.getInstance().getLastLocation()?.let {
-            appendTrackPoint(it.latitude, it.longitude, it.altitude)
-        }
+        trackGate.reset()
+        lastAcceptedElapsedMs = -1L   // 暂停期间的时长不能当速度判据的分母
+        awaitingFirstFix = true
+        firstFixWaitStartedMs = SystemClock.elapsedRealtime()
+        bestWaitCandidate = null
         // 恢复记录 → 幂等补保活（覆盖暂停期间用户关闭又打开开关导致服务已停的情形）
         BackgroundLocationController.onTrackRecordingChanged(activity, true)
         updateTrackControlButtons()
-        Toast.makeText(activity, "轨迹记录继续", Toast.LENGTH_SHORT).show()
+        Toast.makeText(activity, "轨迹记录继续（等待可信定位…）", Toast.LENGTH_SHORT).show()
+        LocationManager.getInstance().getLastLocation()?.let { onLocation(it) }
     }
 
     /**
@@ -156,43 +215,123 @@ internal class TrackCaptureController(
         if (insufficient) {
             deleteDraftTrack()
             rebuildOverlays()
-            Toast.makeText(activity, "轨迹点不足，未生成轨迹线", Toast.LENGTH_SHORT).show()
+            AppLog.i(TAG, "轨迹点不足未入库：accepted=${points.size} 拒$rejectedPointCount 条 间隙$gapCount 次")
+            Toast.makeText(
+                activity,
+                if (rejectedPointCount > 0) "轨迹点不足，未生成轨迹线（已剔除 $rejectedPointCount 条低质量定位）"
+                else "轨迹点不足，未生成轨迹线",
+                Toast.LENGTH_SHORT
+            ).show()
             return
         }
-        val t0 = android.os.SystemClock.elapsedRealtime()
+        val t0 = SystemClock.elapsedRealtime()
         ProjectManager.get(activity).addTrack(trackNameOf(createdTime), createdTime, points)
         // 立即同步落盘后再删草稿：防抖窗口内进程被杀不丢整条轨迹
         ProjectManager.get(activity).saveNow()
-        AppLog.i(TAG, "轨迹入库耗时 addTrack+saveNow=${android.os.SystemClock.elapsedRealtime() - t0}ms points=${points.size}")
+        AppLog.i(TAG, "轨迹入库耗时 addTrack+saveNow=${SystemClock.elapsedRealtime() - t0}ms points=${points.size}")
+        AppLog.i(TAG, "本次轨迹质量：入库 ${points.size} 点，门控剔除 $rejectedPointCount 条，间隙 $gapCount 次")
         deleteDraftTrack()
-        onTrackSaved()
+        onTrackSaved(rejectedPointCount, gapCount)
     }
 
-    /** 轨迹保存完成（主线程）：重建叠加层显示已存轨迹并提示 */
-    private fun onTrackSaved() {
+    /** 轨迹保存完成（主线程）：重建叠加层显示已存轨迹并提示（带本次剔除统计，便于现场校准门控阈值） */
+    private fun onTrackSaved(rejected: Int, gaps: Int) {
         rebuildOverlays()
-        Toast.makeText(activity, "轨迹记录已停止", Toast.LENGTH_SHORT).show()
+        val tail = when {
+            rejected == 0 && gaps == 0 -> ""
+            gaps > 0 -> "　·　剔除 $rejected 条低质量定位，$gaps 处信号中断"
+            else -> "　·　剔除 $rejected 条低质量定位"
+        }
+        Toast.makeText(activity, if (tail.isEmpty()) "轨迹记录已停止" else "轨迹记录已停止$tail", Toast.LENGTH_LONG).show()
     }
 
+    /** 米数展示：整米即可，日志与提示共用 */
+    private fun fmt(meters: Double): String = String.format(Locale.getDefault(), "%.0f", meters)
+
     /**
-     * 定位更新转接：记录中且未暂停时把定位点追加为活动轨迹点（宿主把 LocationFollowController 回调接线到此，
-     * 对齐原主界面 TrackModel 定位监听追加）。
+     * 定位更新入口（记录中且未暂停时生效）：先过 [TrackPointGate] 五判据（来源/新鲜度/精度/间距/速度），
+     * 通过才追加为活动轨迹点。宿主把 [LocationFollowController] 的 location 回调整条转接进来。
+     *
+     * 判据时间一律取单调时钟：`Location.time` 是墙钟时间会被网络校时拉扯，`elapsedRealtimeNanos` 与
+     * [SystemClock.elapsedRealtime] 同为开机起算，可直接相减。
      */
-    fun onLocation(lat: Double, lon: Double, alt: Double) {
-        if (trackRecording && !trackPaused) appendTrackPoint(lat, lon, alt)
+    fun onLocation(loc: Location) {
+        if (!trackRecording || trackPaused) return
+        val now = SystemClock.elapsedRealtime()
+        val fixAgeMs = (now - loc.elapsedRealtimeNanos / 1_000_000L).coerceAtLeast(0L)
+        val accuracy = if (loc.hasAccuracy()) loc.accuracy.toDouble() else -1.0
+        val last = trackActivePoints.lastOrNull()
+        val distance = last?.let { GeoCalc.distanceMeters(it[0], it[1], loc.latitude, loc.longitude) } ?: -1.0
+        val gapMs = if (lastAcceptedElapsedMs >= 0) now - lastAcceptedElapsedMs else -1L
+
+        when (val verdict = trackGate.decide(
+            GateInput(loc.latitude, loc.longitude, loc.provider, accuracy, fixAgeMs, gapMs, distance)
+        )) {
+            Verdict.Accept -> acceptLocation(loc, now, gapDistance = null)
+
+            is Verdict.AcceptGap -> {
+                // 连续被拒后确认"真的到了新区域"（隧道/林下失锁后重定位）：接受并记一次间隙
+                acceptLocation(loc, now, gapDistance = verdict.distanceMeters)
+                AppLog.w(
+                    TAG, "轨迹间隙接受：连续 ${verdict.consecutiveRejects} 点被拒后落新点，" +
+                        "距上一点 ${fmt(verdict.distanceMeters)}（阶段 2 在此断段）"
+                )
+            }
+
+            is Verdict.Reject -> onRejected(loc, verdict.reason, accuracy, fixAgeMs, gapMs, distance, now)
+        }
+    }
+
+    /** 接受一个定位并入轨迹：清等待态、刷新时间基准、落草稿、重绘 live 红线；间隙在此提示 */
+    private fun acceptLocation(loc: Location, nowMs: Long, gapDistance: Double?) {
+        awaitingFirstFix = false
+        bestWaitCandidate = null
+        lastAcceptedElapsedMs = nowMs
+        // 无 hasAltitude 时仍写 0.0：草稿 JSON 与工程库按有限双精度存，NaN 会让 JSONObject.put 抛异常
+        val alt = if (loc.hasAltitude()) loc.altitude else 0.0
+        appendTrackPoint(loc.latitude, loc.longitude, alt)
+        if (gapDistance != null) {
+            gapCount++
+            Toast.makeText(
+                activity, "信号中断后重新定位，新点距上一段 ${GeoCalc.formatDistance(gapDistance)}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    /** 被门控拒掉：计数 + 记现场可诊断日志；等待首点期间另攒最佳候选做超时兜底 */
+    private fun onRejected(
+        loc: Location, reason: RejectReason,
+        accuracy: Double, fixAgeMs: Long, gapMs: Long, distance: Double, nowMs: Long
+    ) {
+        rejectedPointCount++
+        AppLog.w(
+            TAG, "轨迹点拒[$reason] prov=${loc.provider} " +
+                "acc=${if (accuracy < 0) "n/a" else fmt(accuracy)}m age=${fixAgeMs}ms " +
+                "gap=${if (gapMs < 0) "n/a" else "${gapMs}ms"} " +
+                "d=${if (distance < 0) "首点" else fmt(distance)}m"
+        )
+        if (!awaitingFirstFix) return
+        // 起点等待中：陈旧点与 network/passive 转发不做候选（那正是本要治的粗差来源），宁可再等
+        if (reason == RejectReason.STALE || reason == RejectReason.UNTRUSTED_PROVIDER) return
+        val best = bestWaitCandidate
+        val bestAcc = if (best != null && best.hasAccuracy()) best.accuracy.toDouble() else Double.MAX_VALUE
+        if (best == null || (accuracy >= 0 && accuracy < bestAcc)) bestWaitCandidate = loc
+        if (nowMs - firstFixWaitStartedMs > FIRST_FIX_TIMEOUT_MS && bestWaitCandidate != null) {
+            val fallback = bestWaitCandidate!!
+            AppLog.w(
+                TAG, "起点等待超时 ${FIRST_FIX_TIMEOUT_MS}ms，退化用最佳候选 " +
+                    "prov=${fallback.provider} acc=${if (fallback.hasAccuracy()) fmt(fallback.accuracy.toDouble()) else "n/a"}m"
+            )
+            acceptLocation(fallback, nowMs, gapDistance = null)
+        }
     }
 
     /**
-     * 追加轨迹点（[lat,lon,alt]）：按最小间距过滤 GPS 抖动，实时重写草稿文件（单线程队列），并重绘 live 红线。
-     * 由 [onLocation]（记录中且未暂停）与开始/继续时的定位首点调用。
+     * 追加轨迹点（[lat,lon,alt]）：实时重写草稿文件（单线程队列）并重绘 live 红线。
+     * 质量判定已全部前移到 [onLocation] 的 [TrackPointGate]，此处只负责落地，不再自行过滤。
      */
     private fun appendTrackPoint(lat: Double, lon: Double, alt: Double) {
-        val last = trackActivePoints.lastOrNull()
-        if (last != null &&
-            GeoCalc.distanceMeters(last[0], last[1], lat, lon) < MapStyleColors.MIN_TRACK_POINT_DISTANCE_METERS
-        ) {
-            return
-        }
         trackActivePoints.add(doubleArrayOf(lat, lon, alt))
         writeDraftTrack()
         renderLiveTrack()
@@ -300,6 +439,13 @@ internal class TrackCaptureController(
         trackActivePoints.addAll(pts)
         trackRecording = true
         trackPaused = false
+        // 草稿是历史会话的点：与末点之间没有可靠的单调时间基准，首个新点不判速度（间距/精度/来源仍判）
+        trackGate.reset()
+        lastAcceptedElapsedMs = -1L
+        awaitingFirstFix = false
+        bestWaitCandidate = null
+        rejectedPointCount = 0
+        gapCount = 0
         // 草稿恢复即记录会话延续 → 按「记录态 && 开关」重新拉起保活服务
         BackgroundLocationController.onTrackRecordingChanged(activity, true)
         ensureTrackLiveLayer()
@@ -422,5 +568,11 @@ internal class TrackCaptureController(
 
         /** 轨迹草稿文件名（崩溃恢复用，存于工程目录下，隐藏文件不参与工程列表） */
         private const val DRAFT_FILE_NAME = ".track_draft.json"
+
+        /**
+         * 起点等待超时（毫秒）：超过此时长仍没有通过门控的定位，就退化用等待期间精度最好的候选点落起点。
+         * 没有起点比起点偏差更难补救（记录按钮会一直"等待可信定位"），但兜底必进日志以便现场分辨。
+         */
+        private const val FIRST_FIX_TIMEOUT_MS = 12_000L
     }
 }
