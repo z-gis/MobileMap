@@ -347,7 +347,7 @@ internal class TrackCaptureController(
             onDelete = { confirmDeleteTrack(record) },
             onShare = { TrackSharePackage.shareTrack(activity, record) },
             onRename = { promptRenameTrack(record) }
-        ).show(fm, "TrackDetailDialog")
+        ).show(fm, TAG_TRACK_DETAIL)
     }
 
     /** 轨迹量算文本：总长 + 点数 */
@@ -371,13 +371,16 @@ internal class TrackCaptureController(
             .show()
     }
 
-    /** 轨迹重命名：弹输入框修改名称，保存后重建叠加层 */
+    /** 轨迹重命名：弹输入框修改名称，保存后重建叠加层并就地刷新详情弹层标题 */
     private fun promptRenameTrack(record: Project.TrackRecord) {
         NameEditDialog.show(
             activity, "重命名轨迹", record.name ?: "", "轨迹名称"
         ) { newName ->
+            // updateTrackName 已就地把新名写回内存记录（record 即该实例），此处只需刷新前台弹层标题
             ProjectManager.get(activity).updateTrackName(record.id, newName)
             rebuildOverlays()
+            // 详情弹层仍在前台时标题就地刷新（按 tag 定位，未打开则忽略）
+            (fm.findFragmentByTag(TAG_TRACK_DETAIL) as? MeasureDetailDialog)?.updateTitle(newName)
             Toast.makeText(activity, "已重命名", Toast.LENGTH_SHORT).show()
         }
     }
@@ -413,6 +416,9 @@ internal class TrackCaptureController(
 
     companion object {
         private const val TAG = "TrackCapture"
+
+        /** 轨迹详情弹层 tag：重命名后就地刷新标题按此取回弹层实例 */
+        private const val TAG_TRACK_DETAIL = "TrackDetailDialog"
 
         /** 轨迹草稿文件名（崩溃恢复用，存于工程目录下，隐藏文件不参与工程列表） */
         private const val DRAFT_FILE_NAME = ".track_draft.json"

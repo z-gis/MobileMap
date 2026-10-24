@@ -16,7 +16,8 @@ import com.zys.mobilemap.R
  * 颜色以 ARGB Int 存取（与 measurement 表 color 列一致）；
  * 保存经 [onSave] 写库并重载图层，删除经 [onDelete] 走宿主删除确认。
  * [onShare] 为空时分享图标隐藏，仅轨迹详情传入时展示。
- * [onRename] 为空时编辑图标隐藏。
+ * [onRename] 为空时不展示编辑图标；改名落库成功后宿主按 tag 取回本弹层并调
+ * [updateTitle] 就地刷新标题（不重建弹层，用户已改的色/线宽不丢）。
  */
 class MeasureDetailDialog(
     private val title: String,
@@ -37,12 +38,20 @@ class MeasureDetailDialog(
     private var color = initialColor
     private var lineWidth = initialWidth
 
+    /** 弹层当前显示名：重命名后由 [updateTitle] 就地改写，重建弹层用的也是它 */
+    private var currentTitle: String = title
+
+    /** 标题栏名称控件：弹层存活期间可被 [updateTitle] 就地刷新；弹层未创建/已销毁时为 null */
+    private var titleView: TextView? = null
+
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         val dialog = super.onCreateDialog(savedInstanceState)
         val sheet = sheetView ?: return dialog
 
         // 圆角背景与可手势调整的高度档位由基类统一配置（见 BaseBottomSheetDialog）
-        sheet.findViewById<TextView>(R.id.measure_detail_tv_title).text = title
+        val tv = sheet.findViewById<TextView>(R.id.measure_detail_tv_title)
+        tv.text = currentTitle
+        titleView = tv
         sheet.findViewById<TextView>(R.id.measure_detail_tv_close).setOnClickListener { dismiss() }
 
         // 标题栏操作图标
@@ -122,5 +131,20 @@ class MeasureDetailDialog(
     companion object {
         private const val WIDTH_MIN = 1
         private const val WIDTH_MAX = 10
+    }
+
+    /**
+     * 就地刷新标题栏名称（重命名后调用）：不重建弹层，避免用户已改的色/线宽丢失。
+     * [currentTitle] 同步更新，弹层因配置变更重建时亦回显新名。
+     */
+    fun updateTitle(newTitle: String) {
+        currentTitle = newTitle
+        titleView?.text = newTitle
+    }
+
+    override fun onDestroyView() {
+        // 视图销毁即释放控件引用，防止 updateTitle 落到旧视图树
+        titleView = null
+        super.onDestroyView()
     }
 }

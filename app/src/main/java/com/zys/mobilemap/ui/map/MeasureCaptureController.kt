@@ -355,16 +355,18 @@ internal class MeasureCaptureController(
             },
             onDelete = { confirmDeleteMeasurement(record) },
             onRename = { promptRenameMeasure(record) }
-        ).show(fm, "MeasureDetailDialog")
+        ).show(fm, TAG_MEASURE_DETAIL)
     }
 
-    /** 测量重命名：弹输入框修改名称，保存后重建叠加层（标注名称同步刷新） */
+    /** 测量重命名：弹输入框修改名称，保存后重建叠加层（标注名称同步刷新）并就地刷新详情弹层标题 */
     private fun promptRenameMeasure(record: Project.MeasureRecord) {
         NameEditDialog.show(
             activity, "重命名测量", record.name ?: "", "测量名称"
         ) { newName ->
+            // updateMeasureName 已就地把新名写回内存记录（record 即该实例），此处只需刷新前台弹层标题
             ProjectManager.get(activity).updateMeasureName(record.id, newName)
             rebuildOverlays()
+            (fm.findFragmentByTag(TAG_MEASURE_DETAIL) as? MeasureDetailDialog)?.updateTitle(newName)
             Toast.makeText(activity, "已重命名", Toast.LENGTH_SHORT).show()
         }
     }
@@ -434,5 +436,10 @@ internal class MeasureCaptureController(
         MeasureMode.AREA -> MapStyleColors.MEASURE_COLOR_AREA
         MeasureMode.POINT -> MapStyleColors.MEASURE_COLOR_POINT
         else -> MapStyleColors.MEASURE_COLOR_DISTANCE
+    }
+
+    companion object {
+        /** 测量详情弹层 tag：重命名后就地刷新标题按此取回弹层实例 */
+        private const val TAG_MEASURE_DETAIL = "MeasureDetailDialog"
     }
 }

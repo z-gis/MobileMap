@@ -49,8 +49,12 @@ class MediaManageDialog(
     /** 全部点位 */
     private val placemarks = mutableListOf<Project.PhotoRecord>()
 
-    /** 折叠的分组 id 集合（含 [Project.PhotoRecord.UNGROUPED_ID]） */
-    private val collapsed = mutableSetOf<Long>()
+    /**
+     * 展开的分组 id 集合（含 [Project.PhotoRecord.UNGROUPED_ID]）。
+     * 语义为「展开白名单」：集合内为空 ⇒ 分组全部折叠——分组多时逐个展开查找反而更慢，
+     * 故打开对话框默认收起，靠分组头的名称 + 数量定位后再展开。
+     */
+    private val expanded = mutableSetOf<Long>()
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         val dialog = super.onCreateDialog(savedInstanceState)
@@ -68,7 +72,9 @@ class MediaManageDialog(
             MediaEditDialog.promptGroupName(requireActivity(), "新建分组", "") { name ->
                 // promptGroupName 只负责收集名称，写库由调用方完成（与点位编辑对话框的“+”一致）；
                 // 漏掉 addGroup 会导致点确定后工程里根本没新分组，reloadData 重读自然毫无变化
-                projectManager.addGroup(name, System.currentTimeMillis())
+                val newId = projectManager.addGroup(name, System.currentTimeMillis())
+                // 新建组自动展开（默认全折叠，不展开会让人以为没建成）
+                if (newId >= 0) expanded.add(newId)
                 reloadData()
             }
         }
@@ -98,18 +104,18 @@ class MediaManageDialog(
 
     /**
      * 构建扁平化行序列：真实分组（按创建时间升序）在前，"未分组"虚拟组在后；
-     * 每组先加分组头，未折叠时追加组内点位行。
+     * 每组先加分组头，仅 [expanded] 内的组追加组内点位行（默认全部折叠）。
      */
     private fun buildRows(): List<Any> {
         val rows = mutableListOf<Any>()
         for (group in groups) {
             val members = placemarks.filter { it.groupId == group.id }
-            val isCollapsed = collapsed.contains(group.id)
+            val isCollapsed = !expanded.contains(group.id)
             rows.add(HeaderRow(group.id, group.name ?: "", members.size, allVisible(members), isCollapsed, false))
             if (!isCollapsed) rows.addAll(members)
         }
         val ungrouped = placemarks.filter { it.groupId == Project.PhotoRecord.UNGROUPED_ID }
-        val ungroupedCollapsed = collapsed.contains(Project.PhotoRecord.UNGROUPED_ID)
+        val ungroupedCollapsed = !expanded.contains(Project.PhotoRecord.UNGROUPED_ID)
         rows.add(
             HeaderRow(
                 Project.PhotoRecord.UNGROUPED_ID, "未分组", ungrouped.size,
@@ -149,7 +155,7 @@ class MediaManageDialog(
             .setMessage("删除分组\"${group.name}\"后，组内拍照标识不会被删除，将移到\"未分组\"。是否继续？")
             .setPositiveButton("删除") { _, _ ->
                 projectManager.removeGroup(group.id)
-                collapsed.remove(group.id)
+                expanded.remove(group.id)
                 reloadData()
                 onChanged()
             }
@@ -165,9 +171,9 @@ class MediaManageDialog(
         MediaPackage.shareGroup(requireContext(), pkgGroup, members)
     }
 
-    /** 折叠/展开分组。 */
+    /** 折叠/展开分组（[expanded] 为展开白名单，默认集合为空 ⇒ 全部折叠）。 */
     private fun onToggleCollapse(groupId: Long) {
-        if (!collapsed.remove(groupId)) collapsed.add(groupId)
+        if (!expanded.remove(groupId)) expanded.add(groupId)
         reloadData()
     }
 
