@@ -22,7 +22,9 @@ import java.util.Locale
  *  - 定型写入（停表/拍照/退出）用 [saveNow] 做队列栅栏——只等排队的增量任务，毫秒级返回；
  *  - 整文件重建（JNI GDAL）仅用于：新建工程文件；
  *  - 分享/导出/复制 = 队列栅栏后直接复制 gpkg 文件本体（单文件自包含，QGIS/ArcGIS 可读）；
- *  - 打开工程 = 读 gpkg 替换 [currentProject]。
+ *  - 打开工程 = 读 gpkg 替换 [currentProject]；
+ *  - 合并工程 = 源工程只读入内存，记录重新取号后并入 [currentProject]（[mergeIntoCurrent]），
+ *    仍走各 mutation 的增量 DML 通道落盘，源文件不动。
  *
  * 照片策略：拍照/导入的照片本体增量写入 gpkg BLOB（主照片 photos.photo_data，其余附件
  * photo_att_data 附加表），源文件在入库成功后删除，不再长期保留。
@@ -366,6 +368,261 @@ class ProjectManager private constructor(context: Context) {
             Log.e(TAG, "duplicateProject: 复制失败 $fileName", e)
             false
         }
+    }
+
+    // ---- 工程合并（把一个工程的采集数据并入当前工程）----
+
+    /**
+     * 合并数据量统计：合并前作预览（[statsOf]），合并后作结果（[mergeIntoCurrent]），
+     * 各字段口径一致 = 并入当前工程的条数。[groups] 只计新建分组（同名分组归并不产生新组）。
+     */
+    class MergeResult {
+        var tracks = 0
+        var measures = 0
+        var photos = 0
+        var attachments = 0
+        var groups = 0
+        var plots = 0
+
+        /** 源工程无可并数据 */
+        val isEmpty: Boolean get() = tracks + measures + photos + plots == 0
+
+        /** 单行文案：轨迹 3 · 测量 1 · 拍照点位 5（照片 7 张）· 新建分组 2 · 样地 4 */
+        fun describe(): String = buildString {
+            append("轨迹 ").append(tracks)
+            append(" · 测量 ").append(measures)
+            append(" · 拍照点位 ").append(photos)
+            if (attachments > 0) append("（照片 ").append(attachments).append(" 张）")
+            if (groups > 0) append(" · 新建分组 ").append(groups)
+            append(" · 样地 ").append(plots)
+        }
+    }
+
+    /**
+     * 只读预估并入量（不写库、不改模型），供合并确认对话框展示。
+     * [groups] 按 [findGroupForMerge] 口径剔除将被同名归并的组，与 [mergeIntoCurrent] 结果一致。
+     */
+    fun statsOf(source: Project): MergeResult = MergeResult().apply {
+        tracks = source.tracks.size
+        measures = source.measures.size
+        photos = source.photos.size
+        attachments = source.photos.sumOf { it.attachments.size }
+        groups = source.mediaGroups.count { findGroupForMerge(it.name) == null }
+        plots = source.surveyPlots.size
+    }
+
+    /** 分组按名称归并：当前工程已有同名（去空白）分组时沿用该组 */
+    private fun findGroupForMerge(name: String?): Project.MediaGroupRecord? {
+        val n = name?.trim().orEmpty()
+        if (n.isEmpty()) return null
+        return currentProject?.mediaGroups?.firstOrNull { it.name?.trim() == n }
+    }
+
+    /**
+     * 把源工程各拍照点位的照片本体取出并暂存到 cache/merge_tmp/<源fid>_<idx>.jpg，
+     * 返回「源点位 fid → 附件序号 → 暂存文件路径」。供 [mergeIntoCurrent] 的附件入库任务搬运
+     * （暂存文件入库即删，与拍照流程同源同去向）。
+     *
+     * 只在后台线程调用：BLOB 读出 + 临时文件写入是本次合并唯一的整段 IO，且与工程写队列无关
+     * （读的是源工程文件，目标文件此时不受影响）。
+     * 取不到本体的附件不进表：老工程照片文件仍在磁盘时按原路径复制暂存；两边都没有的
+     * 保留附件记录（路径不落地，不显示图），与拍照后文件被清走的表现一致。
+     */
+    fun stageMergePhotos(source: Project, sourceFilePath: String): Map<Long, Map<Long, String>> {
+        val staged = LinkedHashMap<Long, MutableMap<Long, String>>()
+        if (source.photos.isEmpty()) return staged
+        val dir = File(appContext.cacheDir, MERGE_TMP_DIR).apply { mkdirs() }
+        for (ph in source.photos) {
+            if (ph.attachments.isEmpty()) continue
+            val perAtt = LinkedHashMap<Long, String>()
+            for (idx in ph.attachments.indices) {
+                val bytes = GeoPackageDml.readPhotoBlob(sourceFilePath, ph.id, idx.toLong())
+                val src = ph.attachments[idx].path
+                val content: ByteArray? = bytes
+                    ?: File(src).takeIf { it.isFile && it.length() > 0 }?.let { runCatching { it.readBytes() }.getOrNull() }
+                if (content == null) {
+                    Log.w(TAG, "stageMergePhotos: fid=${ph.id} idx=$idx 无照片本体，仅并附件记录")
+                    continue
+                }
+                val name = (src.substringAfterLast('/').ifEmpty { "photo_$idx.jpg" })
+                    .replace(Regex("""[\\/:*?"<>|]"""), "_")
+                val out = File(dir, "${ph.id}_$idx$name")
+                val stagedPath = runCatching { out.writeBytes(content); out.absolutePath }
+                    .onFailure { Log.e(TAG, "stageMergePhotos: 暂存失败 fid=${ph.id} idx=$idx", it) }
+                    .getOrNull() ?: continue
+                perAtt[idx.toLong()] = stagedPath
+            }
+            if (perAtt.isNotEmpty()) staged[ph.id] = perAtt
+        }
+        Log.i(TAG, "stageMergePhotos: 暂存照片 ${staged.values.sumOf { it.size }} 张")
+        return staged
+    }
+
+    /**
+     * 把 [source]（由 [readProject] 在后台读入的另一工程副本）的采集数据并入当前工程。
+     * **主线程调用**：只做内存并表 + 提交毫秒级增量 DML，不碰磁盘 IO
+     * （照片本体须先经 [stageMergePhotos] 暂存，入库搬运排在串行保存队列内）。
+     *
+     * 并表规则：
+     *  - 记录 id 在当前工程内重新取号（[nextId]），与源工程 id 无关，gpkg fid 不冲突；
+     *  - 拍照分组按名称归并（[findGroupForMerge]），点位经「源组 id → 目标组 id」映射挂到对应组；
+     *  - 样地走 [saveSurveyPlot]，同小班内重号自动续排；
+     *  - 工程名/描述/图层引用（layerRefs）不参与合并——图层属于文档配置，不属采集数据。
+     *
+     * 完成后由调用方 [saveNow] 栅栏落盘。源工程文件与数据不做任何改动。
+     * [source] 即当前工程本身、或无当前工程时返回 null（不产生半并状态）。
+     */
+    fun mergeIntoCurrent(
+        source: Project,
+        stagedPhotos: Map<Long, Map<Long, String>> = emptyMap()
+    ): MergeResult? {
+        val target = currentProject ?: return null
+        if (source === target) {
+            Log.w(TAG, "mergeIntoCurrent: 源即当前工程，拒绝")
+            return null
+        }
+        val res = MergeResult()
+
+        // ---- 分组先并：后续点位要按名称归并结果拿目标组 id ----
+        val groupIdMap = HashMap<Long, Long>()
+        for (g in source.mediaGroups) {
+            val exist = findGroupForMerge(g.name)
+            if (exist != null) {
+                groupIdMap[g.id] = exist.id
+                continue
+            }
+            val ng = Project.MediaGroupRecord()
+            ng.id = nextId(target.mediaGroups.map { it.id })
+            ng.name = g.name
+            ng.createdTime = g.createdTime
+            ng.visible = g.visible
+            target.mediaGroups.add(ng)
+            groupIdMap[g.id] = ng.id
+            res.groups++
+            val gid = ng.id; val nm = ng.name; val ct = ng.createdTime; val vis = ng.visible
+            enqueueDml { GeoPackageDml.insertGroup(it, gid, nm, ct, vis) }
+        }
+
+        // ---- 轨迹 ----
+        for (t in source.tracks) {
+            val r = Project.TrackRecord()
+            r.id = nextId(target.tracks.map { it.id })
+            r.name = t.name
+            r.date = t.date
+            r.color = t.color
+            r.hidden = t.hidden
+            r.lineWidth = t.lineWidth
+            r.points.addAll(t.points.map { it.copyOf() })
+            target.tracks.add(r)
+            pushTrackInsert(r)
+            res.tracks++
+        }
+
+        // ---- 测量 ----
+        for (m in source.measures) {
+            val r = Project.MeasureRecord()
+            r.id = nextId(target.measures.map { it.id })
+            r.name = m.name
+            r.date = m.date
+            r.type = m.type
+            r.result = m.result
+            r.color = m.color
+            r.hidden = m.hidden
+            r.closed = m.closed
+            r.lineWidth = m.lineWidth
+            r.points.addAll(m.points.map { it.copyOf() })
+            target.measures.add(r)
+            pushMeasureInsert(r)
+            res.measures++
+        }
+
+        // ---- 拍照点位（附件本体取自暂存目录）----
+        for (ph in source.photos) {
+            val r = Project.PhotoRecord()
+            r.id = nextId(target.photos.map { it.id })
+            r.name = ph.name
+            r.lat = ph.lat
+            r.lon = ph.lon
+            r.alt = ph.alt
+            r.timestamp = ph.timestamp
+            r.visible = ph.visible
+            r.groupId = groupIdMap[ph.groupId] ?: Project.PhotoRecord.UNGROUPED_ID
+            val perAtt = stagedPhotos[ph.id] ?: emptyMap()
+            // 与 attachments 同序的待入库文件：只有暂存文件才交给 addPhotoAttachment（它会删源文件），
+            // 无本体时传空串——addPhotoAttachment 读不到字节但照常重写附件 JSON，且不会误删别人的照片
+            val srcFiles = mutableListOf<String>()
+            for (idx in ph.attachments.indices) {
+                val a = ph.attachments[idx]
+                val stagedPath = perAtt[idx.toLong()]
+                r.attachments.add(Project.PhotoAttachment(a.name, stagedPath ?: a.path, a.time))
+                srcFiles.add(stagedPath ?: "")
+            }
+            target.photos.add(r)
+            pushPhotoInsert(r)
+            res.photos++
+            res.attachments += ph.attachments.size
+            if (r.attachments.isNotEmpty()) {
+                val attsJson = JSONArray().apply {
+                    for (a in r.attachments) put(a.toJson())
+                }.toString()
+                val mainPath = r.photoPath
+                val newId = r.id
+                for (idx in r.attachments.indices) {
+                    val srcFile = srcFiles[idx]
+                    enqueueDml {
+                        GeoPackageDml.addPhotoAttachment(it, newId, idx.toLong(), attsJson, mainPath, srcFile)
+                    }
+                }
+            }
+        }
+
+        // ---- 样地调查 ----
+        for (sp in source.surveyPlots) {
+            if (saveSurveyPlot(copySurveyPlot(sp)) != null) res.plots++
+        }
+
+        Log.i(TAG, "mergeIntoCurrent: 并入 '${source.name}' -> '${target.name}' ${res.describe()}")
+        return res
+    }
+
+    /** 样地深拷贝（id 置 0 交由 [saveSurveyPlot] 重新取号；明细行整组带走，行 id 仅在组内有意义） */
+    private fun copySurveyPlot(src: Project.SurveyPlot): Project.SurveyPlot {
+        val r = Project.SurveyPlot()
+        r.name = src.name
+        r.plotType = src.plotType
+        r.points.addAll(src.points.map { it.copyOf() })
+        r.sourcePath = src.sourcePath
+        r.sourceFid = src.sourceFid
+        r.compartmentNo = src.compartmentNo
+        r.plotNo = src.plotNo
+        r.averageTreeHeight = src.averageTreeHeight
+        r.canopyDensity = src.canopyDensity
+        r.cornerCoordinates = src.cornerCoordinates
+        r.createdAt = src.createdAt
+        for (row in src.rows) {
+            val nr = Project.SurveyRow()
+            nr.id = row.id
+            nr.sortNo = row.sortNo
+            nr.treeSpecies = row.treeSpecies
+            nr.dbh = row.dbh
+            nr.category = row.category
+            nr.thinningMethod = row.thinningMethod
+            nr.remark = row.remark
+            r.rows.add(nr)
+        }
+        r.photoPaths.addAll(src.photoPaths)
+        return r
+    }
+
+    /** 清理历史合并遗留的未入库暂存照片（正常路径入库即删；进程中途被杀才留残留） */
+    fun cleanupMergeTempFiles() {
+        runCatching {
+            val dir = File(appContext.cacheDir, MERGE_TMP_DIR)
+            val cutoff = System.currentTimeMillis() - 60_000L
+            dir.listFiles()?.forEach {
+                if (it.isFile && it.lastModified() < cutoff) it.delete()
+            }
+        }.onFailure { Log.w(TAG, "cleanupMergeTempFiles: 清理失败", it) }
     }
 
     // ---- 落盘线程池与增量写提交 ----
@@ -762,6 +1019,9 @@ class ProjectManager private constructor(context: Context) {
 
         @Volatile
         private var instance: ProjectManager? = null
+
+        /** 合并照片暂存目录名（cache 下，入库即删；异常残留由 [cleanupMergeTempFiles] 清扫） */
+        private const val MERGE_TMP_DIR = "merge_tmp"
 
         @JvmStatic
         @Synchronized
