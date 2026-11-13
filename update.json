@@ -1,9 +1,9 @@
 {
-    "versionCode":  26102501,
-    "versionName":  "0.4.1.1",
-    "apkUrl":  "https://gitee.com/z-gis/MobileMap/releases/download/0.4.1.1/mobilemap-v0.4.1.1.apk",
-    "apkSizeBytes":  48308833,
-    "apkSha1":  "f4668445daf3bcddf5ed23e67aad4b2850d614ea",
-    "changelog":  "1. 工程管理新增「合并」：把一个工程的轨迹/测量/标注点及照片/分组/样地并入当前工程，合并前列出并入条数、自动备份当前工程，源工程保持不变\n2. 轨迹采集加定位质量门控：剔除低精度、过期与跳变定位，治理记录中跳点与线段尖角，停表时提示剔除条数\n3. 轨迹/测量详情弹层改名后标题就地刷新，无需退出重进\n4. 采集数据管理打开时分组默认折叠，新建分组自动展开\n5. 渲染内核 GlobeCore 保持 0.1.4.0",
+    "versionCode":  26111202,
+    "versionName":  "0.4.2.0",
+    "apkUrl":  "https://gitee.com/z-gis/MobileMap/releases/download/0.4.2.0/mobilemap-v0.4.2.0.apk",
+    "apkSizeBytes":  48360137,
+    "apkSha1":  "4075bed6bd3a8ac680c36455b27d784b81d03b80",
+    "changelog":  "1. 图层清单支持分组：组头折叠、按组批量开关可见性、移入/新建分组，分组不改变图层压盖顺序\n2. 兴趣点：地图长按落点弹出圆菜单，以落点坐标建拍照点位，图片来源可选拍照或从相册多选\n3. 照片点位与测量记录支持多行备注（photos / measures_* 的 remark 列），老库首开自动补列\n4. 关于页显示渲染内核版本与构建 ID\n5. 渲染内核 GlobeCore 升至 0.1.5.0",
     "force":  false
 }
