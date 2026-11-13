@@ -24,6 +24,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DividerItemDecoration
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -31,6 +32,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.tabs.TabLayout
 import com.zys.mobilemap.R
 import com.zys.mobilemap.doc.DocumentManager
+import com.zys.mobilemap.doc.LayerGroup
 import com.zys.mobilemap.doc.LayerInfo
 import com.zys.mobilemap.doc.MapDocument
 import com.zys.mobilemap.doc.MapSource
@@ -63,10 +65,17 @@ class LayerManageDialog(
     private var rvLayerList: RecyclerView? = null
     private lateinit var adapter: LayerAdapter
     private var tabLayout: TabLayout? = null
-    private var btnImport: ImageView? = null
+    private var btnImport: TextView? = null
+    private var btnNewGroup: TextView? = null
     private var currentTab = TAB_VECTOR
 
     private val layerItems = mutableListOf<LayerItem>()
+
+    /**
+     * 折叠的分组 id 集合（含未分组虚拟节 -1）。与拍照的展开白名单相反：
+     * 图层管理现状是全展开平铺，默认保持全展开。
+     */
+    private val collapsedIds = mutableSetOf<Int>()
 
     /** 地图源页签当前展示的地图源（不含注记图层），与列表项位置一一对应 */
     private val mapSourceItems = mutableListOf<MapSource>()
@@ -119,9 +128,13 @@ class LayerManageDialog(
 
         val sheet = sheetView ?: return dialog
 
-        // 打开导入新图层
-        btnImport = sheet.findViewById(R.id.layer_manage_iv_import)
+        // 打开导入新图层（标题栏右侧「图标+文字」键）
+        btnImport = sheet.findViewById(R.id.layer_manage_tv_import)
         btnImport?.setOnClickListener { onImportClick() }
+
+        // 新建分组（地图源页签不分组，随页签切显隐）
+        btnNewGroup = sheet.findViewById(R.id.layer_manage_tv_new_group)
+        btnNewGroup?.setOnClickListener { onNewGroup() }
 
         // 图层列表
         rvLayerList = sheet.findViewById(R.id.rv_layer_list)
@@ -190,19 +203,11 @@ class LayerManageDialog(
 
         layerItems.clear()
         mapSourceItems.clear()
+        btnNewGroup?.visibility = if (currentTab == TAB_MAP_SOURCE) View.GONE else View.VISIBLE
 
         when (currentTab) {
-            TAB_VECTOR -> for (li in doc.vectorLayers) {
-                val item = LayerItem(li.name, li.path, li.type, li.visible, LayerItem.TYPE_LAYER)
-                // 级别可见性生效值随列表同步（用户值优先、否则自动值）：驱动级别按键上的数字徽标回显
-                item.minLevel = li.effectiveMinDisplayLevel
-                layerItems.add(item)
-            }
-            TAB_RASTER -> for (li in doc.rasterLayers) {
-                // 栅格恒为分瓦加载（「全幅」通路已下线，[LayerInfo.rasterFullExtent] 字段被忽略）
-                val item = LayerItem(li.name, li.path, li.type, li.visible, LayerItem.TYPE_LAYER)
-                layerItems.add(item)
-            }
+            TAB_VECTOR -> buildLayerRows(doc, doc.vectorLayers, true)
+            TAB_RASTER -> buildLayerRows(doc, doc.rasterLayers, false)
             TAB_MAP_SOURCE -> for (ms in doc.mapSources) {
                 // 注记图层由主界面按钮控制，不在地图源列表中显示
                 if (ms.isAnnotation) continue
@@ -220,6 +225,50 @@ class LayerManageDialog(
         }
 
         adapter.setItems(layerItems)
+    }
+
+    /**
+     * 分节扁平化：真实组（创建序）在前、未分组虚拟节恒在最后；组头 + 展开组的成员行。
+     * 页签内只显示含本类型成员的组 + 完全空的组（空组两个页签都可管理）。
+     * 无图层且无组时不产生任何行（维持原空列表表现）。
+     */
+    private fun buildLayerRows(doc: MapDocument, list: List<LayerInfo>, vector: Boolean) {
+        if (list.isEmpty() && doc.groups.isEmpty()) return
+        for (g in doc.groups) {
+            val members = list.filter { it.groupId == g.id }
+            if (members.isEmpty() && !isGroupEmpty(doc, g.id)) continue
+            addHeaderRow(g.id, g.name, members)
+            if (!collapsedIds.contains(g.id)) {
+                for (li in members) addLayerRow(li, vector)
+            }
+        }
+        val rest = list.filter { it.groupId == LayerInfo.UNGROUPED_ID }
+        addHeaderRow(LayerInfo.UNGROUPED_ID, "未分组", rest)
+        if (!collapsedIds.contains(LayerInfo.UNGROUPED_ID)) {
+            for (li in rest) addLayerRow(li, vector)
+        }
+    }
+
+    /** 组在矢量 + 栅格两侧都无成员 */
+    private fun isGroupEmpty(doc: MapDocument, groupId: Int): Boolean =
+        doc.vectorLayers.none { it.groupId == groupId } && doc.rasterLayers.none { it.groupId == groupId }
+
+    private fun addHeaderRow(groupId: Int, name: String, members: List<LayerInfo>) {
+        val item = LayerItem(name, null, null, false, LayerItem.TYPE_GROUP_HEADER)
+        item.groupId = groupId
+        item.groupName = name
+        item.count = members.size
+        item.allVisible = members.isNotEmpty() && members.all { it.visible }
+        item.collapsed = collapsedIds.contains(groupId)
+        layerItems.add(item)
+    }
+
+    private fun addLayerRow(li: LayerInfo, vector: Boolean) {
+        val item = LayerItem(li.name, li.path, li.type, li.visible, LayerItem.TYPE_LAYER)
+        item.groupId = li.groupId
+        // 级别可见性生效值随列表同步（用户值优先、否则自动值）：驱动级别按键上的数字徽标回显
+        if (vector) item.minLevel = li.effectiveMinDisplayLevel
+        layerItems.add(item)
     }
 
     private fun updateContentForTab() {
@@ -304,27 +353,20 @@ class LayerManageDialog(
 
     /**
      * 列表中按键
-     * 切换图层可见性：保持列表可见性与文档一致，
+     * 切换图层可见性：按 path 定位文档层（分节列表 position 含组头，不再等于文档数组下标），
+     * 保存后整体重建列表（组头 allVisible 随成员联动）。
      */
     private fun onToggleVisibility(position: Int) {
-        if (position < 0 || position >= layerItems.size) return
-        val item = layerItems[position]
+        val item = layerItems.getOrNull(position) ?: return
+        if (item.itemType != LayerItem.TYPE_LAYER) return
         val doc = DocumentManager.getInstance().getDocument() ?: return
-
-        item.visible = !item.visible
-
-        when (currentTab) {
-            TAB_VECTOR -> if (position < doc.vectorLayers.size) {
-                doc.vectorLayers[position].visible = item.visible
-            }
-            TAB_RASTER -> if (position < doc.rasterLayers.size) {
-                doc.rasterLayers[position].visible = item.visible
-            }
-        }
+        val list = if (currentTab == TAB_VECTOR) doc.vectorLayers else doc.rasterLayers
+        val li = list.firstOrNull { it.path == item.path } ?: return
+        li.visible = !li.visible
 
         // 立即保存到文档 -> 同步地图图层可见性
         DocumentManager.getInstance().save(requireContext())
-        adapter.notifyItemChanged(position)
+        syncFromDocument()
     }
 
     private fun onRemoveLayer(position: Int) {
@@ -338,20 +380,88 @@ class LayerManageDialog(
     }
 
     private fun doRemoveLayer(position: Int) {
-        if (position < 0 || position >= layerItems.size) return
+        val item = layerItems.getOrNull(position) ?: return
+        if (item.itemType != LayerItem.TYPE_LAYER) return
         val doc = DocumentManager.getInstance().getDocument() ?: return
-
-        when (currentTab) {
-            TAB_VECTOR -> if (position < doc.vectorLayers.size) {
-                doc.vectorLayers.removeAt(position)
-            }
-            TAB_RASTER -> if (position < doc.rasterLayers.size) {
-                doc.rasterLayers.removeAt(position)
-            }
-        }
+        // 按 path 定位（分节列表 position 含组头，不再等于文档数组下标）
+        val list = if (currentTab == TAB_VECTOR) doc.vectorLayers else doc.rasterLayers
+        val idx = list.indexOfFirst { it.path == item.path }
+        if (idx >= 0) list.removeAt(idx)
 
         // 立即保存到文档 -> 通知监听者 -> 刷新列表 -> 从地图移除
         DocumentManager.getInstance().save(requireContext())
+        syncFromDocument()
+    }
+
+    // ---- 分组动作（组可见性扇出写成员 visible，渲染层不认组，与拍照分组同口径）----
+
+    private fun onNewGroup() {
+        NameEditDialog.show(requireActivity(), "新建分组", "", "分组名称") { name ->
+            DocumentManager.getInstance().addLayerGroup(requireContext(), name)
+            syncFromDocument()
+        }
+    }
+
+    private fun onRenameGroup(item: LayerItem) {
+        NameEditDialog.show(requireActivity(), "重命名分组", item.groupName, "分组名称") { name ->
+            DocumentManager.getInstance().renameLayerGroup(requireContext(), item.groupId, name)
+            syncFromDocument()
+        }
+    }
+
+    /** 删除分组：组内图层不删除，移到"未分组"。 */
+    private fun onRemoveGroup(item: LayerItem) {
+        AlertDialog.Builder(requireContext())
+            .setTitle("删除分组")
+            .setMessage("删除分组\"${item.groupName}\"后，组内图层不会被移除，将移到\"未分组\"。是否继续？")
+            .setPositiveButton("删除") { _, _ ->
+                DocumentManager.getInstance().removeLayerGroup(requireContext(), item.groupId)
+                collapsedIds.remove(item.groupId)
+                syncFromDocument()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    /** 整组显隐：批量写组内每层 visible（含未分组虚拟节），一次 save 一次广播。 */
+    private fun onToggleGroupVisible(item: LayerItem, visible: Boolean) {
+        DocumentManager.getInstance().setLayerGroupVisible(requireContext(), item.groupId, visible)
+        syncFromDocument()
+    }
+
+    private fun onToggleCollapse(groupId: Int) {
+        if (!collapsedIds.remove(groupId)) collapsedIds.add(groupId)
+        syncFromDocument()
+    }
+
+    /** 移入组：单选列表（未分组 + 各组 + 新建分组…），选中即写 groupId 落盘。 */
+    private fun onMoveGroup(position: Int) {
+        val item = layerItems.getOrNull(position) ?: return
+        if (item.itemType != LayerItem.TYPE_LAYER) return
+        val doc = DocumentManager.getInstance().getDocument() ?: return
+        val groups = doc.groups
+        val labels = mutableListOf("未分组")
+        labels.addAll(groups.map { it.name })
+        labels.add("新建分组…")
+        AlertDialog.Builder(requireContext())
+            .setTitle("图层分组")
+            .setItems(labels.toTypedArray()) { _, which ->
+                when {
+                    which == 0 -> moveLayer(item, LayerInfo.UNGROUPED_ID, "")
+                    which <= groups.size -> moveLayer(item, groups[which - 1].id, "")
+                    else -> NameEditDialog.show(requireActivity(), "新建分组", "", "分组名称") { name ->
+                        moveLayer(item, LayerInfo.UNGROUPED_ID, name)
+                    }
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun moveLayer(item: LayerItem, groupId: Int, newGroupName: String) {
+        val path = item.path ?: return
+        DocumentManager.getInstance()
+            .moveLayerToGroup(requireContext(), path, currentTab == TAB_VECTOR, groupId, newGroupName)
         syncFromDocument()
     }
 
@@ -694,9 +804,19 @@ class LayerManageDialog(
         /** 矢量图层级别可见性生效值（[LayerInfo.effectiveMinDisplayLevel]）：≥0 时级别按键显示数字徽标，-1 不限制无徽标 */
         var minLevel: Int = -1
 
+        /** 所属分组 id（图层行）；组头行即组 id（-1 = 未分组虚拟节） */
+        var groupId: Int = LayerInfo.UNGROUPED_ID
+
+        // ---- 组头行字段 ----
+        var groupName: String = ""
+        var count: Int = 0
+        var allVisible: Boolean = true
+        var collapsed: Boolean = false
+
         companion object {
             const val TYPE_LAYER = 0
             const val TYPE_MAP_SOURCE = 1
+            const val TYPE_GROUP_HEADER = 2
         }
     }
 
@@ -715,10 +835,13 @@ class LayerManageDialog(
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
             val inflater = LayoutInflater.from(parent.context)
-            return if (viewType == LayerItem.TYPE_MAP_SOURCE) {
-                MapSourceViewHolder(inflater.inflate(R.layout.item_map_source, parent, false))
-            } else {
-                LayerViewHolder(inflater.inflate(R.layout.item_layer_manage, parent, false))
+            return when (viewType) {
+                LayerItem.TYPE_MAP_SOURCE ->
+                    MapSourceViewHolder(inflater.inflate(R.layout.item_map_source, parent, false))
+                LayerItem.TYPE_GROUP_HEADER ->
+                    GroupViewHolder(inflater.inflate(R.layout.item_layer_group, parent, false))
+                else ->
+                    LayerViewHolder(inflater.inflate(R.layout.item_layer_manage, parent, false))
             }
         }
 
@@ -727,6 +850,7 @@ class LayerManageDialog(
             when (holder) {
                 is LayerViewHolder -> holder.bind(item)
                 is MapSourceViewHolder -> holder.bind(item)
+                is GroupViewHolder -> holder.bind(item)
             }
         }
 
@@ -749,6 +873,7 @@ class LayerManageDialog(
         private val ivLevel: ImageView = itemView.findViewById(R.id.item_layer_iv_level)
         private val tvLevelBadge: TextView = itemView.findViewById(R.id.item_layer_tv_level_badge)
         private val ivZoomTo: ImageView = itemView.findViewById(R.id.item_layer_iv_zoom_to)
+        private val ivGroup: ImageView = itemView.findViewById(R.id.item_layer_iv_group)
         private val ivVisibility: ImageView = itemView.findViewById(R.id.item_layer_iv_visibility)
         private val ivInfo: ImageView = itemView.findViewById(R.id.item_layer_iv_info)
         private val ivDelete: ImageView = itemView.findViewById(R.id.item_layer_iv_delete)
@@ -808,6 +933,8 @@ class LayerManageDialog(
 
             ivZoomTo.setOnClickListener { onZoomToLayer(adapterPosition) }
 
+            ivGroup.setOnClickListener { onMoveGroup(adapterPosition) }
+
             ivVisibility.setImageResource(if (item.visible) R.drawable.ic_visibility else R.drawable.ic_visibility_off)
             ivVisibility.setColorFilter(
                 ContextCompat.getColor(
@@ -819,6 +946,43 @@ class LayerManageDialog(
 
             ivInfo.setOnClickListener { onShowInfo(adapterPosition) }
             ivDelete.setOnClickListener { onRemoveLayer(adapterPosition) }
+        }
+    }
+
+    /**
+     * 分组头行：折叠箭头 + 组名 + 计数 + 整组显隐开关；真实组另有重命名/删除
+     * （照 MediaManageDialog.HeaderHolder，未分组虚拟组不可重命名/删除）。
+     */
+    private inner class GroupViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+
+        private val arrow: ImageView = itemView.findViewById(R.id.item_layer_group_arrow)
+        private val tvName: TextView = itemView.findViewById(R.id.item_layer_group_name)
+        private val tvCount: TextView = itemView.findViewById(R.id.item_layer_group_count)
+        private val switchVisible: SwitchCompat = itemView.findViewById(R.id.item_layer_group_visible)
+        private val tvRename: TextView = itemView.findViewById(R.id.item_layer_group_rename)
+        private val ivDelete: ImageView = itemView.findViewById(R.id.item_layer_group_delete)
+
+        fun bind(item: LayerItem) {
+            tvName.text = item.groupName
+            tvCount.text = if (item.count > 0) "${item.count} 个图层" else "无图层"
+            // 折叠箭头：展开指向下（-90°），折叠指向右（180°）
+            arrow.rotation = if (item.collapsed) 180f else -90f
+            arrow.setOnClickListener { onToggleCollapse(item.groupId) }
+            tvName.setOnClickListener { onToggleCollapse(item.groupId) }
+
+            val ungrouped = item.groupId == LayerInfo.UNGROUPED_ID
+            tvRename.visibility = if (ungrouped) View.GONE else View.VISIBLE
+            ivDelete.visibility = if (ungrouped) View.GONE else View.VISIBLE
+            tvRename.setOnClickListener { onRenameGroup(item) }
+            ivDelete.setOnClickListener { onRemoveGroup(item) }
+
+            // 先设状态再挂监听，避免回显触发批量写库
+            switchVisible.setOnCheckedChangeListener(null)
+            switchVisible.isChecked = item.allVisible
+            switchVisible.isEnabled = item.count > 0
+            switchVisible.setOnCheckedChangeListener { _, isChecked ->
+                onToggleGroupVisible(item, isChecked)
+            }
         }
     }
 

@@ -12,6 +12,7 @@ import com.zys.mobilemap.update.APKVersionUtil
 import com.zys.mobilemap.update.AppUpdateManager
 import com.zys.globecore.NativeLayerInfo
 import com.zys.globecore.NativeSrs
+import com.zys.globecore.NativeVersion
 
 /**
  * 关于页：展示 GDAL / PROJ 版本与本机版本号，提供检查更新与项目主页入口。
@@ -57,6 +58,9 @@ class AboutActivity : AppSourcesActivity() {
         }
 
         binding.projText.text = "proj Version: ${NativeSrs.getProjVersion()}"
+
+        // 渲染引擎版本 + 构建 ID（globecore 库自带，随 AAR 编入）：排查「装机产物是否本次引擎改动」看这行
+        binding.engineText.text = "globecore Version: ${NativeVersion.engineBuildId()}"
 
         binding.VersionCode.text = "VersionCode: ${APKVersionUtil.getVersionCode(this)}"
 

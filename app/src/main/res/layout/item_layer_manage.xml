@@ -95,6 +95,15 @@
                 android:contentDescription="@string/media_zoom_to" />
 
             <ImageView
+                android:id="@+id/item_layer_iv_group"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_marginEnd="16dp"
+                android:src="@drawable/ic_folder"
+                app:tint="#757575"
+                android:contentDescription="@string/layer_group_move" />
+
+            <ImageView
                 android:id="@+id/item_layer_iv_visibility"
                 android:layout_width="22dp"
                 android:layout_height="22dp"

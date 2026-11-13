@@ -58,6 +58,7 @@ class ProjectManager private constructor(context: Context) {
             val p = gpkgWriter.read(last)
             if (p != null) {
                 currentProject = p
+                healSchema(last)
                 Log.i(TAG, "ensureLoaded: 恢复上次工程 ${p.name}")
                 return
             }
@@ -70,6 +71,7 @@ class ProjectManager private constructor(context: Context) {
                 if (p != null) {
                     currentProject = p
                     rememberCurrent(defaultFile.absolutePath)
+                    healSchema(defaultFile.absolutePath)
                     Log.i(TAG, "ensureLoaded: 默认工程文件已存在，直接打开")
                     return
                 }
@@ -169,6 +171,7 @@ class ProjectManager private constructor(context: Context) {
             }
             currentProject = p
             rememberCurrent(filePath)
+            healSchema(filePath)
             Log.i(TAG, "openProject: $filePath -> ${p.name}")
         } else {
             Log.e(TAG, "openProject: 读取失败 $filePath")
@@ -200,8 +203,32 @@ class ProjectManager private constructor(context: Context) {
         project.updateTime = System.currentTimeMillis()
         val json = gpkgWriter.encode(project)
         return runCatching {
-            saveExecutor.submit(java.util.concurrent.Callable { gpkgWriter.writeEncoded(json, filePath) }).get()
+            saveExecutor.submit(java.util.concurrent.Callable {
+                val written = gpkgWriter.writeEncoded(json, filePath)
+                // 重建产物立刻过一遍自愈（补 photo_att_data、把 z 归一、防御旧引擎建的库带 rtree）；
+                // 同线程串行执行，保证发生在 rename 之后、任何增量写之前。
+                if (written) healSchemaNow(filePath)
+                written
+            }).get()
         }.getOrElse { false }
+    }
+
+    /**
+     * 库结构自愈：清除 GDAL 老库残留的 rtree 触发器/虚拟表、补齐附加表，并按当前数据重建
+     * app 自维护的无触发器空间索引与点层四至。
+     * 见 [GeoPackageDml.prepareSchema]——残留触发器会让 app 侧每一条增量 INSERT 报
+     * 「no such function: ST_IsEmpty」而静默丢数据；而**完全没有** rtree_% 又会让 ArcMap 10.8
+     * 属性表首屏报「无法确定 OID」，故打开/新建工程时必过一遍。
+     * 提交到 [saveExecutor] 并等其执行：与在途增量写串行，不并发打开同一文件。
+     */
+    private fun healSchema(filePath: String) {
+        runCatching { saveExecutor.submit(java.util.concurrent.Callable { healSchemaNow(filePath) }).get() }
+    }
+
+    /** [healSchema] 的执行体，调用方已在 gpkg-save 线程上。失败只记日志：索引/四至下次打开再补。 */
+    private fun healSchemaNow(filePath: String) {
+        runCatching { GeoPackageDml.prepareSchema(filePath) }
+            .onFailure { Log.e(TAG, "healSchema: prepareSchema 失败 $filePath", it) }
     }
 
     /**
@@ -756,31 +783,40 @@ class ProjectManager private constructor(context: Context) {
     /** 提交测量增量插入 */
     private fun pushMeasureInsert(m: Project.MeasureRecord) {
         val id = m.id; val nm = m.name; val dt = m.date; val ty = m.type; val rs = m.result
-        val cl = m.color; val hd = m.hidden; val cd = m.closed; val lw = m.lineWidth; val pts = m.points
+        val rm = m.remark; val cl = m.color; val hd = m.hidden; val cd = m.closed; val lw = m.lineWidth; val pts = m.points
         enqueueDml {
-            GeoPackageDml.insertMeasure(it, id, nm, dt, ty, rs, cl, hd, cd, lw, pts)
+            GeoPackageDml.insertMeasure(it, id, nm, dt, ty, rs, rm, cl, hd, cd, lw, pts)
         }
     }
 
     fun removeMeasure(id: Long) {
         val p = currentProject ?: return
-        if (p.measures.removeAll { it.id == id }) enqueueDml { GeoPackageDml.deleteMeasure(it, id) }
+        val ty = findMeasure(id)?.type      // 删前取类型：分表按类型定位，删掉记录就无从得知
+        if (p.measures.removeAll { it.id == id }) enqueueDml { GeoPackageDml.deleteMeasure(it, id, ty) }
     }
 
     fun updateMeasureStyle(id: Long, colorInt: Int, lineWidth: Int) {
         findMeasure(id)?.let {
             it.color = colorToHex(colorInt)
             it.lineWidth = lineWidth
-            val mid = it.id; val mcl = it.color; val mlw = it.lineWidth
-            enqueueDml { GeoPackageDml.updateMeasureStyle(it, mid, mcl, mlw) }
+            val mid = it.id; val mcl = it.color; val mlw = it.lineWidth; val mty = it.type
+            enqueueDml { GeoPackageDml.updateMeasureStyle(it, mid, mcl, mlw, mty) }
         }
     }
 
     fun updateMeasureName(id: Long, name: String) {
         findMeasure(id)?.let {
             it.name = name
-            val mid = it.id; val mn = it.name
-            enqueueDml { GeoPackageDml.updateMeasureName(it, mid, mn) }
+            val mid = it.id; val mn = it.name; val mty = it.type
+            enqueueDml { GeoPackageDml.updateMeasureName(it, mid, mn, mty) }
+        }
+    }
+
+    fun updateMeasureRemark(id: Long, remark: String) {
+        findMeasure(id)?.let {
+            it.remark = remark
+            val mid = it.id; val mr = it.remark; val mty = it.type
+            enqueueDml { GeoPackageDml.updateMeasureRemark(it, mid, mr, mty) }
         }
     }
 
@@ -804,9 +840,9 @@ class ProjectManager private constructor(context: Context) {
     }
 
     private fun pushPhotoInsert(ph: Project.PhotoRecord) {
-        val id = ph.id; val nm = ph.name; val la = ph.lat; val lo = ph.lon; val al = ph.alt
+        val id = ph.id; val nm = ph.name; val rm = ph.remark; val la = ph.lat; val lo = ph.lon; val al = ph.alt
         val ts = ph.timestamp; val vis = ph.visible; val gid = ph.groupId
-        enqueueDml { GeoPackageDml.insertPhoto(it, id, nm, la, lo, al, ts, vis, gid) }
+        enqueueDml { GeoPackageDml.insertPhoto(it, id, nm, rm, la, lo, al, ts, vis, gid) }
     }
 
     /**
@@ -848,6 +884,13 @@ class ProjectManager private constructor(context: Context) {
         findPhoto(id)?.let {
             it.visible = visible
             enqueueDml { GeoPackageDml.updatePhotoColumns(it, id, null, null, visible) }
+        }
+    }
+
+    fun updatePhotoRemark(id: Long, remark: String) {
+        findPhoto(id)?.let {
+            it.remark = remark
+            enqueueDml { GeoPackageDml.updatePhotoColumns(it, id, null, null, null, remark) }
         }
     }
 

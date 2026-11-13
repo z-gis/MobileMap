@@ -11,38 +11,72 @@
     android:paddingEnd="5dp"
     android:background="@drawable/bg_bottom_sheet_rounded">
 
+    <!-- 标题栏：与鸿蒙 LayerManagePage 的 TitleBar 同口径（标题居左，操作键居右，无关闭键） -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="48dp"
+        android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:paddingStart="12dp"
+        android:paddingEnd="8dp">
 
-        <com.google.android.material.tabs.TabLayout
-            android:id="@+id/layer_manage_tab_layout"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            app:tabMode="fixed"
-            app:tabGravity="start"
-            app:tabIndicatorColor="@color/teal_200"
-            app:tabIndicatorHeight="0dp"
-            app:tabIndicator="@null"
-            app:tabSelectedTextColor="@color/teal_200"
-            app:tabTextColor="#757575"
-            app:tabTextAppearance="@style/LayerManageTabText" />
-
-        <!-- spacer keeps tabs on the left while btn_import stays at the right -->
-        <View
+        <TextView
+            android:id="@+id/layer_manage_tv_title"
             android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="@string/jni_map_layer_manage"
+            android:textColor="#212121"
+            android:textSize="16sp"
+            android:textStyle="bold" />
 
-        <ImageView
-            android:id="@+id/layer_manage_iv_import"
+        <!-- 新建分组（矢量/栅格页签可见，地图源页签由代码隐藏） -->
+        <TextView
+            android:id="@+id/layer_manage_tv_new_group"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:src="@drawable/baseline_playlist_add_24"/>
+            android:layout_marginEnd="12dp"
+            android:background="?android:attr/selectableItemBackground"
+            android:paddingStart="6dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="4dp"
+            android:text="@string/layer_group_new"
+            android:textColor="@color/teal_700"
+            android:textSize="13sp" />
 
+        <!-- 导入：图标 + 文字（原纯图标键，鸿蒙侧已是文字键，此处对齐可读性） -->
+        <TextView
+            android:id="@+id/layer_manage_tv_import"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="?android:attr/selectableItemBackground"
+            android:drawableStart="@drawable/baseline_playlist_add_24"
+            android:drawablePadding="4dp"
+            android:gravity="center_vertical"
+            android:paddingStart="6dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="4dp"
+            android:text="@string/layer_import"
+            android:textColor="@color/teal_700"
+            android:textSize="13sp" />
     </LinearLayout>
+
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/layer_manage_tab_layout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:tabMode="fixed"
+        app:tabGravity="start"
+        app:tabIndicatorColor="@color/teal_200"
+        app:tabIndicatorHeight="0dp"
+        app:tabIndicator="@null"
+        app:tabSelectedTextColor="@color/teal_200"
+        app:tabTextColor="#757575"
+        app:tabTextAppearance="@style/LayerManageTabText" />
 
     <View
         android:layout_width="match_parent"

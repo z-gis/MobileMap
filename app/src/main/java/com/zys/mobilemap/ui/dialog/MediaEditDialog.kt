@@ -27,13 +27,13 @@ object MediaEditDialog {
 
     /**
      * 弹出点位编辑对话框。
-     * @param title 对话框标题（管理列表用"编辑拍照标识"，拍照完成用"完成拍照"）
+     * @param title 对话框标题（改名入口用默认的"重命名拍照标识"，拍照完成用"完成拍照"）
      * @param onSaved 确定保存后回调（名称, 分组ID）
      */
     fun show(
         activity: Activity,
         placemark: Project.PhotoRecord,
-        title: String = "编辑拍照标识",
+        title: String = "重命名拍照标识",
         onSaved: (name: String, groupId: Long) -> Unit
     ) {
         val projectManager = ProjectManager.get(activity)

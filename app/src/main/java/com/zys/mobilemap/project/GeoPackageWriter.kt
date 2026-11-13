@@ -14,14 +14,27 @@ import java.io.IOException
  * 将 Project 数据模型与 GeoPackage (.gpkg) 文件互转。
  * GeoPackage 是 OGC 标准，基于 SQLite，ArcGIS/QGIS 直接支持。
  *
- * 表结构：
- *   - tracks:      id, name, date, color, hidden, geom (LineString)
- *   - measures:    id, name, date, type, result, color, hidden, closed, geom (Point/LineString/Polygon)
- *   - photos:      id, name, lon, lat, alt, photo_path, timestamp, geom (Point)
- *   - survey_plots: id, name, plot_type, geom (Point/Polygon), attributes (JSON)
- *   - project_meta: key, value（工程元数据）
- *   - layer_refs:  layer_path（引用图层清单）
+ * 表结构（空间表按几何类型拆分，每层在 gpkg_geometry_columns 写实类型，ArcGIS/QGIS 才能整层读全）：
+ *   - tracks:           id, name, date, color, hidden, geom (LineString)
+ *   - measures_point:   id, name, date, type, result, remark, color, hidden, closed, line_width, geom (Point)
+ *   - measures_line:    同上, geom (LineString)
+ *   - measures_polygon: 同上, geom (Polygon)
+ *   - photos:           id, name, remark, lon, lat, alt, photo_path, timestamp, geom (Point)
+ *   - survey_point:     id, name, plot_type, geom (Point), attributes (JSON)
+ *   - survey_polygon:   同上, geom (Polygon)
+ *   - project_meta:     key, value（工程元数据）
+ *   - layer_refs:       layer_path（引用图层清单）
+ * 读侧对老库的单表 measures / survey_plots 仍兼容（引擎 readGeoPackage 合并输出），
+ * 老库由 GeoPackageDml.prepareSchema 在打开工程时原地迁移到分表。
  */
+/**
+ * 原生重建空间索引：无触发器 rtree 虚拟表 + gpkg_extensions 登记 + 点层四至外扩（幂等）。
+ * Android 框架 SQLite 没编 rtree 模块，Kotlin 侧建/删 rtree 虚拟表都会失败，故索引只能在 GDAL
+ * 自带 SQLite 里建；详见 C++ 侧 rebuildSpatialIndex 注释。
+ * 顶层声明（非 companion）以让 JNI 符号落在文件门面类 GeoPackageWriterKt 上。
+ */
+internal external fun nativeRebuildSpatialIndex(filePath: String): Boolean
+
 class GeoPackageWriter(context: Context) {
 
     private val appContext: Context = context.applicationContext
@@ -106,6 +119,16 @@ class GeoPackageWriter(context: Context) {
         init {
             System.loadLibrary("globecore")
         }
+
+        /**
+         * 原生重建空间索引：无触发器 rtree 虚拟表 + gpkg_extensions 登记 + 点层四至外扩（幂等）。
+         * Android 框架 SQLite 没编 rtree 模块，Kotlin 侧建/删 rtree 虚拟表都会失败，故索引只能在
+         * GDAL 自带的 SQLite 里建；详见 C++ 侧 rebuildSpatialIndex 注释。
+         */
+        fun rebuildSpatialIndex(filePath: String): Boolean =
+            runCatching { nativeRebuildSpatialIndex(filePath) }
+                .onFailure { Log.e(TAG, "rebuildSpatialIndex 失败: $filePath", it) }
+                .getOrDefault(false)
 
         /**
          * 照片显示路径解析：文件本体存在 → 直接用；缺失 → 从当前工程 gpkg 读照片 BLOB

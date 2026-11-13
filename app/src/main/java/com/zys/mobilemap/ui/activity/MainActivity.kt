@@ -533,7 +533,8 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
     private var exitConfirmDialog: androidx.appcompat.app.AlertDialog? = null
 
     /**
-     * 长按落点弹圆菜单（骨架演示）：以长按点为锚，沿环顺时针提供 居中到此处 / 复制坐标 / 添加标记 / 位置信息。
+     * 长按落点弹圆菜单：以长按点为锚，沿环顺时针提供 居中到此处 / 复制坐标 / 添加兴趣点 / 位置信息，
+     * 每项图标在上、文案在下（见 [PieMenu]）。
      * 圆菜单为纯 UI 浮层（见 [PieMenu]，叠在 [NativeMapView] 的 GL Surface 之上），native 仅经
      * [NativeMapView.screenToGeo] 参与落点坐标反算（与菜单渲染无关）。
      *
@@ -561,9 +562,22 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
                 cm.setPrimaryClip(android.content.ClipData.newPlainText("location", coordText))
                 Toast.makeText(this, "已复制坐标 $coordText", Toast.LENGTH_SHORT).show()
             },
-            // 添加标记：打点/标注业务入口（此处为骨架占位）
-            PieMenuItem(R.drawable.baseline_playlist_add_24, "添加标记") {
-                Toast.makeText(this, "添加标记（占位）", Toast.LENGTH_SHORT).show()
+            // 添加兴趣点：以长按落点坐标建点位，图片来源二选一（相机连拍 / 相册选图），都不依赖定位
+            PieMenuItem(R.drawable.ic_poi, "添加兴趣点") {
+                if (geo != null) {
+                    val dropLat = geo.latitude
+                    val dropLon = geo.longitude
+                    androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("兴趣点图片来源")
+                        .setItems(arrayOf("拍照", "从相册选图")) { _, which ->
+                            if (which == 0) {
+                                mediaCaptureHelper?.launchPhotoCaptureAt(dropLat, dropLon)
+                            } else {
+                                mediaCaptureHelper?.pickPhotosFromAlbum(dropLat, dropLon)
+                            }
+                        }
+                        .show()
+                }
             },
             // 位置信息：展示落点经纬度
             PieMenuItem(R.drawable.ic_info, "位置信息") {

@@ -215,6 +215,7 @@ class Project {
         var hidden: Boolean = false
         var closed: Boolean = false   // 面是否闭合
         var lineWidth: Int = DEFAULT_LINE_WIDTH
+        var remark: String? = null    // 备注
 
         fun toJson(): JSONObject {
             val o = JSONObject()
@@ -223,6 +224,7 @@ class Project {
             o.put("date", date)
             o.put("type", type)
             o.put("result", result)
+            o.put("remark", remark ?: JSONObject.NULL)
             o.put("color", color ?: JSONObject.NULL)
             o.put("hidden", hidden)
             o.put("closed", closed)
@@ -245,6 +247,7 @@ class Project {
                 m.date = o.optString("date")
                 m.type = o.optString("type")
                 m.result = o.optString("result")
+                m.remark = o.optString("remark", null)
                 m.color = o.optString("color", null)
                 m.hidden = o.optBoolean("hidden", false)
                 m.closed = o.optBoolean("closed", false)
@@ -299,6 +302,7 @@ class Project {
         var timestamp: Long = 0
         var visible: Boolean = true                   // 隐藏后地图不渲染
         var groupId: Long = UNGROUPED_ID              // 所属分组，[UNGROUPED_ID] 未分组
+        var remark: String? = null                    // 备注
         val attachments = mutableListOf<PhotoAttachment>()
 
         /** 主照片路径（首个附件），无附件返回 null */
@@ -315,6 +319,7 @@ class Project {
             o.put("timestamp", timestamp)
             o.put("visible", visible)
             o.put("groupId", groupId)
+            o.put("remark", remark ?: JSONObject.NULL)
             val arr = JSONArray()
             for (a in attachments) arr.put(a.toJson())
             o.put("attachments", arr)
@@ -335,6 +340,7 @@ class Project {
                 p.timestamp = o.optLong("timestamp")
                 p.visible = o.optBoolean("visible", true)
                 p.groupId = o.optLong("groupId", UNGROUPED_ID)
+                p.remark = o.optString("remark", null)
                 o.optJSONArray("attachments")?.let { arr ->
                     for (i in 0 until arr.length()) {
                         p.attachments.add(PhotoAttachment.fromJson(arr.getJSONObject(i)))

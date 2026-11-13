@@ -20,8 +20,8 @@ android {
         applicationId = "com.zys.mobilemap"
         minSdk = 24
         targetSdk = 36
-        versionCode = 26102501
-        versionName = "0.4.1.1"
+        versionCode = 26111202
+        versionName = "0.4.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -75,8 +75,8 @@ androidComponents {
 
 dependencies {
     // globecore 渲染内核：本地 AAR（GlobeCore 仓库 :globecore:publish 产物），或改用下方 Maven 坐标在线拉取
-    implementation(files("../../globecore/globecore/build/outputs/aar-versioned/globecore-0.1.4.0-release.aar"))
-    //implementation("com.zys:globecore:0.1.4.0")
+    implementation(files("../../globecore/globecore/build/outputs/aar-versioned/globecore-0.1.5.0-release.aar"))
+    //implementation("com.zys:globecore:0.1.5.0")
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.constraintlayout)

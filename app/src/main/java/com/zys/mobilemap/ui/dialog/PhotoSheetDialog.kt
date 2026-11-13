@@ -4,6 +4,7 @@ import android.app.Dialog
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -26,7 +27,7 @@ import com.zys.mobilemap.ui.activity.PhotoViewerActivity
 /**
  * 照片列表 BottomSheet：显示某拍照点位（Placemark）的全部照片，
  * 点击照片进入全屏查看（左右滑动切换，仅本点位附件）。
- * 标题栏提供「重命名」「分享」「删除」「关闭」操作图标，与轨迹/测量详情弹层样式统一。
+ * 标题栏提供「重命名」「分享」「删除」「关闭」文字键，底部「备注」行可点编辑。
  */
 class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
 
@@ -57,8 +58,8 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
         // 关闭按钮
         sheet.findViewById<TextView>(R.id.photo_sheet_close).setOnClickListener { dismiss() }
 
-        // 重命名按钮：弹「编辑拍照标识」对话框（名称+分组），保存后就地刷新标题并经 FragmentResult 通知宿主重建叠加层
-        val renameButton = sheet.findViewById<ImageView>(R.id.photo_sheet_rename)
+        // 重命名按钮：弹「重命名拍照标识」对话框（名称+分组），保存后就地刷新标题并经 FragmentResult 通知宿主重建叠加层
+        val renameButton = sheet.findViewById<TextView>(R.id.photo_sheet_rename)
         if (placemark == null) {
             renameButton.visibility = View.GONE
         } else {
@@ -71,7 +72,7 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
         }
 
         // 分享按钮：把本点位（坐标/名称/照片）打包经系统分享面板发出；无照片时隐藏
-        val shareButton = sheet.findViewById<ImageView>(R.id.photo_sheet_share)
+        val shareButton = sheet.findViewById<TextView>(R.id.photo_sheet_share)
         if (placemark == null || attachments.isEmpty()) {
             shareButton.visibility = View.GONE
         } else {
@@ -79,7 +80,7 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
         }
 
         // 删除按钮：删除整个拍照点位（含其全部照片），确认后经 FragmentResult 通知宿主重建叠加层
-        val deleteButton = sheet.findViewById<ImageView>(R.id.photo_sheet_delete)
+        val deleteButton = sheet.findViewById<TextView>(R.id.photo_sheet_delete)
         if (placemark == null) {
             deleteButton.visibility = View.GONE
         } else {
@@ -103,6 +104,33 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
             intent.putExtra(PhotoViewerActivity.EXTRA_PLACEMARK_ID, placemarkId)
             intent.putExtra(PhotoViewerActivity.EXTRA_INITIAL_INDEX, index)
             startActivity(intent)
+        }
+
+        // 备注行（底部）：显示当前备注，整行可点开多行备注框，保存即写库并就地刷新本行；
+        // 备注不上图，无需通知宿主重建叠加层
+        val remarkRow = sheet.findViewById<View>(R.id.photo_sheet_ll_remark)
+        val tvRemark = sheet.findViewById<TextView>(R.id.photo_sheet_tv_remark)
+        if (placemark == null) {
+            remarkRow.visibility = View.GONE
+        } else {
+            fun renderRemark(text: String?) {
+                if (text.isNullOrEmpty()) {
+                    tvRemark.text = REMARK_EMPTY
+                    tvRemark.setTextColor(Color.parseColor(REMARK_EMPTY_COLOR))
+                } else {
+                    tvRemark.text = text
+                    tvRemark.setTextColor(Color.parseColor(REMARK_TEXT_COLOR))
+                }
+            }
+            renderRemark(placemark.remark)
+            remarkRow.setOnClickListener {
+                RemarkEditDialog.show(requireActivity(), "照片备注", placemark.remark ?: "") { remark ->
+                    ProjectManager.get(requireContext()).updatePhotoRemark(placemark.id, remark)
+                    placemark.remark = remark
+                    renderRemark(remark)
+                    Toast.makeText(requireContext(), "备注已保存", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
 
         // 圆角背景与可手势调整的高度档位由基类统一配置（见 BaseBottomSheetDialog）
@@ -186,6 +214,11 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
 
         /** 缩略图网格列数 */
         private const val GRID_SPAN_COUNT = 3
+
+        /** 备注行的空态占位（与「暂无照片」同一灰调，提示这行可点） */
+        private const val REMARK_EMPTY = "未填写"
+        private const val REMARK_EMPTY_COLOR = "#999999"
+        private const val REMARK_TEXT_COLOR = "#212121"
 
         /** 缩略图解码边长（像素）：采样解码到此尺寸，避免原图 OOM */
         private const val THUMBNAIL_SIZE_PX = 240

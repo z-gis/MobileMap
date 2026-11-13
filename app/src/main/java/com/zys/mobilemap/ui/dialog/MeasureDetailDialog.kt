@@ -1,6 +1,7 @@
 package com.zys.mobilemap.ui.dialog
 
 import android.app.Dialog
+import android.graphics.Color
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
@@ -10,14 +11,15 @@ import com.zys.mobilemap.R
 
 /**
  * 测量/轨迹详情 BottomSheet：点击已保存的测量或轨迹后弹出。
- * 标题栏含名称 + 操作图标（编辑/分享/删除/关闭），中间为样式编辑区（颜色色块 + 线宽步进），
- * 底部仅保留「保存」按键。
+ * 标题栏含名称 + 操作文字键（重命名/分享/删除/关闭），中间为样式编辑区（颜色色块 + 线宽步进），
+ * 其下为「备注：内容」行（整行可点），底部仅保留「保存」按键。
  *
  * 颜色以 ARGB Int 存取（与 measurement 表 color 列一致）；
  * 保存经 [onSave] 写库并重载图层，删除经 [onDelete] 走宿主删除确认。
- * [onShare] 为空时分享图标隐藏，仅轨迹详情传入时展示。
- * [onRename] 为空时不展示编辑图标；改名落库成功后宿主按 tag 取回本弹层并调
+ * [onShare] 为空时分享键隐藏，仅轨迹详情传入时展示。
+ * [onRename] 为空时不展示重命名键；改名落库成功后宿主按 tag 取回本弹层并调
  * [updateTitle] 就地刷新标题（不重建弹层，用户已改的色/线宽不丢）。
+ * [onRemark] 为空（轨迹详情）时整行隐藏；备注框由本弹层弹出，确认后就地刷新本行并交宿主写库。
  */
 class MeasureDetailDialog(
     private val title: String,
@@ -27,12 +29,16 @@ class MeasureDetailDialog(
     private val widthEditable: Boolean,
     private val initialColor: Int,
     private val initialWidth: Int,
+    /** 备注行初值（空串显示占位）；与 [onRemark] 成对传入 */
+    private val initialRemark: String = "",
     private val onSave: ((color: Int, width: Int) -> Unit)?,
     private val onDelete: (() -> Unit)?,
-    /** 分享回调（轨迹详情专用，导出 shp 数据包）；为空时不展示分享图标 */
+    /** 分享回调（轨迹详情专用，导出 shp 数据包）；为空时不展示分享键 */
     private val onShare: (() -> Unit)? = null,
-    /** 重命名回调；为空时不展示编辑图标 */
-    private val onRename: (() -> Unit)? = null
+    /** 重命名回调；为空时不展示重命名键 */
+    private val onRename: (() -> Unit)? = null,
+    /** 备注保存回调（备注文本）；为空时底部备注行隐藏（仅测量详情传入，轨迹不传） */
+    private val onRemark: ((remark: String) -> Unit)? = null
 ) : BaseBottomSheetDialog(R.layout.dialog_measure_detail) {
 
     private var color = initialColor
@@ -54,35 +60,35 @@ class MeasureDetailDialog(
         titleView = tv
         sheet.findViewById<TextView>(R.id.measure_detail_tv_close).setOnClickListener { dismiss() }
 
-        // 标题栏操作图标
-        val ivRename = sheet.findViewById<ImageView>(R.id.measure_detail_iv_rename)
+        // 标题栏操作键（文字键，回调为空的键隐藏）
+        val btnRename = sheet.findViewById<TextView>(R.id.measure_detail_btn_rename)
         if (onRename != null) {
-            ivRename.visibility = View.VISIBLE
-            ivRename.setOnClickListener { onRename.invoke() }
+            btnRename.visibility = View.VISIBLE
+            btnRename.setOnClickListener { onRename.invoke() }
         } else {
-            ivRename.visibility = View.GONE
+            btnRename.visibility = View.GONE
         }
 
-        val ivShare = sheet.findViewById<ImageView>(R.id.measure_detail_iv_share)
+        val btnShare = sheet.findViewById<TextView>(R.id.measure_detail_btn_share)
         if (onShare != null) {
-            ivShare.visibility = View.VISIBLE
-            ivShare.setOnClickListener {
+            btnShare.visibility = View.VISIBLE
+            btnShare.setOnClickListener {
                 onShare.invoke()
                 dismiss()
             }
         } else {
-            ivShare.visibility = View.GONE
+            btnShare.visibility = View.GONE
         }
 
-        val ivDelete = sheet.findViewById<ImageView>(R.id.measure_detail_iv_delete)
+        val btnDelete = sheet.findViewById<TextView>(R.id.measure_detail_btn_delete)
         if (onDelete != null) {
-            ivDelete.visibility = View.VISIBLE
-            ivDelete.setOnClickListener {
+            btnDelete.visibility = View.VISIBLE
+            btnDelete.setOnClickListener {
                 onDelete.invoke()
                 dismiss()
             }
         } else {
-            ivDelete.visibility = View.GONE
+            btnDelete.visibility = View.GONE
         }
 
         // 基本信息
@@ -120,6 +126,35 @@ class MeasureDetailDialog(
                 .setOnClickListener { applyWidth(lineWidth + 1) }
         }
 
+        // 备注行（保存键上方）：整行可点多行备注框，确认后就地刷新本行并交宿主写库；
+        // 备注框叠在本弹层之上，本弹层不关闭（用户已改的色/线宽不丢）
+        val remarkRow = sheet.findViewById<View>(R.id.measure_detail_ll_remark)
+        if (onRemark == null) {
+            remarkRow.visibility = View.GONE
+        } else {
+            remarkRow.visibility = View.VISIBLE
+            val tvRemark = sheet.findViewById<TextView>(R.id.measure_detail_tv_remark)
+            var remarkText = initialRemark
+            // 空态用占位灰字，避免和真备注混读
+            fun renderRemark(text: String) {
+                if (text.isEmpty()) {
+                    tvRemark.text = REMARK_EMPTY
+                    tvRemark.setTextColor(Color.parseColor(REMARK_EMPTY_COLOR))
+                } else {
+                    tvRemark.text = text
+                    tvRemark.setTextColor(Color.parseColor(REMARK_TEXT_COLOR))
+                }
+            }
+            renderRemark(remarkText)
+            remarkRow.setOnClickListener {
+                RemarkEditDialog.show(requireActivity(), "测量备注", remarkText) { saved ->
+                    remarkText = saved
+                    renderRemark(saved)
+                    onRemark.invoke(saved)
+                }
+            }
+        }
+
         // 底部保存按键
         sheet.findViewById<Button>(R.id.measure_detail_btn_save).setOnClickListener {
             onSave?.invoke(color, lineWidth)
@@ -131,6 +166,11 @@ class MeasureDetailDialog(
     companion object {
         private const val WIDTH_MIN = 1
         private const val WIDTH_MAX = 10
+
+        /** 备注行的空态占位（同 PhotoSheetDialog） */
+        private const val REMARK_EMPTY = "未填写"
+        private const val REMARK_EMPTY_COLOR = "#999999"
+        private const val REMARK_TEXT_COLOR = "#212121"
     }
 
     /**

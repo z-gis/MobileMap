@@ -16,6 +16,9 @@ class MapDocument {
     var vectorLayers: MutableList<LayerInfo> = mutableListOf()
     var rasterLayers: MutableList<LayerInfo> = mutableListOf()
     var mapSources: MutableList<MapSource> = mutableListOf()
+
+    /** 图层分组，数组序 = 创建序 = 列表节序；旧文档缺省为空 = 全部未分组 */
+    var groups: MutableList<LayerGroup> = mutableListOf()
     var systemConfig: SystemConfig = SystemConfig()
 
     // 相机完整姿态；NaN 表示“未记录”，序列化时会被跳过
@@ -43,6 +46,7 @@ class MapDocument {
         root.put("mapSources", JSONArray(mapSources.map { it.toJson() }))
         root.put("rasterLayers", JSONArray(rasterLayers.map { it.toJson() }))
         root.put("vectorLayers", JSONArray(vectorLayers.map { it.toJson() }))
+        root.put("groups", JSONArray(groups.map { it.toJson() }))
     }
 
     /** 姿态字段仅在非 NaN（即确实记录过）时写入 */
@@ -63,6 +67,7 @@ class MapDocument {
             doc.mapSources.addAll(parseArray(json, "mapSources") { MapSource.fromJson(it) })
             doc.rasterLayers.addAll(parseArray(json, "rasterLayers") { LayerInfo.fromJson(it) })
             doc.vectorLayers.addAll(parseArray(json, "vectorLayers") { LayerInfo.fromJson(it) })
+            doc.groups.addAll(parseArray(json, "groups") { LayerGroup.fromJson(it) })
 
             // 姿态字段缺失或非数值时，optXxx 返回默认值（即当前值），效果与 has 守卫一致
             doc.camLatitude = json.optDouble("camLatitude", doc.camLatitude)

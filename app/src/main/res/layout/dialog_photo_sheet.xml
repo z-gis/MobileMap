@@ -6,7 +6,7 @@
     android:orientation="vertical"
     android:padding="12dp">
 
-    <!-- 顶部：名称 + 操作图标（编辑/分享/删除/关闭） -->
+    <!-- 顶部：名称 + 操作文字键（重命名/分享/删除/关闭）；备注移到下方独立行 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -24,36 +24,51 @@
             android:textSize="16sp"
             android:textStyle="bold" />
 
-        <!-- 重命名：弹「编辑拍照标识」对话框（名称+分组），无点位时隐藏 -->
-        <ImageView
+        <!-- 重命名：弹「重命名拍照标识」对话框（名称+分组），无点位时隐藏 -->
+        <TextView
             android:id="@+id/photo_sheet_rename"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:background="?android:attr/selectableItemBackground"
-            android:contentDescription="重命名"
-            android:padding="6dp"
-            android:src="@drawable/ic_edit" />
+            android:paddingStart="6dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="4dp"
+            android:text="重命名"
+            android:textColor="#2A6FDB"
+            android:textSize="14sp"
+            tools:ignore="HardcodedText" />
 
-        <ImageView
+        <TextView
             android:id="@+id/photo_sheet_share"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:background="?android:attr/selectableItemBackground"
-            android:contentDescription="分享"
-            android:padding="6dp"
-            android:src="@drawable/ic_share" />
+            android:paddingStart="6dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="4dp"
+            android:text="分享"
+            android:textColor="#2A6FDB"
+            android:textSize="14sp"
+            tools:ignore="HardcodedText" />
 
-        <ImageView
+        <TextView
             android:id="@+id/photo_sheet_delete"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:background="?android:attr/selectableItemBackground"
-            android:contentDescription="删除"
-            android:padding="6dp"
-            android:src="@drawable/ic_delete" />
+            android:paddingStart="6dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="4dp"
+            android:text="删除"
+            android:textColor="#E64545"
+            android:textSize="14sp"
+            tools:ignore="HardcodedText" />
 
         <!-- 关闭（文本 ✕，与其他详情弹层一致） -->
         <TextView
@@ -83,5 +98,36 @@
         android:textColor="#999999"
         android:textSize="14sp"
         android:visibility="gone"/>
+
+    <!-- 备注行：整行可点，弹多行备注框，保存后就地刷新本行（无点位时整行隐藏） -->
+    <LinearLayout
+        android:id="@+id/photo_sheet_ll_remark"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:background="?android:attr/selectableItemBackground"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="备注："
+            android:textColor="#616161"
+            android:textSize="14sp"
+            tools:ignore="HardcodedText" />
+
+        <TextView
+            android:id="@+id/photo_sheet_tv_remark"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:textColor="#212121"
+            android:textSize="14sp" />
+    </LinearLayout>
 
 </LinearLayout>

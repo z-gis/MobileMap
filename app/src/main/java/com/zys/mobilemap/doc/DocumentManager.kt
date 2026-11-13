@@ -191,6 +191,53 @@ class DocumentManager private constructor() {
         }
     }
 
+    // ---- 图层分组（组纯组织管理；组可见性扇出写成员 visible，渲染层不认组，与拍照分组同口径）----
+
+    /** 新建分组：id 取现有最大 +1，返回新组 id（文档未加载返回 -1） */
+    fun addLayerGroup(context: Context, name: String): Int {
+        val doc = getDocument() ?: return -1
+        val id = (doc.groups.maxOfOrNull { it.id } ?: 0) + 1
+        doc.groups.add(LayerGroup(id, name))
+        save(context)
+        return id
+    }
+
+    fun renameLayerGroup(context: Context, id: Int, name: String) {
+        val doc = getDocument() ?: return
+        doc.groups.firstOrNull { it.id == id }?.name = name
+        save(context)
+    }
+
+    /** 删除分组：成员回落未分组，图层本身不动 */
+    fun removeLayerGroup(context: Context, id: Int) {
+        val doc = getDocument() ?: return
+        doc.groups.removeAll { it.id == id }
+        for (li in doc.vectorLayers) if (li.groupId == id) li.groupId = LayerInfo.UNGROUPED_ID
+        for (li in doc.rasterLayers) if (li.groupId == id) li.groupId = LayerInfo.UNGROUPED_ID
+        save(context)
+    }
+
+    /** 组可见性开关：批量写组内每层 visible（一次 save 一次广播） */
+    fun setLayerGroupVisible(context: Context, id: Int, visible: Boolean) {
+        val doc = getDocument() ?: return
+        for (li in doc.vectorLayers) if (li.groupId == id) li.visible = visible
+        for (li in doc.rasterLayers) if (li.groupId == id) li.visible = visible
+        save(context)
+    }
+
+    /** 图层移入组（-1 = 未分组）；newGroupName 非空时先建组再落入（同一次 save） */
+    fun moveLayerToGroup(context: Context, path: String, vector: Boolean, groupId: Int, newGroupName: String = "") {
+        val doc = getDocument() ?: return
+        var target = groupId
+        if (newGroupName.isNotEmpty()) {
+            target = (doc.groups.maxOfOrNull { it.id } ?: 0) + 1
+            doc.groups.add(LayerGroup(target, newGroupName))
+        }
+        val list = if (vector) doc.vectorLayers else doc.rasterLayers
+        list.firstOrNull { it.path == path }?.groupId = target
+        save(context)
+    }
+
     fun save(context: Context) {
         synchronized(this) {
             val doc = document ?: return

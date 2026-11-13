@@ -6,7 +6,7 @@
     android:orientation="vertical"
     android:padding="12dp">
 
-    <!-- 顶部：名称 + 操作图标（编辑/分享/删除/关闭） -->
+    <!-- 顶部：名称 + 操作文字键（重命名/分享/删除/关闭）；备注移到「保存」上方独立行 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -24,37 +24,52 @@
             android:textSize="16sp"
             android:textStyle="bold" />
 
-        <ImageView
-            android:id="@+id/measure_detail_iv_rename"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+        <TextView
+            android:id="@+id/measure_detail_btn_rename"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:background="?android:attr/selectableItemBackground"
-            android:contentDescription="重命名"
-            android:padding="6dp"
-            android:src="@drawable/ic_edit"
-            android:visibility="gone" />
+            android:paddingStart="6dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="4dp"
+            android:text="重命名"
+            android:textColor="#2A6FDB"
+            android:textSize="14sp"
+            android:visibility="gone"
+            tools:ignore="HardcodedText" />
 
-        <ImageView
-            android:id="@+id/measure_detail_iv_share"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+        <TextView
+            android:id="@+id/measure_detail_btn_share"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:background="?android:attr/selectableItemBackground"
-            android:contentDescription="分享"
-            android:padding="6dp"
-            android:src="@drawable/ic_share"
-            android:visibility="gone" />
+            android:paddingStart="6dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="4dp"
+            android:text="分享"
+            android:textColor="#2A6FDB"
+            android:textSize="14sp"
+            android:visibility="gone"
+            tools:ignore="HardcodedText" />
 
-        <ImageView
-            android:id="@+id/measure_detail_iv_delete"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+        <TextView
+            android:id="@+id/measure_detail_btn_delete"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:background="?android:attr/selectableItemBackground"
-            android:contentDescription="删除"
-            android:padding="6dp"
-            android:src="@drawable/ic_delete" />
+            android:paddingStart="6dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="4dp"
+            android:text="删除"
+            android:textColor="#E64545"
+            android:textSize="14sp"
+            tools:ignore="HardcodedText" />
 
         <TextView
             android:id="@+id/measure_detail_tv_close"
@@ -182,6 +197,38 @@
                 android:textSize="18sp"
                 tools:ignore="HardcodedText" />
         </LinearLayout>
+    </LinearLayout>
+
+    <!-- 备注行：整行可点，弹多行备注框，保存后就地刷新本行（轨迹详情无备注，整行隐藏） -->
+    <LinearLayout
+        android:id="@+id/measure_detail_ll_remark"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:background="?android:attr/selectableItemBackground"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="备注："
+            android:textColor="#616161"
+            android:textSize="14sp"
+            tools:ignore="HardcodedText" />
+
+        <TextView
+            android:id="@+id/measure_detail_tv_remark"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:textColor="#212121"
+            android:textSize="14sp" />
     </LinearLayout>
 
     <!-- 底部按键：保存 -->

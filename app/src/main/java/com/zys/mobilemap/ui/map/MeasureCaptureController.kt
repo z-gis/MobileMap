@@ -348,13 +348,15 @@ internal class MeasureCaptureController(
             widthEditable = record.type != Project.MeasureRecord.TYPE_POINT,
             initialColor = ProjectManager.parseColor(record.color, defaultColorForType(record.type)),
             initialWidth = record.lineWidth,
+            initialRemark = record.remark ?: "",
             onSave = { color, width ->
                 ProjectManager.get(activity).updateMeasureStyle(record.id, color, width)
                 rebuildOverlays()
                 Toast.makeText(activity, "样式已更新", Toast.LENGTH_SHORT).show()
             },
             onDelete = { confirmDeleteMeasurement(record) },
-            onRename = { promptRenameMeasure(record) }
+            onRename = { promptRenameMeasure(record) },
+            onRemark = { remark -> saveMeasureRemark(record, remark) }
         ).show(fm, TAG_MEASURE_DETAIL)
     }
 
@@ -369,6 +371,13 @@ internal class MeasureCaptureController(
             (fm.findFragmentByTag(TAG_MEASURE_DETAIL) as? MeasureDetailDialog)?.updateTitle(newName)
             Toast.makeText(activity, "已重命名", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /** 测量备注写库（备注框已挪进详情弹层底部行）；备注不上图，无需重建叠加层 */
+    private fun saveMeasureRemark(record: Project.MeasureRecord, remark: String) {
+        ProjectManager.get(activity).updateMeasureRemark(record.id, remark)
+        record.remark = remark
+        Toast.makeText(activity, "备注已保存", Toast.LENGTH_SHORT).show()
     }
 
     /** 删除测量确认：删库并重建叠加层 */

@@ -36,6 +36,9 @@ class LayerInfo {
      */
     var userMinDisplayLevel: Int = -1
 
+    /** 所属分组 id；[UNGROUPED_ID] = 未分组。组纯组织管理，不影响压盖顺序 */
+    var groupId: Int = UNGROUPED_ID
+
     /** 级别可见性生效值：用户指定（≥0）优先，否则用自动计算值；两者皆 <0 表示不限制 */
     val effectiveMinDisplayLevel: Int
         get() = if (userMinDisplayLevel >= 0) userMinDisplayLevel else autoMinDisplayLevel
@@ -59,6 +62,7 @@ class LayerInfo {
         if (rasterFullExtent) o.put("rasterFullExtent", true)
         if (autoMinDisplayLevel != -1) o.put("autoMinDisplayLevel", autoMinDisplayLevel)
         if (userMinDisplayLevel != -1) o.put("userMinDisplayLevel", userMinDisplayLevel)
+        if (groupId != UNGROUPED_ID) o.put("groupId", groupId)
         val style = vectorStyle
         if (style != null && !style.isEmpty()) o.put("vectorStyle", style.toJson())
         return o
@@ -71,6 +75,9 @@ class LayerInfo {
         /** 图层类型取值（document.json 的 type 字段）：栅格图层 */
         const val TYPE_RASTER = "raster"
 
+        /** 未分组哨兵值（与拍照 UNGROUPED_ID 同口径） */
+        const val UNGROUPED_ID = -1
+
         fun fromJson(o: JSONObject): LayerInfo {
             val l = LayerInfo()
             if (o.has("name") && !o.isNull("name")) l.name = o.getString("name")
@@ -81,6 +88,7 @@ class LayerInfo {
             l.rasterFullExtent = o.optBoolean("rasterFullExtent", false)
             if (o.has("autoMinDisplayLevel")) l.autoMinDisplayLevel = o.optInt("autoMinDisplayLevel", -1)
             if (o.has("userMinDisplayLevel")) l.userMinDisplayLevel = o.optInt("userMinDisplayLevel", -1)
+            l.groupId = o.optInt("groupId", UNGROUPED_ID)
             val style = o.optJSONObject("vectorStyle")
             if (style != null) l.vectorStyle = VectorStyle.fromJson(style)
             return l

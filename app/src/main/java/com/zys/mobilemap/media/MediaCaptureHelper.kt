@@ -10,6 +10,7 @@ import android.provider.MediaStore as ProviderMediaStore
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -46,8 +47,21 @@ class MediaCaptureHelper(
     private var pendingCaptureLon = Double.NaN
     private var pendingPermissionRequest = false
 
+    /**
+     * 相机权限往返期间暂存的落点坐标（NaN = 无落点，授权后按定位口径重放）。
+     * 授权回调若写死回 [launchPhotoCapture]，长按落点会在这次异步往返里丢掉。
+     */
+    private var pendingStartLat = Double.NaN
+    private var pendingStartLon = Double.NaN
+
     private lateinit var photoCaptureLauncher: ActivityResultLauncher<Intent>
     private lateinit var cameraPermissionLauncher: ActivityResultLauncher<String>
+
+    /** 相册多选（Photo Picker，13 以下自动退化为 ACTION_OPEN_DOCUMENT），免存储权限 */
+    private lateinit var albumPickerLauncher: ActivityResultLauncher<PickVisualMediaRequest>
+
+    /** 相册补图所属点位：选择是异步往返，回调时按它落附件 */
+    private var albumSessionId = -1L
 
     /**
      * 注册 Activity 结果回调，必须在 Activity onCreate 中尽早调用。
@@ -58,13 +72,17 @@ class MediaCaptureHelper(
         ) { result ->
             handleCaptureResult(result.resultCode == Activity.RESULT_OK)
         }
+        albumPickerLauncher = activity.registerForActivityResult(
+            ActivityResultContracts.PickMultipleVisualMedia(ALBUM_MAX_SELECT)
+        ) { uris -> handleAlbumPicked(uris) }
         cameraPermissionLauncher = activity.registerForActivityResult(
             ActivityResultContracts.RequestPermission()
         ) { granted ->
             val shouldLaunch = pendingPermissionRequest
             pendingPermissionRequest = false
             if (granted && shouldLaunch) {
-                launchPhotoCapture()
+                // 按暂存坐标重放：有落点走兴趣点口径，无落点仍是定位拍照口径
+                startCapture(pendingStartLat, pendingStartLon)
             } else if (!granted) {
                 Toast.makeText(activity, "未获得相机权限", Toast.LENGTH_SHORT).show()
             }
@@ -72,31 +90,159 @@ class MediaCaptureHelper(
     }
 
     /**
-     * 启动拍照：相机权限检查 → 定位坐标 → 建会话（首张）→ 调起系统相机。
+     * 启动拍照（定位坐标口径）：相机权限检查 → 当前定位坐标 → 建会话（首张）→ 调起系统相机。
      */
     fun launchPhotoCapture() {
+        startCapture(Double.NaN, Double.NaN)
+    }
+
+    /**
+     * 以地图落点坐标启动拍照（兴趣点）：坐标由调用方给定，与是否定位成功无关。
+     */
+    fun launchPhotoCaptureAt(lat: Double, lon: Double) {
+        startCapture(lat, lon)
+    }
+
+    /**
+     * 从相册选图建/补兴趣点：不调相机、不依赖定位与相机权限，选中照片作为该点位的附件入库。
+     * 已在连拍会话中则并入当前会话点位（与连拍同归属口径）。
+     * 相册原图不带本应用坐标，故不加水印、capturedAt 记本次入库时刻。
+     */
+    fun pickPhotosFromAlbum(lat: Double, lon: Double) {
+        val id = if (sessionPlacemarkId >= 0) sessionPlacemarkId else ensureSessionAt(lat, lon, "兴趣点")
+        if (id < 0) return
+        albumSessionId = id
+        albumPickerLauncher.launch(
+            PickVisualMediaRequest.Builder()
+                .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                .build()
+        )
+    }
+
+    /** 相册选择回调：逐张把 content URI 拷进会话目录再入库；取消/全失败则清理空点位 */
+    private fun handleAlbumPicked(uris: List<Uri>) {
+        val placemarkId = albumSessionId
+        albumSessionId = -1L
+        if (placemarkId < 0) return
+        if (uris.isEmpty()) {
+            cleanupEmptySessionPlacemark()
+            return
+        }
+        val placemarkDir = File(AppDirectories.getMediaDir(activity), placemarkId.toString())
+        if (!placemarkDir.exists() && !placemarkDir.mkdirs()) {
+            Toast.makeText(activity, "创建媒体目录失败", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val pm = ProjectManager.get(activity)
+        var saved = 0
+        for (uri in uris) {
+            val time = String.format(Locale.US, "%1\$tY%1\$tm%1\$td_%1\$tH%1\$tM%1\$tS", Date())
+            val ext = extensionOf(uri)
+            val outFile = File(placemarkDir, "ALB_$time${if (ext.isEmpty()) ".jpg" else ext}")
+            if (!copyTo(uri, outFile)) {
+                if (outFile.exists()) outFile.delete()
+                continue
+            }
+            pm.addPhotoAttachment(placemarkId, outFile.name, outFile.absolutePath, System.currentTimeMillis())
+            saved++
+        }
+        if (saved == 0) {
+            cleanupEmptySessionPlacemark()
+            Toast.makeText(activity, "相册照片读取失败", Toast.LENGTH_SHORT).show()
+            return
+        }
+        pm.saveNow()
+        Toast.makeText(activity, "已添加 $saved 张相册照片", Toast.LENGTH_SHORT).show()
+        if (sessionPlacemarkId == placemarkId) {
+            // 由相册流程建的会话：结束连拍并把点位交给编辑面板，语义与拍完点「完成」一致
+            finishSession()
+        } else {
+            onMediaChanged()
+        }
+    }
+
+    /** content URI 的扩展名（小写、带点，取不到返回空串）；相册图常见 jpeg/heic，入库后按源扩展名命名 */
+    private fun extensionOf(uri: Uri): String {
+        val mime = activity.contentResolver.getType(uri) ?: return ""
+        val ext = when {
+            mime.endsWith("jpeg") || mime.endsWith("jpg") -> "jpg"
+            mime.endsWith("png") -> "png"
+            mime.endsWith("webp") -> "webp"
+            mime.endsWith("heic") -> "heic"
+            else -> ""
+        }
+        return if (ext.isEmpty()) "" else ".$ext"
+    }
+
+    /** content URI → 沙箱文件直拷（不经 Bitmap 重编码，保住原图与 EXIF） */
+    private fun copyTo(uri: Uri, dest: File): Boolean = try {
+        activity.contentResolver.openInputStream(uri)?.use { input ->
+            dest.outputStream().use { output -> input.copyTo(output) }
+        } != null && dest.length() > 0
+    } catch (e: Exception) {
+        Log.e(TAG, "相册照片拷贝失败: $uri", e)
+        false
+    }
+
+    /**
+     * 相册入口的建点：只建点位、不调相机。失败已提示并返回 -1。
+     */
+    private fun ensureSessionAt(lat: Double, lon: Double, prefix: String): Long {
+        val now = System.currentTimeMillis()
+        val id = ProjectManager.get(activity).addPhoto(formatPlacemarkName(now, prefix), lat, lon, now)
+        if (id < 0) {
+            Toast.makeText(activity, "创建兴趣点失败", Toast.LENGTH_SHORT).show()
+            return -1L
+        }
+        pendingCaptureLat = lat
+        pendingCaptureLon = lon
+        sessionPlacemarkId = id
+        return id
+    }
+
+    /**
+     * 两个入口的共用体。
+     *
+     * 坐标优先级：调用方落点（[lat]/[lon] 非 NaN）> 当前定位；两者皆无则不建点位（保持原提示口径）。
+     * 相机权限未授予时把落点暂存进 [pendingStartLat]/[pendingStartLon]，由授权回调按暂存重放——
+     * 权限是异步往返，回调里若写死 [launchPhotoCapture] 会把长按落点退化成定位点。
+     */
+    private fun startCapture(lat: Double, lon: Double) {
         if (ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA)
             != PackageManager.PERMISSION_GRANTED
         ) {
+            pendingStartLat = lat
+            pendingStartLon = lon
             pendingPermissionRequest = true
             cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
             return
         }
+        pendingStartLat = Double.NaN
+        pendingStartLon = Double.NaN
 
-        // 会话首张照片固定坐标，后续照片归入同一标注点
-        if (sessionPlacemarkId < 0) {
-            val location = LocationManager.getInstance().getLastLocation()
-            if (location == null) {
+        if (sessionPlacemarkId >= 0) {
+            // 已在连拍会话中：定位口径继续拍下一张（原行为，归入同一点位）；
+            // 落点口径拒绝，否则本次照片会静默并入上一个点位
+            if (!lat.isNaN()) {
+                Toast.makeText(activity, "请先完成当前连拍", Toast.LENGTH_SHORT).show()
+                return
+            }
+        } else {
+            // 会话首张照片固定坐标，后续照片归入同一标注点
+            val located = if (lat.isNaN()) LocationManager.getInstance().getLastLocation() else null
+            val useLat = if (lat.isNaN()) located?.latitude else lat
+            val useLon = if (lon.isNaN()) located?.longitude else lon
+            if (useLat == null || useLon == null) {
                 Toast.makeText(activity, "尚未定位成功，无法标注照片位置", Toast.LENGTH_LONG).show()
                 return
             }
-            pendingCaptureLat = location.latitude
-            pendingCaptureLon = location.longitude
+            pendingCaptureLat = useLat
+            pendingCaptureLon = useLon
 
             val now = System.currentTimeMillis()
             sessionPlacemarkId = ProjectManager.get(activity).addPhoto(
-                formatPlacemarkName(now),
-                pendingCaptureLat, pendingCaptureLon, now
+                formatPlacemarkName(now, if (lat.isNaN()) "拍照" else "兴趣点"),
+                useLat, useLon, now
             )
             if (sessionPlacemarkId < 0) {
                 Toast.makeText(activity, "创建拍照记录失败", Toast.LENGTH_SHORT).show()
@@ -245,8 +391,14 @@ class MediaCaptureHelper(
     companion object {
         private const val TAG = "MediaCaptureHelper"
 
-        /** 会话点位默认时间名（自原底层库主界面 MediaOverlayModel 抽入，该类已随主界面移除） */
-        fun formatPlacemarkName(time: Long): String =
-            "拍照 " + SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(time))
+        /** 相册单次最多选几张（与鸿蒙 PhotoViewPicker maxSelectNumber 对齐） */
+        private const val ALBUM_MAX_SELECT = 9
+
+        /**
+         * 会话点位默认时间名（自原底层库主界面 MediaOverlayModel 抽入，该类已随主界面移除）。
+         * @param prefix 定位拍照「拍照」/ 长按落点「兴趣点」，与鸿蒙 Ui.stampName 同格式
+         */
+        fun formatPlacemarkName(time: Long, prefix: String = "拍照"): String =
+            prefix + " " + SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(time))
     }
 }
