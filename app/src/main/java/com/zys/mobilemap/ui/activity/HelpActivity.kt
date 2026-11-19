@@ -3,6 +3,7 @@ package com.zys.mobilemap.ui.activity
 import android.os.Bundle
 import android.view.View
 import android.widget.TextView
+import androidx.core.view.isVisible
 import com.zys.mobilemap.R
 import com.zys.mobilemap.ui.FormattedTexts
 
@@ -36,7 +37,7 @@ class HelpActivity : BaseStyledActivity() {
         val title = findViewById<TextView>(titleId)
         val body = findViewById<TextView>(bodyId)
         title.setOnClickListener {
-            body.visibility = if (body.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            body.isVisible = !body.isVisible
         }
     }
 }

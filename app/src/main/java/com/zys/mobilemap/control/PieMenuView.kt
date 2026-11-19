@@ -254,6 +254,7 @@ class PieMenuView @JvmOverloads constructor(
                 // 长按弹菜单的同一次抬手：本浮层未收到其 DOWN，属穿透孤立 UP → 吞掉，避免“弹出即被关”
                 if (!sawDown) return true
                 sawDown = false
+                performClick()
                 val hit = hitTest(event.x, event.y)
                 if (hit != null) {
                     hit.onClick()
@@ -266,6 +267,11 @@ class PieMenuView @JvmOverloads constructor(
             }
         }
         // 打开期间拦截移动等事件，避免穿透触发地图手势
+        return true
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
         return true
     }
 

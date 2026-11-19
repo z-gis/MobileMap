@@ -24,7 +24,9 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="8dp"
+            android:importantForAutofill="no"
             android:hint="@string/map_source_name_hint"
+            android:inputType="text"
             android:textSize="14sp" />
     </LinearLayout>
 
@@ -48,6 +50,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="8dp"
+            android:importantForAutofill="no"
             android:hint="@string/map_source_url_hint"
             android:inputType="textUri"
             android:textSize="14sp" />
@@ -95,7 +98,9 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="8dp"
+            android:importantForAutofill="no"
             android:hint="@string/map_source_token_hint"
+            android:inputType="textNoSuggestions"
             android:textSize="14sp" />
     </LinearLayout>
 
@@ -119,7 +124,9 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="8dp"
+            android:importantForAutofill="no"
             android:hint="@string/map_source_token_hint"
+            android:inputType="textNoSuggestions"
             android:textSize="14sp" />
     </LinearLayout>
 

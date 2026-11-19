@@ -17,6 +17,7 @@ import androidx.activity.OnBackPressedCallback
 import com.zys.mobilemap.R
 import com.zys.mobilemap.util.AppDirectories
 import com.zys.mobilemap.util.PermissionUtil
+import com.zys.mobilemap.vector.VectorFormats
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -182,8 +183,15 @@ class OpenFileActivity : BaseStyledActivity() {
      */
     private fun onItemSelected(item: FileItem) {
         if (item.file.isDirectory) {
-            // 目录：进入浏览
-            updateList(item.file)
+            // FileGDB 是包含多文件的数据集目录，矢量导入模式下选中整个目录而非进入浏览。
+            val isGdb = VectorFormats.isGdb(item.file.name)
+            val acceptsGdb = fileTypeArray?.any { it.trim().removePrefix(".").equals("gdb", true) } == true
+            if (isGdb && acceptsGdb) {
+                setResult(RESULT_OK, Intent().putExtra(RESULT_PATH, item.file.absolutePath))
+                finish()
+            } else {
+                updateList(item.file)
+            }
             return
         }
 

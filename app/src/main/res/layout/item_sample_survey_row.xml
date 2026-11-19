@@ -17,7 +17,7 @@
             android:id="@+id/tv_sort_no"
             android:layout_width="28dp"
             android:layout_height="wrap_content"
-            android:text="1"
+            android:text="@string/sample_survey_initial_row_number"
             android:textSize="13sp"
             android:textColor="#424242"
             android:gravity="center" />
@@ -35,7 +35,8 @@
             android:layout_height="36dp"
             android:layout_weight="1.2"
             android:layout_marginStart="4dp"
-            android:hint="胸径"
+            android:hint="@string/sample_survey_dbh_hint"
+            android:importantForAutofill="no"
             android:inputType="numberDecimal"
             android:textSize="13sp"
             android:gravity="center"
@@ -70,7 +71,9 @@
             android:layout_height="36dp"
             android:layout_weight="1.5"
             android:layout_marginStart="4dp"
-            android:hint="备注"
+            android:hint="@string/sample_survey_remark_hint"
+            android:importantForAutofill="no"
+            android:inputType="text"
             android:textSize="13sp"
             android:gravity="center_vertical"
             android:background="@android:drawable/edit_text" />
@@ -81,7 +84,7 @@
             android:layout_height="32dp"
             android:layout_marginStart="4dp"
             android:padding="4dp"
-            android:contentDescription="删除"
+            android:contentDescription="@string/sample_survey_delete"
             android:src="@drawable/ic_delete"
             android:background="?attr/selectableItemBackgroundBorderless" />
     </LinearLayout>

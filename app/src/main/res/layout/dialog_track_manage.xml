@@ -13,7 +13,7 @@
         android:layout_height="wrap_content"
         android:paddingStart="12dp"
         android:paddingEnd="12dp"
-        android:text="轨迹管理"
+        android:text="@string/track_manage_title"
         android:textColor="#131313"
         android:textSize="16sp"
         android:textStyle="bold"/>
@@ -23,7 +23,7 @@
         android:layout_width="match_parent"
         android:layout_height="80dp"
         android:gravity="center"
-        android:text="暂无轨迹记录"
+        android:text="@string/track_manage_empty"
         android:textColor="#888888"
         android:textSize="14sp"
         android:visibility="gone"/>

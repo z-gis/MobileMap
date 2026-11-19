@@ -44,7 +44,7 @@ object TrackSharePackage {
     /** 旧导出包保留时长（毫秒）：超过则在下次导出时清理 */
     private const val STALE_PACKAGE_MS = 24 * 60 * 60 * 1000L
 
-    private val TIME_FORMAT = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+    private const val TIME_FORMAT_PATTERN = "yyyy-MM-dd HH:mm:ss"
     private val mainHandler = Handler(Looper.getMainLooper())
 
     /**
@@ -111,7 +111,10 @@ object TrackSharePackage {
         val lengthMeters = GeoCalc.polylineLengthMeters(track.points.map { doubleArrayOf(it[0], it[1]) })
         val fields = listOf(
             ShapefileWriter.DbfField("NAME", 100, track.name ?: "轨迹"),
-            ShapefileWriter.DbfField("CREATED", 20, TIME_FORMAT.format(Date(ProjectManager.parseTime(track.date)))),
+            ShapefileWriter.DbfField(
+                "CREATED", 20,
+                SimpleDateFormat(TIME_FORMAT_PATTERN, Locale.getDefault()).format(Date(ProjectManager.parseTime(track.date)))
+            ),
             ShapefileWriter.DbfField("LENGTH_M", 20, String.format(Locale.US, "%.1f", lengthMeters)),
             ShapefileWriter.DbfField("POINTS", 10, track.points.size.toString())
         )

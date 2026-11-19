@@ -15,7 +15,7 @@
         android:id="@+id/item_group_arrow"
         android:layout_width="28dp"
         android:layout_height="28dp"
-        android:contentDescription="折叠/展开"
+        android:contentDescription="@string/layer_group_toggle"
         android:padding="4dp"
         android:src="@drawable/ic_left_arrow_black"/>
 
@@ -57,7 +57,7 @@
         android:layout_height="36dp"
         android:layout_marginStart="2dp"
         android:background="?android:attr/selectableItemBackground"
-        android:contentDescription="分享分组"
+        android:contentDescription="@string/media_group_share"
         android:padding="6dp"
         android:src="@drawable/ic_share"/>
 
@@ -71,7 +71,7 @@
         android:paddingTop="4dp"
         android:paddingEnd="6dp"
         android:paddingBottom="4dp"
-        android:text="重命名"
+        android:text="@string/layer_group_rename"
         android:textColor="#2A6FDB"
         android:textSize="12sp"/>
 
@@ -80,7 +80,7 @@
         android:layout_width="36dp"
         android:layout_height="36dp"
         android:layout_marginStart="2dp"
-        android:contentDescription="删除分组"
+        android:contentDescription="@string/layer_group_delete"
         android:padding="6dp"
         android:src="@drawable/ic_delete"/>
 

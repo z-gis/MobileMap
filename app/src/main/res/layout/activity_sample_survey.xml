@@ -19,7 +19,7 @@
             android:layout_height="@dimen/activity_back_image_size"
             android:layout_centerVertical="true"
             android:padding="2dp"
-            android:contentDescription="返回"
+            android:contentDescription="@string/jni_map_back"
             android:src="@drawable/ic_left_arrow_black"
             android:background="?attr/selectableItemBackgroundBorderless" />
 
@@ -27,7 +27,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_centerInParent="true"
-            android:text="抚育设计样地调查"
+            android:text="@string/sample_survey_title"
             android:textColor="@color/black"
             android:textSize="@dimen/activity_title_text_size" />
     </RelativeLayout>
@@ -51,7 +51,8 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
                 android:paddingStart="4dp"
-                android:text="基本信息"
+                android:paddingEnd="4dp"
+                android:text="@string/sample_survey_basic_info"
                 android:textColor="#888888"
                 android:textSize="13sp" />
 
@@ -75,7 +76,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="小班编号"
+                        android:text="@string/sample_survey_compartment_no"
                         android:textColor="#888888"
                         android:textSize="@dimen/activity_item_text_size" />
 
@@ -94,7 +95,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="12dp"
-                        android:text="样地号"
+                        android:text="@string/sample_survey_plot_no_label"
                         android:textColor="#888888"
                         android:textSize="@dimen/activity_item_text_size" />
 
@@ -124,7 +125,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="GPS位置"
+                        android:text="@string/sample_survey_gps_location"
                         android:textColor="#888888"
                         android:textSize="@dimen/activity_item_text_size" />
 
@@ -136,7 +137,7 @@
                         android:layout_marginStart="8dp"
                         android:maxLines="1"
                         android:ellipsize="end"
-                        android:text="未定位"
+                        android:text="@string/sample_survey_not_located"
                         android:textColor="@color/black"
                         android:textSize="@dimen/activity_item_text_size" />
                 </LinearLayout>
@@ -155,7 +156,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="树高"
+                        android:text="@string/sample_survey_tree_height"
                         android:textColor="#888888"
                         android:textSize="@dimen/activity_item_text_size" />
 
@@ -165,7 +166,8 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:layout_marginStart="8dp"
-                        android:hint="米"
+                        android:hint="@string/sample_survey_meter_hint"
+                        android:importantForAutofill="no"
                         android:inputType="numberDecimal"
                         android:textColor="@color/black"
                         android:textSize="@dimen/activity_item_text_size"
@@ -175,7 +177,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="12dp"
-                        android:text="郁闭度"
+                        android:text="@string/sample_survey_canopy_density"
                         android:textColor="#888888"
                         android:textSize="@dimen/activity_item_text_size" />
 
@@ -185,7 +187,8 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:layout_marginStart="8dp"
-                        android:hint="0.0~1.0"
+                        android:hint="@string/sample_survey_canopy_density_hint"
+                        android:importantForAutofill="no"
                         android:inputType="numberDecimal"
                         android:textColor="@color/black"
                         android:textSize="@dimen/activity_item_text_size"
@@ -199,7 +202,8 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:paddingStart="4dp"
-                android:text="调查数据"
+                android:paddingEnd="4dp"
+                android:text="@string/sample_survey_data"
                 android:textColor="#888888"
                 android:textSize="13sp" />
 
@@ -221,6 +225,7 @@
 
             <!-- 操作按键 -->
             <LinearLayout
+                style="?android:attr/buttonBarStyle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
@@ -228,21 +233,23 @@
                 android:orientation="horizontal">
 
                 <Button
+                    style="?android:attr/buttonBarButtonStyle"
                     android:id="@+id/btn_add_row"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:layout_marginEnd="6dp"
-                    android:text="+ 添加行"
+                    android:text="@string/sample_survey_add_row"
                     android:textSize="@dimen/activity_item_text_size" />
 
                 <Button
+                    style="?android:attr/buttonBarButtonStyle"
                     android:id="@+id/btn_save"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:layout_marginStart="6dp"
-                    android:text="保存"
+                    android:text="@string/map_source_confirm"
                     android:textSize="@dimen/activity_item_text_size"
                     android:backgroundTint="#FF4A90D9"
                     android:textColor="#FFFFFF" />

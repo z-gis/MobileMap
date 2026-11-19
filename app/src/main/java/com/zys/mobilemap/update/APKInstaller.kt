@@ -2,12 +2,12 @@ package com.zys.mobilemap.update
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import androidx.core.net.toUri
 import java.io.File
 
 /**
@@ -25,7 +25,7 @@ class APKInstaller(private val activity: AppCompatActivity) {
         ) {
             val intent = Intent(
                 Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:${activity.packageName}")
+                "package:${activity.packageName}".toUri()
             )
             activity.startActivity(intent)
             return false

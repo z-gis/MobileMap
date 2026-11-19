@@ -4,6 +4,7 @@ import android.os.Build
 import android.view.View
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.isGone
 import com.zys.mobilemap.R
 import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.util.PermissionUtil
@@ -68,7 +69,7 @@ internal class StartupInitializer(private val activity: AppCompatActivity) {
     fun hideLoadingOverlay() {
         val overlay = loadingOverlay ?: return
         overlay.removeCallbacks(loadingOverlayTimeout)
-        if (overlay.visibility == View.GONE) return
+        if (overlay.isGone) return
         overlay.animate().alpha(0f).setDuration(300).withEndAction {
             overlay.visibility = View.GONE
             // 遮罩已隐藏：从“全屏遮罩”切回地图常态样式（恢复透明状态栏，导航栏仍隐藏）

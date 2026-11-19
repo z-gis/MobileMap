@@ -3,7 +3,6 @@ package com.zys.mobilemap.ui.dialog
 import android.app.AlertDialog
 import android.app.Dialog
 import android.content.Context
-import android.graphics.Color
 import android.text.style.AbsoluteSizeSpan
 import android.text.Editable
 import android.text.SpannableString
@@ -12,6 +11,7 @@ import android.text.TextWatcher
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import androidx.core.graphics.toColorInt
 import com.zys.mobilemap.R
 import com.zys.mobilemap.control.ColorPickerView
 import com.zys.mobilemap.util.ColorHex
@@ -107,7 +107,7 @@ class ColorPickerDialog(
             HEX_LENGTH -> hex
             else -> return null
         }
-        return runCatching { Color.parseColor("#$full") }.getOrNull()
+        return runCatching { "#$full".toColorInt() }.getOrNull()
     }
 
     fun create(): Dialog = dialog

@@ -66,6 +66,11 @@ class ZoomableImageView @JvmOverloads constructor(
             object : GestureDetector.SimpleOnGestureListener() {
                 override fun onDown(e: MotionEvent): Boolean = true
 
+                override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                    this@ZoomableImageView.performClick()
+                    return true
+                }
+
                 override fun onDoubleTap(e: MotionEvent): Boolean {
                     if (currentScale() > MIN_SCALE) {
                         resetZoom()
@@ -102,6 +107,11 @@ class ZoomableImageView @JvmOverloads constructor(
             }
             true
         }
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
     }
 
     /** 当前用户缩放倍率（1 = fitCenter 原始大小） */

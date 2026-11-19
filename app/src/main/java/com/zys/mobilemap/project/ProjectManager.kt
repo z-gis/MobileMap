@@ -3,6 +3,8 @@ package com.zys.mobilemap.project
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import androidx.core.content.edit
+import androidx.core.graphics.toColorInt
 import com.zys.mobilemap.util.AppDirectories
 import com.zys.mobilemap.util.GeoCalc
 import org.json.JSONArray
@@ -126,7 +128,7 @@ class ProjectManager private constructor(context: Context) {
     fun closeProject() {
         val p = currentProject ?: return
         currentProject = null
-        prefs.edit().remove(KEY_LAST_PROJECT).apply()
+        prefs.edit { remove(KEY_LAST_PROJECT) }
         saveNowProject(p)
         Log.i(TAG, "closeProject")
     }
@@ -272,7 +274,7 @@ class ProjectManager private constructor(context: Context) {
     }
 
     /**
-     * 备份当前工程：先同步落盘保证备份为最新，再把 gpkg 复制到 /sdcard/调查宝/backups/
+     * 备份当前工程：先同步落盘保证备份为最新，再把 gpkg 复制到 /调查宝/backups/
      * （文件名带时间戳，不进工程列表）。返回备份文件，失败返回 null。
      */
     fun backupCurrentProject(): File? {
@@ -280,7 +282,7 @@ class ProjectManager private constructor(context: Context) {
         if (!saveNowProject(p)) return null
         val src = File(projectsDir, sanitizeFileName(p.name ?: "未命名工程") + ".gpkg")
         if (!src.exists()) return null
-        val dir = File("/sdcard/调查宝/backups").apply { mkdirs() }
+        val dir = AppDirectories.getBackupDir(appContext)
         val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.CHINA).format(Date())
         val dst = File(dir, "${sanitizeFileName(p.name ?: "未命名工程")}_$ts.gpkg")
         return try {
@@ -301,13 +303,13 @@ class ProjectManager private constructor(context: Context) {
     }
 
     /**
-     * 备份指定工程文件（非当前工程）：复制到 /sdcard/调查宝/backups/（带时间戳）。
+     * 备份指定工程文件（非当前工程）：复制到 /调查宝/backups/（带时间戳）。
      * 返回备份文件，失败返回 null。
      */
     fun backupProjectFile(fileName: String): File? {
         val src = File(projectsDir, fileName)
         if (!src.exists()) return null
-        val dir = File("/sdcard/调查宝/backups").apply { mkdirs() }
+        val dir = AppDirectories.getBackupDir(appContext)
         val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.CHINA).format(Date())
         val base = fileName.removeSuffix(".gpkg")
         val dst = File(dir, "${base}_$ts.gpkg")
@@ -328,8 +330,7 @@ class ProjectManager private constructor(context: Context) {
         val src = File(projectsDir, sanitizeFileName(project.name ?: "未命名工程") + ".gpkg")
         saveNowProject(project)
         if (!src.exists()) return null
-        val exportDir = File("/sdcard/Download/调查宝")
-        if (!exportDir.exists()) exportDir.mkdirs()
+        val exportDir = AppDirectories.getProjectExportDir(appContext)
         val dst = File(exportDir, "${sanitizeFileName(project.name ?: "未命名工程")}_${System.currentTimeMillis()}.gpkg")
         return try {
             src.copyTo(dst, overwrite = false)
@@ -353,7 +354,7 @@ class ProjectManager private constructor(context: Context) {
         val f = File(projectsDir, fileName)
         val ok = f.delete()
         if (ok) {
-            prefs.edit().remove(KEY_LAST_PROJECT).apply()
+            prefs.edit { remove(KEY_LAST_PROJECT) }
         }
         Log.i(TAG, "deleteProject: $fileName -> $ok")
         return ok
@@ -993,7 +994,7 @@ class ProjectManager private constructor(context: Context) {
     private fun rememberCurrent(openedPath: String?) {
         val p = currentProject
         val path = openedPath ?: p?.let { File(projectsDir, sanitizeFileName(it.name ?: "") + ".gpkg").absolutePath }
-        if (path != null) prefs.edit().putString(KEY_LAST_PROJECT, path).apply()
+        if (path != null) prefs.edit { putString(KEY_LAST_PROJECT, path) }
     }
 
     private fun sanitizeFileName(name: String): String {
@@ -1014,14 +1015,15 @@ class ProjectManager private constructor(context: Context) {
         private const val DEFAULT_PROJECT_NAME = "默认工程"
 
         /** 工程记录 date 字段格式（人读友好，QGIS 中直接可读） */
-        private val TIME_FORMAT = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        private const val TIME_FORMAT_PATTERN = "yyyy-MM-dd HH:mm:ss"
 
         fun formatTime(millis: Long): String =
-            if (millis > 0) TIME_FORMAT.format(Date(millis)) else ""
+            if (millis > 0) SimpleDateFormat(TIME_FORMAT_PATTERN, Locale.getDefault()).format(Date(millis)) else ""
 
         fun parseTime(text: String?): Long =
-            runCatching { TIME_FORMAT.parse(text ?: "")?.time ?: 0L }.getOrDefault(0L)
-                .takeIf { it > 0 } ?: System.currentTimeMillis()
+            runCatching {
+                SimpleDateFormat(TIME_FORMAT_PATTERN, Locale.getDefault()).parse(text ?: "")?.time ?: 0L
+            }.getOrDefault(0L).takeIf { it > 0 } ?: System.currentTimeMillis()
 
         /** ARGB Int → "#RRGGBB"（去 alpha，工程交换格式不含透明度） */
         fun colorToHex(color: Int): String =
@@ -1031,7 +1033,7 @@ class ProjectManager private constructor(context: Context) {
         fun parseColor(hex: String?, def: Int): Int {
             if (hex.isNullOrBlank()) return def
             return runCatching {
-                val c = android.graphics.Color.parseColor(hex)
+                val c = hex.toColorInt()
                 if (hex.length <= 7) c or (0xFF shl 24) else c
             }.getOrDefault(def)
         }

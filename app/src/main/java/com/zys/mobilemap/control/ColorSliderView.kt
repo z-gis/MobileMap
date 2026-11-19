@@ -8,6 +8,7 @@ import android.graphics.Path
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import androidx.core.graphics.toColorInt
 
 /**
  * 颜色滑条基类（移植自 ColorPicker-master 的 ColorSliderView）：
@@ -36,7 +37,7 @@ abstract class ColorSliderView @JvmOverloads constructor(
     private val colorPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        color = Color.parseColor("#BDBDBD")
+        color = "#BDBDBD".toColorInt()
     }
     private val selectorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.BLACK

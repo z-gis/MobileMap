@@ -18,11 +18,11 @@ class SystemConfig {
     var coordDisplayMeter: Boolean = false
 
     /**
-     * KML/KMZ 标注显示：true = 显示名称标注（点 Placemark 名称 + 面/线名称），
-     * false = 隐藏标注（默认，地图更清爽）。同时作用于原生解析与 GDAL 回退两条路径；
-     * 切换后经文档变更通知重载 KML/KMZ 图层（开关已纳入图层缓存键）。
+     * KML/KMZ 标注显示：true = 显示名称标注（默认，点 Placemark 名称 + 面/线名称，标注字段默认 Name），
+     * false = 隐藏标注。同时作用于原生解析与 GDAL 回退两条路径；
+     * 开关已纳入 KML/KMZ 图层缓存键（vectorKey），切换后经文档变更通知就地换层即时生效。
      */
-    var showKmlLabel: Boolean = false
+    var showKmlLabel: Boolean = true
 
     /**
      * 视图模式：false = 2D 平面墨卡托（默认），true = 3D 球体。

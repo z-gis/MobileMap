@@ -17,8 +17,8 @@
     <!-- 地图中心十字准星（复用主界面 CrossView，指示当前地图中心点） -->
     <com.zys.mobilemap.control.CrossView
         android:id="@+id/jni_map_cross"
-        android:layout_width="30px"
-        android:layout_height="30px"
+        android:layout_width="30dp"
+        android:layout_height="30dp"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -36,15 +36,14 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
 
-        <!-- 指北针复位：3D 双指旋转后 heading 非零时显示（MainActivity 轮询回调控显隐），点击回正北。
-             文字硬编码避免改 strings.xml。 -->
+        <!-- 指北针复位：3D 双指旋转后 heading 非零时显示（MainActivity 轮询回调控显隐），点击回正北。 -->
         <TextView
             android:id="@+id/jni_map_compass"
             android:layout_width="@dimen/main_icon_size"
             android:layout_height="@dimen/main_icon_size"
             android:background="@color/main_icon_bg"
             android:gravity="center"
-            android:text="指北"
+            android:text="@string/main_compass"
             android:textColor="@color/white"
             android:textSize="13sp"
             android:textStyle="bold"
@@ -70,6 +69,7 @@
             android:layout_width="@dimen/main_icon_size"
             android:layout_height="@dimen/main_icon_size"
             android:background="#a0dddddd"
+            android:contentDescription="@string/main_measure"
             android:padding="5.0dp"
             android:src="@drawable/nav_measure" />
     </LinearLayout>
@@ -106,7 +106,7 @@
             android:layout_marginTop="10dp"
             android:background="@color/main_icon_bg"
             android:gravity="center"
-            android:text="工程"
+            android:text="@string/main_project"
             android:textColor="@color/white"
             android:textSize="13sp"
             android:textStyle="bold" />
@@ -131,6 +131,7 @@
             android:layout_width="@dimen/main_icon_size"
             android:layout_height="@dimen/main_icon_size"
             android:background="@color/main_icon_bg"
+            android:contentDescription="@string/main_photo"
             android:padding="5.0dp"
             android:src="@drawable/nav_quick_pic" />
     </LinearLayout>
@@ -173,6 +174,7 @@
             android:layout_height="@dimen/main_icon_size"
             android:layout_marginTop="10.0dip"
             android:background="#a0dddddd"
+            android:contentDescription="@string/track_start"
             android:padding="5.0dp"
             android:src="@drawable/nav_ic_start"
             android:visibility="gone" />
@@ -183,6 +185,7 @@
             android:layout_height="@dimen/main_icon_size"
             android:layout_marginTop="5.0dip"
             android:background="#a0dddddd"
+            android:contentDescription="@string/track_pause"
             android:padding="5.0dp"
             android:src="@drawable/nav_ic_pause"
             android:visibility="gone" />
@@ -193,6 +196,7 @@
             android:layout_height="@dimen/main_icon_size"
             android:layout_marginTop="5.0dip"
             android:background="#a0dddddd"
+            android:contentDescription="@string/track_stop"
             android:padding="5.0dp"
             android:src="@drawable/nav_ic_stop"
             android:visibility="gone" />
@@ -203,6 +207,7 @@
             android:layout_height="@dimen/main_icon_size"
             android:layout_marginTop="10.0dip"
             android:background="#a0dddddd"
+            android:contentDescription="@string/track_manage_title"
             android:padding="5.0dp"
             android:src="@drawable/nav_routes" />
     </LinearLayout>
@@ -246,7 +251,7 @@
             android:layout_height="10dp"
             android:gravity="center"
             android:textColor="@color/white"
-            android:textSize="8dip" />
+            android:textSize="11sp" />
 
         <!-- 缩小按键：图标资源沿用主界面映射（nav_zoom_in 为「-」字形） -->
         <ImageView
@@ -262,6 +267,7 @@
     <!-- 屏幕下方居中：测量采集子控件（撤销 / 中心点 / 结束），默认隐藏，进入测量模式时显示。
          由 setMeasureControlsVisible 按 ID 逐个切换可见性，横向排列于状态栏上方居中。 -->
     <LinearLayout
+        style="?android:attr/buttonBarStyle"
         android:id="@+id/jni_lay_measure_controls"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -273,17 +279,19 @@
         app:layout_constraintStart_toStartOf="parent">
 
         <Button
+            style="?android:attr/buttonBarButtonStyle"
             android:id="@+id/jni_map_measure_undo"
             android:layout_width="32dp"
             android:layout_height="32dp"
             android:gravity="center"
             android:textAlignment="center"
             android:padding="0dp"
-            android:text="撤销"
+            android:text="@string/measure_undo"
             android:textSize="12sp"
             android:visibility="gone" />
 
         <Button
+            style="?android:attr/buttonBarButtonStyle"
             android:id="@+id/jni_map_measure_center"
             android:layout_width="32dp"
             android:layout_height="32dp"
@@ -291,11 +299,12 @@
             android:gravity="center"
             android:textAlignment="center"
             android:padding="0dp"
-            android:text="中心点"
+            android:text="@string/measure_center_point"
             android:textSize="12sp"
             android:visibility="gone" />
 
         <Button
+            style="?android:attr/buttonBarButtonStyle"
             android:id="@+id/jni_map_measure_finish"
             android:layout_width="32dp"
             android:layout_height="32dp"
@@ -303,9 +312,134 @@
             android:gravity="center"
             android:textAlignment="center"
             android:padding="0dp"
-            android:text="结束"
+            android:text="@string/measure_finish"
             android:textSize="12sp"
             android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- 屏幕下方居中：几何编辑工具条（提示文本 + 分割/删除/合并/退出，画线态换 撤销/完成/取消），
+         默认隐藏，长按 gdb/shp 要素进编辑态时由 GeomEditController 按相位切换显隐。 -->
+    <LinearLayout
+        android:id="@+id/jni_lay_geom_edit_controls"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="32dp"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
+
+        <TextView
+            android:id="@+id/jni_map_geom_hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="6dp"
+            android:background="#B3111111"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:textColor="#ffffffff"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            style="?android:attr/buttonBarStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <Button
+                style="?android:attr/buttonBarButtonStyle"
+                android:id="@+id/jni_map_geom_split"
+                android:layout_width="40dp"
+                android:layout_height="32dp"
+                android:gravity="center"
+                android:textAlignment="center"
+                android:padding="0dp"
+                android:text="@string/geom_split"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
+            <Button
+                style="?android:attr/buttonBarButtonStyle"
+                android:id="@+id/jni_map_geom_delete"
+                android:layout_width="40dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="8dp"
+                android:gravity="center"
+                android:textAlignment="center"
+                android:padding="0dp"
+                android:text="@string/geom_delete"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
+            <Button
+                style="?android:attr/buttonBarButtonStyle"
+                android:id="@+id/jni_map_geom_merge"
+                android:layout_width="40dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="8dp"
+                android:gravity="center"
+                android:textAlignment="center"
+                android:padding="0dp"
+                android:text="@string/geom_merge"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
+            <Button
+                style="?android:attr/buttonBarButtonStyle"
+                android:id="@+id/jni_map_geom_exit"
+                android:layout_width="40dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="8dp"
+                android:gravity="center"
+                android:textAlignment="center"
+                android:padding="0dp"
+                android:text="@string/geom_exit"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
+            <Button
+                style="?android:attr/buttonBarButtonStyle"
+                android:id="@+id/jni_map_geom_undo"
+                android:layout_width="40dp"
+                android:layout_height="32dp"
+                android:gravity="center"
+                android:textAlignment="center"
+                android:padding="0dp"
+                android:text="@string/geom_undo"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
+            <Button
+                style="?android:attr/buttonBarButtonStyle"
+                android:id="@+id/jni_map_geom_finish"
+                android:layout_width="40dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="8dp"
+                android:gravity="center"
+                android:textAlignment="center"
+                android:padding="0dp"
+                android:text="@string/geom_finish"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
+            <Button
+                style="?android:attr/buttonBarButtonStyle"
+                android:id="@+id/jni_map_geom_cancel"
+                android:layout_width="40dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="8dp"
+                android:gravity="center"
+                android:textAlignment="center"
+                android:padding="0dp"
+                android:text="@string/geom_cancel"
+                android:textSize="12sp"
+                android:visibility="gone" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- 底部状态栏（单行）：定位文本 wrap_content 优先完整显示（含海拔段），中心文本占剩余宽度（0dp+weight）；

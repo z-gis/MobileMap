@@ -3,16 +3,16 @@ package com.zys.mobilemap.vector
 import android.content.Context
 import android.util.Log
 import com.zys.mobilemap.util.AppDirectories
+import com.zys.globecore.NativeLayerInfo
 import java.io.File
 import java.nio.charset.Charset
-import java.util.Locale
 import java.util.zip.ZipFile
 
 /**
  * 导入结果：加载/渲染使用的实际文件路径与显示名称。
  * zip/kmz 记录解压后内部文件的路径，保证重启后按文档路径可复现加载。
  */
-class ImportResult(val path: String, val name: String)
+class ImportResult(val path: String, val name: String, val layerName: String = "")
 
 /**
  * 矢量数据导入器，按扩展名分发：
@@ -37,9 +37,16 @@ object VectorFileImporter {
         if (!file.exists()) return emptyList()
         // 获取文件名（不带扩展名，已过滤非法文件名字符）
         val name = AppDirectories.deriveBaseName(path)
-        // 根据文件扩展名分发处理
-        return when (file.extension.lowercase(Locale.getDefault())) {
-            "shp", "kml", "dwg", "dxf", "gpkg" -> listOf(ImportResult(path, name))
+        // 根据文件扩展名分发处理；.gdb.zip 必须保留完整数据集目录，不能走 shp 搬平逻辑。
+        if (file.isDirectory && VectorFormats.isGdb(file.name)) {
+            return importGdbDirectory(context, file)
+        }
+        // .gdb.zip 双扩展名（extOf 只取 zip），须按完整文件名判定
+        if (file.isFile && file.name.endsWith(".gdb.zip", ignoreCase = true)) {
+            return extractZipGdb(context, file)
+        }
+        return when (VectorFormats.extOf(file.name)) {
+            "shp", "kml", "dwg", "dxf", "gpkg", "geojson", "json" -> listOf(ImportResult(path, name))
             "zip" -> extractZipShapefiles(context, file, name)
             // kmz 显示名用压缩包本身文件名，而非内部 doc.kml 的名称
             "kmz" -> extractAndFind(context, file, listOf("kml"), name)?.let { listOf(it) } ?: emptyList()
@@ -52,6 +59,79 @@ object VectorFileImporter {
      */
     fun importFile(context: Context, path: String): ImportResult? =
         importFiles(context, path).firstOrNull()
+
+    /** 导入本地 FileGDB：应用图层目录之外的数据集先完整复制，目录内部结构原样保留。 */
+    private fun importGdbDirectory(context: Context, source: File): List<ImportResult> {
+        return try {
+            val layerDir = AppDirectories.getLayerDir(context).canonicalFile
+            val sourcePath = source.canonicalPath
+            val managed = sourcePath.startsWith(layerDir.path + File.separator)
+            val dataset = if (managed) {
+                source
+            } else {
+                val target = File(layerDir, source.name)
+                if (!target.exists()) {
+                    if (!source.copyRecursively(target, overwrite = false)) {
+                        target.deleteRecursively()
+                        return emptyList()
+                    }
+                }
+                target
+            }
+            gdbImportResults(dataset)
+        } catch (e: Exception) {
+            Log.e(TAG, "导入 FileGDB 目录失败: ${source.path}", e)
+            emptyList()
+        }
+    }
+
+    /** 导入 .gdb.zip：保留压缩包内目录层级，支持包内带 .gdb 根目录或直接存放数据集文件。 */
+    private fun extractZipGdb(context: Context, archive: File): List<ImportResult> {
+        val layerDir = AppDirectories.getLayerDir(context)
+        val baseName = AppDirectories.deriveBaseName(archive.nameWithoutExtension)
+        val destDir = File(layerDir, "$baseName.gdb")
+        return try {
+            var datasets = collectGdbDirectories(destDir)
+            if (datasets.isEmpty()) {
+                unzip(archive, destDir)
+                datasets = collectGdbDirectories(destDir)
+            }
+            datasets.flatMap { gdbImportResults(it) }
+        } catch (e: Exception) {
+            Log.e(TAG, "解压 FileGDB 压缩包失败: ${archive.name}", e)
+            emptyList()
+        }
+    }
+
+    /** 仅把含 FileGDB 数据文件的 .gdb 目录视为可复用数据集，避免空目标目录阻断首次解压。 */
+    private fun collectGdbDirectories(dir: File): List<File> {
+        if (!dir.exists()) return emptyList()
+        return dir.walkTopDown()
+            .onEnter { it.name != "__MACOSX" && !it.name.startsWith(".") }
+            .filter { candidate ->
+                candidate.isDirectory && candidate.extension.equals("gdb", ignoreCase = true) &&
+                    candidate.listFiles()?.any {
+                        it.isFile && (it.name.equals("gdb", true) || it.extension.equals("gdbtable", true))
+                    } == true
+            }
+            .toList()
+    }
+
+    /** 通过 OGR 枚举真实要素类，path + layerName 共同构成文档中的稳定图层身份。 */
+    private fun gdbImportResults(dataset: File): List<ImportResult> {
+        val layerNames = try {
+            NativeLayerInfo.getVectorLayerNames(dataset.absolutePath)?.toList().orEmpty()
+        } catch (e: Throwable) {
+            Log.e(TAG, "枚举 FileGDB 图层失败: ${dataset.path}", e)
+            emptyList()
+        }
+        if (layerNames.isEmpty()) {
+            Log.w(TAG, "FileGDB 中没有可导入的矢量图层: ${dataset.path}")
+            return emptyList()
+        }
+        val displayName = AppDirectories.deriveBaseName(dataset.nameWithoutExtension)
+        return layerNames.map { ImportResult(dataset.absolutePath, displayName, it) }
+    }
 
     /**
      * shp 压缩包导入：解压到临时目录后递归收集全部 shp（跳过 __MACOSX/隐藏文件等垃圾条目），
@@ -186,8 +266,10 @@ object VectorFileImporter {
             while (entries.hasMoreElements()) {
                 val ze = entries.nextElement()
                 val out = File(destDir, ze.name)
-                // 防止 zip-slip 路径穿越
-                if (!out.canonicalPath.startsWith(destDir.canonicalPath)) continue
+                // 防止 zip-slip 路径穿越（补上目录分隔符，避免同名前缀目录被误判为子路径）。
+                val rootPath = destDir.canonicalPath
+                val outPath = out.canonicalPath
+                if (outPath != rootPath && !outPath.startsWith(rootPath + File.separator)) continue
                 if (ze.isDirectory) {
                     out.mkdirs()
                 } else {

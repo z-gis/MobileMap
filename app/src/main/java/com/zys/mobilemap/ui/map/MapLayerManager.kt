@@ -14,8 +14,8 @@ import com.zys.mobilemap.ui.dialog.TiandituKeyDialog
 import com.zys.mobilemap.util.AppDirectories
 import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.vector.FeatureIcons
-import com.zys.mobilemap.vector.GdalVectorReader
-import com.zys.globecore.NativeLayerInfo
+import com.zys.mobilemap.vector.VectorFormats
+import com.zys.mobilemap.vector.VectorMetaCache
 import com.zys.globecore.NativeMapView
 import com.zys.globecore.VectorExtent
 import com.zys.globecore.VectorStyle as NativeVectorStyle
@@ -227,6 +227,39 @@ internal class MapLayerManager(
     }
 
     /**
+     * 几何编辑后就地重载指定矢量层（数据已变、样式键不变）：墓碑旧 native 层并清 5 处派生缓存，
+     * 再走 [syncVectorLayers] 重新懒加入，使分割/合并/删除后的新几何即时上图（与鸿蒙 MapLayerController 同口径）。
+     */
+    fun reloadVectorLayer(path: String, layerName: String = "") {
+        val doc = DocumentManager.getInstance().getDocument() ?: return
+        if (path.isEmpty()) return
+        for (info in doc.vectorLayers) {
+            if (info.path != path || info.layerName != layerName) continue
+            val key = vectorKey(info)
+            val idx = vectorLayerIndices[key]
+            if (idx != null) {
+                AppLog.i(TAG, "几何编辑重载矢量层: $key -> removeVectorLayer($idx)")
+                mapView.removeVectorLayer(idx)
+            }
+            vectorLayerIndices.remove(key)
+            directVectorKeys.remove(key)
+            lastExtentByKey.remove(key)
+            pendingViewportKeys.remove(key)
+            dataExtentByKey.remove(key)
+        }
+        syncVectorLayers(doc)
+    }
+
+    /** 按源路径+层名回查已加入的 native 矢量层索引（未加入返回 -1）：几何编辑重载后重新高亮用 */
+    fun nativeIndexOfVector(path: String, layerName: String = ""): Int {
+        val doc = DocumentManager.getInstance().getDocument() ?: return -1
+        for (info in doc.vectorLayers) {
+            if (info.path == path && info.layerName == layerName) return nativeIndexOf(info) ?: -1
+        }
+        return -1
+    }
+
+    /**
      * 同步文档矢量图层到 native（懒加入 + 可见性驱动）：
      * - 新增：可见、有路径、级别达标且尚未加入的矢量层，按文档顺序经 [NativeMapView.addVectorLayer] 加入并记录索引
      *   （不可见/级别不足层不加入，避免无谓的 GDAL 读取与加载胶囊误亮；首次转可见且级别达标时再懒加入）；
@@ -284,13 +317,17 @@ internal class MapLayerManager(
             if (idx >= 0) vectorLayerIndices[key] = idx
         }
         // 显隐：已加入的层按文档可见性翻转；级别可见性下限（用户指定或自动，未设为 -1→不限）一并同步，
-        // 图层管理对话框改级别后即时生效（native 门控绘制/上传/拾取，与 visible 同口径）
-        for (info in infos) {
+        // 图层管理对话框改级别后即时生效（native 门控绘制/上传/拾取，与 visible 同口径）；
+        // 压盖序真源 = doc 数组位置（数组首=最下层，UI 倒序显示故「列表顶=最上层」），全量幂等下发：
+        // 新懒加入层同循环拿到初始 order，不再默认 push_back 追加到最顶
+        for (i in infos.indices) {
+            val info = infos[i]
             val path = info.path
             if (path.isNullOrEmpty()) continue
             val idx = vectorLayerIndices[vectorKey(info)] ?: continue
             mapView.setVectorLayerVisible(idx, info.visible)
             mapView.setVectorMinLevel(idx, info.effectiveMinDisplayLevel.coerceAtLeast(0))
+            mapView.setVectorLayerOrder(idx, i)
         }
         builtVectorSignature = vectorSignature(doc)
     }
@@ -394,31 +431,38 @@ internal class MapLayerManager(
         // 未设的通道保留源文件逐要素原色（fillEnabled=false 视为显式关闭填充，亦覆盖为仅描边）。
         val fillExplicit = s?.fillColor != null || s?.fillOpacity != null || s?.fillEnabled != null
         val lineExplicit = s?.outlineColor != null
-        // 标注：对齐原主界面——门控于 VectorStyle.labelField 非空；KML/KMZ 额外受 showKmlLabel 开关控制
-        // （复刻原主界面 LocalVectorLoader 的 suppressLabels 口径）。样式颜色/字号/轮廓未设时回退原主界面默认。
-        val ext = path.substringAfterLast('.', "").lowercase()
-        val suppressLabel = (ext == "kml" || ext == "kmz") &&
-                !(DocumentManager.getInstance().getDocument()?.systemConfig?.showKmlLabel ?: false)
-        val labelField = if (suppressLabel) "" else (s?.labelField?.trim() ?: "")
+        // 标注：非 KML 门控于 VectorStyle.labelField 非空；KML/KMZ 额外受 showKmlLabel 开关控制，
+        // 开关开且未设标注字段时默认取 Name（Placemark 名称；KML 标注设置不在图层弹窗开放，标注随源文件）。
+        // 样式颜色/字号/轮廓未设时回退原主界面默认。
+        val isKml = VectorFormats.isKml(path)
+        val suppressLabel = isKml && !showKmlLabel()
+        val labelField = when {
+            suppressLabel -> ""
+            isKml -> s?.labelField?.trim()?.takeIf { it.isNotEmpty() } ?: "Name"
+            else -> s?.labelField?.trim() ?: ""
+        }
         val labelColor = MapStyleColors.resolveArgb(s?.labelColor, MapStyleColors.DEFAULT_LABEL_COLOR)
         val labelSize = s?.labelSize ?: MapStyleColors.DEFAULT_LABEL_SIZE
-        val labelOutline = s?.labelOutline ?: false
-        val labelOutlineColor = MapStyleColors.resolveArgb(s?.labelOutlineColor, MapStyleColors.DEFAULT_LABEL_OUTLINE_COLOR)
+        // KML 默认开白色掩膜（源文件无掩膜通道，app 侧默认口径）；用户显式设过则尊重
+        val labelOutline = s?.labelOutline ?: isKml
+        val labelOutlineColor = MapStyleColors.resolveArgb(s?.labelOutlineColor,
+            if (isKml) MapStyleColors.KML_LABEL_OUTLINE_COLOR else MapStyleColors.DEFAULT_LABEL_OUTLINE_COLOR)
         // 点要素图标：对齐原主界面——按 VectorStyle.iconKey 取内置矢量图标（FeatureIcons.resOf，默认 pin），
         // 在宿主侧解码为 ARGB 像素传入 native 作 billboard（native C++ 无法解码 Android 矢量 drawable）。
         val icon = decodeIconArgb(activity, FeatureIcons.resOf(s?.iconKey))
         // 单要素样式覆盖串：把文档 featureStyles 逐 fid 解析为填充/描边 ARGB（仅取渲染相关子集），下传 native 逐要素命中。
         val featureOverrideStr = buildFeatureStyleOverride(info.vectorStyle)
-        // 大小数据分流：快速统计要素总数，< DIRECT_RENDER_LIMIT 走整文件全量（direct，不参与相机重载）；
-        // 否则按当前屏幕范围空间相交加载（首屏即只取屏内要素）。统计失败(<0)保守按全量（等同旧行为）。
+        // 大小数据分流：要素总数优先取文档元数据缓存（指纹新鲜即免开 GDAL），未命中回落快速统计；
+        // < DIRECT_RENDER_LIMIT 走整文件全量（direct，不参与相机重载）；否则按当前屏幕范围空间相交加载
+        // （首屏即只取屏内要素）。统计失败(<0)保守按全量（等同旧行为）。
         val key = vectorKey(info)
-        val count = GdalVectorReader.countFeatures(path)
+        val count = VectorMetaCache.featureCountOf(info)
         val direct = count < 0 || count < DIRECT_RENDER_LIMIT
         val extent = if (direct) null else extentProvider?.invoke()
         // 屏外预判：大数据层若四至与屏幕范围确定不相交 → 挂起不加入（免无谓 GDAL 读取与加载胶囊误亮）；
         // 四至/屏幕范围任一未知则照常加入，交 native 防线1 整层跳过兜底（行为与旧版一致）。
         if (!direct && extent != null) {
-            val bbox = dataExtentByKey.getOrPut(key) { vectorDataBBox(path) }
+            val bbox = dataExtentByKey.getOrPut(key) { vectorDataBBox(path, info.layerName) }
             if (bbox != null && !extentIntersects(bbox, extent)) {
                 pendingViewportKeys.add(key)
                 AppLog.i(TAG, "矢量层[${info.name}]四至与屏幕范围不相交，挂起待进入视口再加入")
@@ -437,7 +481,7 @@ internal class MapLayerManager(
                 featureStyleOverride = featureOverrideStr
             ),
             icon?.first, icon?.second ?: 0, icon?.third ?: 0,
-            extent, MAX_FEATURES_BUDGET
+            extent, MAX_FEATURES_BUDGET, info.layerName
         )
         if (idx >= 0) {
             // 级别可见性下限（文档 effectiveMinDisplayLevel，未设为 -1→0 不限）：小级别整层隐藏，
@@ -480,7 +524,7 @@ internal class MapLayerManager(
                 if (path.isNullOrEmpty() || !info.visible || !File(path).exists() ||
                     info.effectiveMinDisplayLevel > camLevel
                 ) continue // 保持挂起：转可见/级别达标后再试
-                val bbox = dataExtentByKey.getOrPut(key) { vectorDataBBox(path) }
+                val bbox = dataExtentByKey.getOrPut(key) { vectorDataBBox(path, info.layerName) }
                 if (bbox != null && !extentIntersects(bbox, extent)) continue // 仍屏外，继续挂起
                 pendingViewportKeys.remove(key)
                 val idx = addVectorLayerNative(info, path)
@@ -510,25 +554,76 @@ internal class MapLayerManager(
      * 幂等可重复调用——多图层连续重载合并为一次等待，胶囊显示后由轮询统一收起。
      */
     fun notifyVectorLoadStarted() {
+        scheduleMetaHarvest()
         val pill = vectorLoadingPill ?: return
         pill.removeCallbacks(vectorLoadingShowRunnable)
         pill.removeCallbacks(vectorLoadingPollRunnable)
         pill.postDelayed(vectorLoadingShowRunnable, VECTOR_LOADING_SHOW_DELAY_MS)
     }
 
+    // ── 元数据收口（P1）：加载完成后把 native 读取链的全量元数据写回文档缓存，冷启动免另开 GDAL ──
+
+    /** 收口轮询上限（× [VECTOR_LOADING_POLL_MS]）：几何迟迟不被 GL 线程接管时不无限挂任务 */
+    private var metaHarvestAttempts = 0
+
+    private val metaHarvestRunnable = object : Runnable {
+        override fun run() {
+            val pending = harvestVectorMeta()
+            if (pending && metaHarvestAttempts < META_HARVEST_MAX_ATTEMPTS) {
+                metaHarvestAttempts++
+                mapView.postDelayed(this, VECTOR_LOADING_POLL_MS)
+            } else {
+                metaHarvestAttempts = 0
+            }
+        }
+    }
+
+    /** 排一次元数据收口（幂等：重复调用只保留一个在队任务），加载启动即调 */
+    private fun scheduleMetaHarvest() {
+        metaHarvestAttempts = 0
+        mapView.removeCallbacks(metaHarvestRunnable)
+        mapView.postDelayed(metaHarvestRunnable, VECTOR_LOADING_POLL_MS)
+    }
+
+    /**
+     * 收口一轮：逐已加入层取 [NativeMapView.vectorLayerMeta]，已知项写回 [LayerInfo]（指纹=源文件 mtime），
+     * 有变化才 save 一次（save 广播回来的 sync 键集合不变 → 不重建、不再写，幂等收敛）。
+     * 返回是否仍有层未就绪（需再轮询）；未加入的层跳过，待其懒加入后由下一轮收口。
+     */
+    private fun harvestVectorMeta(): Boolean {
+        val doc = DocumentManager.getInstance().getDocument() ?: return false
+        var changed = false
+        var pending = false
+        for (info in doc.vectorLayers) {
+            val path = info.path
+            if (path.isNullOrEmpty()) continue
+            val idx = vectorLayerIndices[vectorKey(info)] ?: continue
+            val meta = mapView.vectorLayerMeta(idx)
+            if (meta == null) {
+                pending = true
+                continue
+            }
+            if (VectorMetaCache.applyMeta(info, meta, VectorMetaCache.sourceMtime(path))) changed = true
+        }
+        if (changed) {
+            AppLog.i(TAG, "矢量元数据写回文档缓存（geomType/featureCount/extent + mtime 指纹）")
+            DocumentManager.getInstance().save(activity)
+        }
+        return pending
+    }
+
     /** 宿主 onDestroy 注销：取消一切挂起任务并收起胶囊，避免界面销毁后回调触碰 View。 */
     fun cancelVectorLoadingPill() {
+        mapView.removeCallbacks(metaHarvestRunnable)
         val pill = vectorLoadingPill ?: return
         pill.removeCallbacks(vectorLoadingShowRunnable)
         pill.removeCallbacks(vectorLoadingPollRunnable)
         pill.visibility = View.GONE
     }
 
-    /** 读矢量数据四至（WGS84，kmz 走 /vsizip/ 虚拟文件）；失败返回 null（四至未知时不挂起，交 native 兜底）。 */
-    private fun vectorDataBBox(path: String): VectorExtent? {
-        val openPath = if (path.lowercase().endsWith(".kmz")) "/vsizip/$path" else path
-        val e = NativeLayerInfo.getLayerExtent(openPath) ?: return null
-        if (e.size < 4) return null
+    /** 读矢量数据四至（WGS84）：优先文档元数据缓存（指纹新鲜即免开 GDAL），未命中回落直读（kmz 走 /vsizip/）。 */
+    private fun vectorDataBBox(path: String, layerName: String): VectorExtent? {
+        val e = VectorMetaCache.extentOf(path, layerName) ?: return null
         return VectorExtent(e[0], e[1], e[2], e[3])
     }
 
@@ -589,8 +684,13 @@ internal class MapLayerManager(
         (src.name ?: "") + "|" + (src.url ?: "") + "|" + (src.imageFormat ?: "") +
                 "|" + (src.token1 ?: "") + "|" + (src.token2 ?: "") + "|" + src.maxLevel
 
-    /** 矢量层缓存键：路径 + 样式版本（样式改动递增 styleVersion，结构签名变化触发重建后按新样式重载） */
-    private fun vectorKey(info: LayerInfo): String = (info.path ?: "") + "|" + info.styleVersion
+    /** 矢量层缓存键：路径 + 样式版本；KML/KMZ 另纳入 showKmlLabel 开关——
+     *  开关切换后旧键墓碑就地换层即时生效（与栅格层 rasterTileCacheEnabled 入键同口径），无需重启 */
+    private fun vectorKey(info: LayerInfo): String {
+        val path = info.path ?: ""
+        val base = "$path|${info.layerName}|${info.styleVersion}"
+        return if (VectorFormats.isKml(path)) base + "|kmlLabel=" + (if (showKmlLabel()) 1 else 0) else base
+    }
 
     /**
      * 把文档层 [com.zys.mobilemap.doc.VectorStyle.featureStyles]（fid → 单要素覆盖）拼为 native 下传串：
@@ -647,7 +747,9 @@ internal class MapLayerManager(
 
     /** 矢量层结构签名：各矢量层 path#styleVersion 有序拼接，任一矢量层增删改（路径/样式版本变化）即变 */
     private fun vectorSignature(doc: MapDocument?): String =
-        doc?.vectorLayers?.joinToString(";") { (it.path ?: "") + "#" + it.styleVersion } ?: ""
+        doc?.vectorLayers?.joinToString(";") {
+            (it.path ?: "") + "#" + it.layerName + "#" + it.styleVersion
+        } ?: ""
 
     /**
      * 栅格层缓存键：路径 + 磁盘缓存开关位。开关翻转即视为换层——旧键命中失效检测被
@@ -659,6 +761,10 @@ internal class MapLayerManager(
     /** 本地栅格瓦片磁盘缓存开关（系统配置，默认开）；文档缺失时按默认开处理。 */
     private fun rasterTileCacheEnabled(): Boolean =
         DocumentManager.getInstance().getDocument()?.systemConfig?.rasterTileCacheEnabled ?: true
+
+    /** KML/KMZ 名称标注显示开关（系统配置，默认开）；文档缺失时按默认开处理。 */
+    private fun showKmlLabel(): Boolean =
+        DocumentManager.getInstance().getDocument()?.systemConfig?.showKmlLabel ?: true
 
     /**
      * 在线图源仅读离线缓存开关（设置页）：打开时底图/注记瓦片层 URL 模板传空，
@@ -683,12 +789,16 @@ internal class MapLayerManager(
      * 区别于原底层库主界面从 renderable 采样：本界面矢量层完全文档驱动（无 shp 内嵌/单要素等额外色来源），
      * 故实际渲染色即“文档样式 ?: 默认色”，与 addVectorLayerNative 传入 native 的值一致。图层不存在返回 null。
      */
-    fun layerRenderColorsOf(path: String): Pair<String?, String?> {
+    fun layerRenderColorsOf(path: String, layerName: String = ""): Pair<String?, String?> {
         val info = DocumentManager.getInstance().getDocument()
-            ?.vectorLayers?.firstOrNull { it.path == path } ?: return Pair(null, null)
+            ?.vectorLayers?.firstOrNull { it.path == path && it.layerName == layerName }
+            ?: return Pair(null, null)
         val s = info.vectorStyle?.takeIf { !it.isEmpty() }
         val fill = MapStyleColors.resolveFillColor(s)
-        val outline = MapStyleColors.resolveArgb(s?.outlineColor, MapStyleColors.DEFAULT_POLYGON_OUTLINE_COLOR)
+        // 线层第二色取线通道（默认橙）：面描边默认白对线层是误导，样式页/预览色块须所见即所得
+        val outlineDefault = if (VectorMetaCache.geomTypeOf(info) == 1)
+            MapStyleColors.DEFAULT_LINE_COLOR else MapStyleColors.DEFAULT_POLYGON_OUTLINE_COLOR
+        val outline = MapStyleColors.resolveArgb(s?.outlineColor, outlineDefault)
         return Pair(MapStyleColors.argbToHex(fill), MapStyleColors.argbToHex(outline))
     }
 
@@ -710,6 +820,10 @@ internal class MapLayerManager(
 
         // 胶囊显示后的状态轮询间隔（250ms 粒度足以平滑收尾，轮询 JNI 为纯查询不触发重绘）
         private const val VECTOR_LOADING_POLL_MS = 250L
+
+        // 元数据收口轮询上限（× VECTOR_LOADING_POLL_MS = 15s）：几何迟迟未被 GL 线程接管则放弃本轮，
+        // 下次加载/重载会重新排队；不影响渲染，只影响 document.json 缓存何时写上。
+        private const val META_HARVEST_MAX_ATTEMPTS = 60
 
         /** 缓存子目录名净化（复刻原主界面 TileCacheManager 的 sanitizeDirName，保证目录一致） */
         private fun sanitizeDirNameStatic(name: String): String {

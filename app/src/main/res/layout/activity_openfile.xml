@@ -18,6 +18,7 @@
             android:layout_height="@dimen/activity_back_image_size"
             android:layout_centerVertical="true"
             android:padding="2dp"
+            android:contentDescription="@string/jni_map_back"
             android:src="@drawable/ic_left_arrow_black" />
 
         <TextView

@@ -12,6 +12,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.FileProvider
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.zys.mobilemap.R
@@ -42,6 +43,7 @@ object ProjectManageDialog {
         list.layoutManager = LinearLayoutManager(activity)
 
         val infos = pm.listProjects().toMutableList()
+        var displayedCurrentFileName = pm.currentFileName()
         val refreshEmpty = { emptyView.visibility = if (infos.isEmpty()) View.VISIBLE else View.GONE }
         refreshEmpty()
 
@@ -50,9 +52,30 @@ object ProjectManageDialog {
         var isOpening = false  // 后台切换进行中：防双击重复打开
 
         fun refreshList() {
+            val oldInfos = infos.toList()
+            val newInfos = pm.listProjects()
+            val previousCurrentFileName = displayedCurrentFileName
+            val newCurrentFileName = pm.currentFileName()
+            val diffResult = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+                override fun getOldListSize(): Int = oldInfos.size
+                override fun getNewListSize(): Int = newInfos.size
+
+                override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
+                    oldInfos[oldItemPosition].fileName == newInfos[newItemPosition].fileName
+
+                override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+                    val oldItem = oldInfos[oldItemPosition]
+                    val newItem = newInfos[newItemPosition]
+                    return oldItem.displayDate == newItem.displayDate &&
+                            oldItem.displaySize == newItem.displaySize &&
+                            (oldItem.fileName == previousCurrentFileName) ==
+                            (newItem.fileName == newCurrentFileName)
+                }
+            })
             infos.clear()
-            infos.addAll(pm.listProjects())
-            adapter.notifyDataSetChanged()
+            infos.addAll(newInfos)
+            displayedCurrentFileName = newCurrentFileName
+            diffResult.dispatchUpdatesTo(adapter)
             refreshEmpty()
         }
 
@@ -121,7 +144,7 @@ object ProjectManageDialog {
         val fileName = info.fileName ?: return
         val isCurrent = fileName == pm.currentFileName()
         // 当前工程不可删除（工作库镜像源），其余操作正常
-        // 备份：复制 gpkg（带时间戳）到 /sdcard/调查宝/backups/，当前工程先落盘保证备份为最新
+        // 备份：复制 gpkg（带时间戳）到 /调查宝/backups/，当前工程先落盘保证备份为最新
         // 合并：目标恒为当前工程——当前工程行选源工程并入，其他工程行把自己并入当前工程
         val actions = if (isCurrent)
             arrayOf("分享", "复制", "重命名", "备份", "合并")
@@ -421,7 +444,11 @@ object ProjectManageDialog {
         override fun onBindViewHolder(holder: Holder, position: Int) {
             val info = infos[position]
             holder.name.text = info.fileName?.removeSuffix(".gpkg") ?: ""
-            holder.subtitle.text = "${info.displayDate}　·　${info.displaySize}"
+            holder.subtitle.text = holder.itemView.context.getString(
+                R.string.project_item_subtitle,
+                info.displayDate,
+                info.displaySize
+            )
             holder.currentBadge.visibility =
                 if (info.fileName == currentFileName()) View.VISIBLE else View.GONE
             holder.itemView.setOnClickListener { onOpen(info) }

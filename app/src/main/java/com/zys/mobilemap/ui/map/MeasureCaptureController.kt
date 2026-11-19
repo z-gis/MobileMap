@@ -269,7 +269,7 @@ internal class MeasureCaptureController(
         if (lonlat.isEmpty()) {
             mapView.updateOverlayPoints(idx, DoubleArray(0), LongArray(0), emptyArray())
         } else {
-            mapView.updateOverlayPoints(idx, lonlat, LongArray(labels.size) { 0L }, labels)
+            mapView.updateOverlayPoints(idx, lonlat, LongArray(labels.size), labels)
         }
     }
 

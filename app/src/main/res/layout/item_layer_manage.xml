@@ -81,7 +81,7 @@
                     android:paddingStart="2dp"
                     android:paddingEnd="2dp"
                     android:textColor="#E53935"
-                    android:textSize="8sp"
+                    android:textSize="11sp"
                     android:textStyle="bold" />
             </FrameLayout>
 

@@ -44,6 +44,10 @@ object AppDirectories {
 
     const val PROJECT_DIR_NAME = "projects"
 
+    const val BACKUP_DIR_NAME = "backups"
+
+    const val EXPORT_DIR_NAME = "exports"
+
     private const val TAG = "AppDirectories"
 
     /** 基目录探测结果缓存（进程内一次判定）；null 表示尚未判定 */
@@ -74,6 +78,17 @@ object AppDirectories {
 
     /** 工程 GeoPackage 文件目录（/调查宝/projects/，卸载不清除、文件管理器可直接取走） */
     fun getProjectDir(context: Context): File = ensureDir(File(getRootDir(context), PROJECT_DIR_NAME))
+
+    /** 工程备份目录，与工程目录一样跟随外部存储授权回退策略。 */
+    fun getBackupDir(context: Context): File = ensureDir(File(getRootDir(context), BACKUP_DIR_NAME))
+
+    /** 工程导出优先放公共 Download/调查宝；不可写时回退到可分享的 /调查宝/exports。 */
+    fun getProjectExportDir(context: Context): File {
+        val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val publicExport = File(downloads, ROOT_DIR_NAME)
+        return if (probeDirUsable(publicExport)) publicExport
+        else ensureDir(File(getRootDir(context), EXPORT_DIR_NAME))
+    }
 
     /** 启动时一次性建齐全部子目录，避免各处首次写入时才各自建目录 */
     fun ensureAll(context: Context) {

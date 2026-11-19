@@ -11,7 +11,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="名称"
+        android:text="@string/media_edit_name"
         android:textColor="#888888"
         android:textSize="13sp"/>
 
@@ -20,7 +20,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
-        android:hint="拍照标识名称"
+        android:hint="@string/media_edit_name_hint"
+        android:importantForAutofill="no"
         android:inputType="text"
         android:maxLines="1"
         android:textColor="#131313"
@@ -36,7 +37,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="分组"
+            android:text="@string/layer_group_move"
             android:textColor="#888888"
             android:textSize="13sp"/>
 
@@ -52,7 +53,7 @@
             android:layout_width="36dp"
             android:layout_height="36dp"
             android:layout_marginStart="4dp"
-            android:contentDescription="新建分组"
+            android:contentDescription="@string/layer_group_new"
             android:padding="6dp"
             android:src="@drawable/baseline_playlist_add_24"/>
     </LinearLayout>

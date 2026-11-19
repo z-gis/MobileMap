@@ -12,6 +12,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.Toast
+import androidx.core.view.isEmpty
 import com.zys.mobilemap.R
 import java.io.File
 
@@ -34,6 +35,7 @@ class SqlQueryDialog(
     private val context: Context,
     layerPath: String,
     layerName: String,
+    sourceLayerName: String = "",
     fieldNames: List<String>?,
     private val listener: Listener
 ) {
@@ -46,8 +48,8 @@ class SqlQueryDialog(
 
     private val dialog: Dialog
 
-    /** OGR 对 shp 的图层名即文件主名，作为 SQL 表名 */
-    private val tableName = File(layerPath).nameWithoutExtension
+    /** GDB 使用选中要素类；其他格式沿用 OGR 默认图层名（通常为文件主名）。 */
+    private val tableName = sourceLayerName.ifEmpty { File(layerPath).nameWithoutExtension }
 
     /** 可用字段名（无属性字段时为空列表，子句字段下拉将无可选项） */
     private val fields: List<String> = fieldNames?.toList() ?: emptyList()
@@ -161,7 +163,7 @@ class SqlQueryDialog(
      * 结果形如：SELECT * FROM "表名" WHERE "字段" = 值 AND "字段" LIKE '%值%'
      */
     private fun buildSql(): String? {
-        if (clauseContainer.childCount == 0) return null
+        if (clauseContainer.isEmpty()) return null
         val where = StringBuilder()
         for (i in 0 until clauseContainer.childCount) {
             val row = clauseContainer.getChildAt(i)

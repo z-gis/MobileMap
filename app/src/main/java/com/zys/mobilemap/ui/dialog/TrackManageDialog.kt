@@ -45,7 +45,8 @@ object TrackManageDialog {
             onRename = { track ->
                 showRenameDialog(activity, track) { newName ->
                     pm.updateTrackName(track.id, newName)
-                    adapter.notifyDataSetChanged()
+                    val position = tracks.indexOfFirst { it.id == track.id }
+                    if (position >= 0) adapter.notifyItemChanged(position)
                     onChanged()
                 }
             },
@@ -60,8 +61,11 @@ object TrackManageDialog {
             onDelete = { track ->
                 showDeleteConfirmDialog(activity, track) {
                     pm.removeTrack(track.id)
-                    tracks.remove(track)
-                    adapter.notifyDataSetChanged()
+                    val position = tracks.indexOfFirst { it.id == track.id }
+                    if (position >= 0) {
+                        tracks.removeAt(position)
+                        adapter.notifyItemRemoved(position)
+                    }
                     refreshEmpty()
                     onChanged()
                 }
@@ -116,7 +120,12 @@ object TrackManageDialog {
         override fun onBindViewHolder(holder: Holder, position: Int) {
             val track = tracks[position]
             holder.name.text = track.name
-            holder.subtitle.text = "${formatTime(ProjectManager.parseTime(track.date))}　·　${track.points.size}个点"
+            holder.subtitle.text = String.format(
+                Locale.getDefault(),
+                holder.itemView.context.getString(R.string.track_item_subtitle),
+                formatTime(ProjectManager.parseTime(track.date)),
+                track.points.size
+            )
 
             // 先设状态再挂监听，避免回显触发写入
             holder.visibleSwitch.setOnCheckedChangeListener(null)

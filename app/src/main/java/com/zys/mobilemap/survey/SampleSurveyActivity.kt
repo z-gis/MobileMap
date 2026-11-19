@@ -13,6 +13,7 @@ import com.zys.mobilemap.location.LocationManager
 import com.zys.mobilemap.project.Project
 import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.util.AppLog
+import java.util.Locale
 
 /**
  * 样地调查录入 Activity。
@@ -131,9 +132,15 @@ class SampleSurveyActivity : BaseStyledActivity() {
         }
 
         draftPlot?.let { p ->
-            tvPlotNo.text = "第 ${p.plotNo} 号样地"
+            tvPlotNo.text = String.format(
+                Locale.getDefault(),
+                getString(R.string.sample_survey_plot_number),
+                p.plotNo
+            )
             etTreeHeight.setText(p.averageTreeHeight ?: "")
-            if (!p.canopyDensity.isNaN()) etCanopyDensity.setText(p.canopyDensity.toString())
+            if (!p.canopyDensity.isNaN()) {
+                etCanopyDensity.setText(String.format(Locale.ROOT, "%s", p.canopyDensity))
+            }
             rows.clear()
             rows.addAll(p.rows)
             adapter.notifyDataSetChanged()
@@ -143,7 +150,7 @@ class SampleSurveyActivity : BaseStyledActivity() {
     private fun updateGpsDisplay() {
         val loc = LocationManager.getInstance().getLastLocation()
         if (loc != null) {
-            tvGps.text = String.format("%.6f, %.6f", loc.longitude, loc.latitude)
+            tvGps.text = String.format(Locale.getDefault(), "%.6f, %.6f", loc.longitude, loc.latitude)
             // 更新草稿中心坐标
             draftPlot?.let {
                 if (it.centerLatitude.isNaN() || it.centerLongitude.isNaN()) {
@@ -151,7 +158,7 @@ class SampleSurveyActivity : BaseStyledActivity() {
                 }
             }
         } else if (!centerLat.isNaN() && !centerLon.isNaN()) {
-            tvGps.text = String.format("%.6f, %.6f", centerLon, centerLat)
+            tvGps.text = String.format(Locale.getDefault(), "%.6f, %.6f", centerLon, centerLat)
         }
     }
 
@@ -210,7 +217,8 @@ class SampleSurveyActivity : BaseStyledActivity() {
                 .inflate(R.layout.item_sample_survey_row, parent, false)
 
             val row = rows[position]
-            view.findViewById<TextView>(R.id.tv_sort_no).text = (position + 1).toString()
+            view.findViewById<TextView>(R.id.tv_sort_no).text =
+                String.format(Locale.getDefault(), "%d", position + 1)
 
             // 树种 Spinner
             val spSpecies = view.findViewById<Spinner>(R.id.sp_species)

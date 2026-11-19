@@ -226,7 +226,10 @@ class DocumentManager private constructor() {
     }
 
     /** 图层移入组（-1 = 未分组）；newGroupName 非空时先建组再落入（同一次 save） */
-    fun moveLayerToGroup(context: Context, path: String, vector: Boolean, groupId: Int, newGroupName: String = "") {
+    fun moveLayerToGroup(
+        context: Context, path: String, vector: Boolean, groupId: Int,
+        newGroupName: String = "", layerName: String = ""
+    ) {
         val doc = getDocument() ?: return
         var target = groupId
         if (newGroupName.isNotEmpty()) {
@@ -234,7 +237,7 @@ class DocumentManager private constructor() {
             doc.groups.add(LayerGroup(target, newGroupName))
         }
         val list = if (vector) doc.vectorLayers else doc.rasterLayers
-        list.firstOrNull { it.path == path }?.groupId = target
+        list.firstOrNull { it.path == path && it.layerName == layerName }?.groupId = target
         save(context)
     }
 

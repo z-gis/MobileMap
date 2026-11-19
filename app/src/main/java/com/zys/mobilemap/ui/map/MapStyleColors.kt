@@ -3,8 +3,9 @@ package com.zys.mobilemap.ui.map
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
 import androidx.appcompat.content.res.AppCompatResources
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.toColorInt
 import com.zys.mobilemap.doc.VectorStyle
 import com.zys.mobilemap.util.AppLog
 import java.util.Locale
@@ -28,6 +29,8 @@ internal object MapStyleColors {
     val DEFAULT_LABEL_COLOR = 0xFFFFFFFF.toInt()
     val DEFAULT_LABEL_OUTLINE_COLOR = 0xFF000000.toInt()
     const val DEFAULT_LABEL_SIZE = 1.0f
+    // KML/KMZ 标注默认掩膜：白晕（ArcGIS 掩膜惯例；源文件 LabelStyle 无掩膜通道，属 app 侧默认口径）
+    val KML_LABEL_OUTLINE_COLOR = 0xFFFFFFFF.toInt()
 
     // 业务叠加层（测量/轨迹/拍照/样地）显示样式：测量点半径略大于矢量默认保证可见；面积填充透明度对齐原主界面 0.22
     const val MEASURE_POINT_RADIUS_DP = 6.0f
@@ -59,7 +62,7 @@ internal object MapStyleColors {
     /** 解析 #AARRGGBB 十六进制为 ARGB Int；空或非法时回退 [defaultArgb]（对齐原主界面 LocalVectorLoader.parseColor） */
     fun resolveArgb(hex: String?, defaultArgb: Int): Int =
         if (hex.isNullOrEmpty()) defaultArgb
-        else runCatching { Color.parseColor(hex) }.getOrElse { defaultArgb }
+        else runCatching { hex.toColorInt() }.getOrElse { defaultArgb }
 
     /** 面填充色：取 fillColor（回退默认半透明蓝），再按 fillOpacity 覆盖 alpha 通道（对齐原主界面 applyShapeStyle） */
     fun resolveFillColor(s: VectorStyle?): Int {
@@ -88,7 +91,7 @@ internal fun decodeIconArgb(context: Context, resId: Int): Triple<IntArray, Int,
         val w = d?.intrinsicWidth ?: 0
         val h = d?.intrinsicHeight ?: 0
         if (d == null || w <= 0 || h <= 0) return null
-        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val bmp = createBitmap(w, h)
         val canvas = Canvas(bmp)
         d.setBounds(0, 0, w, h)
         d.draw(canvas)

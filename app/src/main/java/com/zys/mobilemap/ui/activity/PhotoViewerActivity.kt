@@ -15,6 +15,7 @@ import com.zys.mobilemap.project.GeoPackageWriter
 import com.zys.mobilemap.project.Project
 import com.zys.mobilemap.project.ProjectManager
 import com.zys.mobilemap.util.UiUtil
+import java.util.Locale
 
 /**
  * 全屏照片浏览器：只显示指定拍照点位（Placemark）的照片附件，
@@ -48,10 +49,20 @@ class PhotoViewerActivity : AppCompatActivity() {
         pager.setCurrentItem(initialIndex.coerceIn(0, attachments.size - 1), false)
         pager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
-                indexView.text = "${position + 1} / ${attachments.size}"
+                indexView.text = String.format(
+                    Locale.getDefault(),
+                    getString(R.string.photo_viewer_index),
+                    position + 1,
+                    attachments.size
+                )
             }
         })
-        indexView.text = "${pager.currentItem + 1} / ${attachments.size}"
+        indexView.text = String.format(
+            Locale.getDefault(),
+            getString(R.string.photo_viewer_index),
+            pager.currentItem + 1,
+            attachments.size
+        )
     }
 
     /** 单页大图适配器：按屏幕尺寸采样解码，避免大图 OOM；换图时 ZoomableImageView 自动复位缩放态。

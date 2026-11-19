@@ -9,6 +9,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.SwitchCompat
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.zys.mobilemap.R
@@ -112,7 +113,7 @@ class MediaManageDialog(
             val members = placemarks.filter { it.groupId == group.id }
             val isCollapsed = !expanded.contains(group.id)
             rows.add(HeaderRow(group.id, group.name ?: "", members.size, allVisible(members), isCollapsed, false))
-            if (!isCollapsed) rows.addAll(members)
+            if (!isCollapsed) rows.addAll(members.map(::PhotoRow))
         }
         val ungrouped = placemarks.filter { it.groupId == Project.PhotoRecord.UNGROUPED_ID }
         val ungroupedCollapsed = !expanded.contains(Project.PhotoRecord.UNGROUPED_ID)
@@ -122,7 +123,7 @@ class MediaManageDialog(
                 allVisible(ungrouped), ungroupedCollapsed, true
             )
         )
-        if (!ungroupedCollapsed) rows.addAll(ungrouped)
+        if (!ungroupedCollapsed) rows.addAll(ungrouped.map(::PhotoRow))
         return rows
     }
 
@@ -230,9 +231,17 @@ class MediaManageDialog(
         val ungrouped: Boolean
     )
 
+    /** 点位行的不可变显示快照；操作回调仍使用当前 [record]，避免可变对象让 DiffUtil 假相等。 */
+    private class PhotoRow(val record: Project.PhotoRecord) {
+        val name: String? = record.name
+        val timestamp: Long = record.timestamp
+        val visible: Boolean = record.visible
+        val attachmentCount: Int = record.attachments.size
+    }
+
     /**
-     * 分组分区适配器：分组头（[HeaderRow]）与点位行（[Project.PhotoRecord]）两种视图类型。
-     * 行数据由 [submit] 整体替换后 notifyDataSetChanged（管理弹窗数据量小，无需 DiffUtil）。
+     * 分组分区适配器：分组头（[HeaderRow]）与点位行（[PhotoRow]）两种视图类型。
+     * 行数据由 [submit] 整体替换后通过 DiffUtil 分发精确变更。
      */
     private inner class GroupAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
@@ -242,9 +251,38 @@ class MediaManageDialog(
         private val timeFormat = SimpleDateFormat(TIME_PATTERN, Locale.getDefault())
 
         fun submit(newRows: List<Any>) {
+            val diffResult = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+                override fun getOldListSize(): Int = rows.size
+                override fun getNewListSize(): Int = newRows.size
+
+                override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+                    return when (val oldItem = rows[oldItemPosition]) {
+                        is HeaderRow -> (newRows[newItemPosition] as? HeaderRow)?.groupId == oldItem.groupId
+                        is PhotoRow -> (newRows[newItemPosition] as? PhotoRow)?.record?.id == oldItem.record.id
+                        else -> false
+                    }
+                }
+
+                override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+                    val oldItem = rows[oldItemPosition]
+                    val newItem = newRows[newItemPosition]
+                    return when (oldItem) {
+                        is HeaderRow -> newItem is HeaderRow &&
+                                oldItem.name == newItem.name && oldItem.count == newItem.count &&
+                                oldItem.allVisible == newItem.allVisible &&
+                                oldItem.collapsed == newItem.collapsed &&
+                                oldItem.ungrouped == newItem.ungrouped
+                        is PhotoRow -> newItem is PhotoRow &&
+                                oldItem.name == newItem.name && oldItem.timestamp == newItem.timestamp &&
+                                oldItem.visible == newItem.visible &&
+                                oldItem.attachmentCount == newItem.attachmentCount
+                        else -> false
+                    }
+                }
+            })
             rows.clear()
             rows.addAll(newRows)
-            notifyDataSetChanged()
+            diffResult.dispatchUpdatesTo(this)
         }
 
         override fun getItemViewType(position: Int): Int =
@@ -264,7 +302,7 @@ class MediaManageDialog(
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
             when (val row = rows[position]) {
                 is HeaderRow -> bindHeader(holder as HeaderHolder, row)
-                is Project.PhotoRecord -> bindItem(holder as ItemHolder, row)
+                is PhotoRow -> bindItem(holder as ItemHolder, row)
             }
         }
 
@@ -297,14 +335,26 @@ class MediaManageDialog(
             }
         }
 
-        private fun bindItem(holder: ItemHolder, placemark: Project.PhotoRecord) {
-            holder.name.text = placemark.name
-            val count = placemark.attachments.size
-            holder.subtitle.text = formatTime(placemark.timestamp) +
-                    if (count > 0) "　·　${count}张照片" else "　·　无照片"
+        private fun bindItem(holder: ItemHolder, row: PhotoRow) {
+            holder.name.text = row.name
+            val count = row.attachmentCount
+            holder.subtitle.text = if (count > 0) {
+                String.format(
+                    Locale.getDefault(),
+                    holder.itemView.context.getString(R.string.media_item_subtitle_with_photos),
+                    formatTime(row.timestamp),
+                    count
+                )
+            } else {
+                holder.itemView.context.getString(
+                    R.string.media_item_subtitle_without_photos,
+                    formatTime(row.timestamp)
+                )
+            }
 
+            val placemark = row.record
             holder.visibleSwitch.setOnCheckedChangeListener(null)
-            holder.visibleSwitch.isChecked = placemark.visible
+            holder.visibleSwitch.isChecked = row.visible
             holder.visibleSwitch.setOnCheckedChangeListener { _, isChecked ->
                 onPlacemarkVisibleChanged(placemark, isChecked)
             }

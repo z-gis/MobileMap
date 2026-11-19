@@ -2,8 +2,10 @@ package com.zys.mobilemap.vector
 
 import android.util.JsonReader
 import android.util.Log
+import com.zys.globecore.NativeLayerInfo
 import com.zys.globecore.NativeVector
 import org.json.JSONObject
+import java.io.File
 import java.io.StringReader
 
 /**
@@ -34,6 +36,17 @@ class VectorQueryResult(val features: List<VectorFeature>?, val error: String?) 
 }
 
 /**
+ * 几何编辑结果（分割/删除/合并统一）：ok=false 时 [error] 为可展示提示。
+ * [count]/[newFids] 仅分割有效：最大块留原 FID，其余块复制属性新建。
+ */
+class GeomEditResult(
+    val ok: Boolean,
+    val error: String = "",
+    val count: Int = 0,
+    val newFids: List<Long> = emptyList()
+)
+
+/**
  * GDAL/OGR 矢量读取：矢量数据的统一读取入口（shp/dwg/dxf/kml/kmz 均经此重投影到 WGS84），
  * 并提供 SQL 查询（[queryFeatures]）供属性筛选高亮。
  *
@@ -53,9 +66,9 @@ object GdalVectorReader {
      * 快速统计矢量数据要素总数（遍历全部子图层求和），供上层判定小数据集是否直接全量渲染。
      * 打开失败或原生库未加载返回 -1。
      */
-    fun countFeatures(path: String): Int {
+    fun countFeatures(path: String, layerName: String = ""): Int {
         return try {
-            NativeVector.countVectorFeatures(path)
+            NativeVector.countVectorFeatures(path, layerName)
         } catch (e: UnsatisfiedLinkError) {
             Log.e(TAG, "nativeCountVectorFeatures 未加载", e)
             -1
@@ -65,24 +78,139 @@ object GdalVectorReader {
         }
     }
 
+    /** 图层几何类型缓存（path|layerName|mtime → 0 点/1 线/2 面/-1 未知）：
+     * 图层行色块/样式页逐行要问，免每行开 GDAL；重导入覆盖同路径会改 mtime，缓存自然失效。 */
+    private val geomCache = HashMap<String, Int>()
+
+    /**
+     * 图层几何类型（0 点 / 1 线 / 2 面 / -1 未知）：样式页几何分支与信息行类型文本共用。
+     * 文件不存在或 native 未加载返回 -1（KML 混合几何 OGR 常报 wkbUnknown，亦为 -1）。
+     */
+    fun geomTypeOf(path: String, layerName: String = ""): Int {
+        if (path.isEmpty()) return -1
+        val file = File(path)
+        if (!file.exists()) return -1
+        val key = "$path|$layerName|${file.lastModified()}"
+        geomCache[key]?.let { return it }
+        val type = try {
+            NativeLayerInfo.getLayerGeomType(path, layerName)
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "getLayerGeomType 未加载", e)
+            -1
+        } catch (e: Exception) {
+            Log.e(TAG, "取图层几何类型失败: $path", e)
+            -1
+        }
+        geomCache[key] = type
+        return type
+    }
+
+    private val geomMaskCache = HashMap<String, Int>()
+
+    /**
+     * 图层几何构成掩码（bit0 点 / bit1 线 / bit2 面，可组合）：样式页按构成出节用。
+     * KML 层声明 wkbUnknown 时 native 采样扫描要素；文件不存在或 native 未加载返回 0。
+     * 缓存口径同 [geomTypeOf]（path+mtime，重导入自然失效）。
+     */
+    fun geomMaskOf(path: String, layerName: String = ""): Int {
+        if (path.isEmpty()) return 0
+        val file = File(path)
+        if (!file.exists()) return 0
+        val key = "$path|$layerName|${file.lastModified()}"
+        geomMaskCache[key]?.let { return it }
+        val mask = try {
+            NativeLayerInfo.getLayerGeomMask(path, layerName)
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "getLayerGeomMask 未加载", e)
+            0
+        } catch (e: Exception) {
+            Log.e(TAG, "取图层几何构成失败: $path", e)
+            0
+        }
+        geomMaskCache[key] = mask
+        return mask
+    }
+
     /**
      * 按 FID 就地写回属性字段到源文件（GDAL_OF_UPDATE + SetField + SetFeature）。
      * 仅修改现有字段值；dwg 等只读驱动、无写权限、字段名不存在时返回 false。
      * attrs 为空直接返回 true（无需写入）。
      */
-    fun updateAttributes(path: String, featureId: Long, attrs: Map<String, String>): Boolean {
+    fun updateAttributes(
+        path: String, featureId: Long, attrs: Map<String, String>, layerName: String = ""
+    ): Boolean {
         if (attrs.isEmpty()) return true
         if (featureId < 0) return false
         return try {
             val keys = attrs.keys.toTypedArray()
             val values = attrs.values.toTypedArray()
-            NativeVector.updateFeatureAttributes(path, featureId, keys, values)
+            NativeVector.updateFeatureAttributes(path, featureId, keys, values, layerName)
         } catch (e: UnsatisfiedLinkError) {
             Log.e(TAG, "nativeUpdateFeatureAttributes 未加载", e)
             false
         } catch (e: Exception) {
             Log.e(TAG, "属性写回失败: $path fid=$featureId", e)
             false
+        }
+    }
+
+    /**
+     * 删除要素（gdb/shp，任意几何类型）。backupDir 必传：进程内首次几何写前整份自动备份。
+     * shp 为标记删除（不自动 REPACK，文件体积不减属预期）。
+     */
+    fun deleteFeature(path: String, featureId: Long, layerName: String, backupDir: String): GeomEditResult =
+        try {
+            parseGeomEdit(NativeVector.deleteVectorFeature(path, featureId, layerName, backupDir))
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "nativeDeleteVectorFeature 未加载", e)
+            GeomEditResult(false, "原生库未加载，无法删除")
+        } catch (e: Exception) {
+            Log.e(TAG, "删除要素失败: $path fid=$featureId", e)
+            GeomEditResult(false, "删除失败：${e.message}")
+        }
+
+    /**
+     * 按线分割面图斑：lineWkt 为 WGS84 折线 WKT（LINESTRING(lon lat,…)），首末段自动延长贯穿。
+     * 最大块留原 FID（属性不动），其余块复制属性新建；面积闭合门禁不过不落库。
+     */
+    fun splitByLine(path: String, featureId: Long, lineWkt: String, layerName: String, backupDir: String): GeomEditResult =
+        try {
+            parseGeomEdit(NativeVector.splitPolygonByLine(path, featureId, lineWkt, layerName, backupDir))
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "nativeSplitPolygonByLine 未加载", e)
+            GeomEditResult(false, "原生库未加载，无法分割")
+        } catch (e: Exception) {
+            Log.e(TAG, "分割图斑失败: $path fid=$featureId", e)
+            GeomEditResult(false, "分割失败：${e.message}")
+        }
+
+    /** 合并两个面图斑：保留 fidKeep 的 FID 与属性，删除 fidRemove（不相离时结果为多部件） */
+    fun mergeFeatures(path: String, fidKeep: Long, fidRemove: Long, layerName: String, backupDir: String): GeomEditResult =
+        try {
+            parseGeomEdit(NativeVector.mergeVectorFeatures(path, fidKeep, fidRemove, layerName, backupDir))
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "nativeMergeVectorFeatures 未加载", e)
+            GeomEditResult(false, "原生库未加载，无法合并")
+        } catch (e: Exception) {
+            Log.e(TAG, "合并图斑失败: $path fid=$fidKeep+$fidRemove", e)
+            GeomEditResult(false, "合并失败：${e.message}")
+        }
+
+    private fun parseGeomEdit(json: String?): GeomEditResult {
+        if (json.isNullOrEmpty()) return GeomEditResult(false, "操作无返回")
+        return try {
+            val obj = JSONObject(json)
+            if (obj.optBoolean("ok", false)) {
+                val fids = mutableListOf<Long>()
+                val arr = obj.optJSONArray("newFids")
+                if (arr != null) for (i in 0 until arr.length()) fids.add(arr.getLong(i))
+                GeomEditResult(true, "", obj.optInt("count", 0), fids)
+            } else {
+                GeomEditResult(false, obj.optString("error", "操作失败"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "解析几何编辑结果 JSON 失败", e)
+            GeomEditResult(false, "操作结果解析失败")
         }
     }
 
@@ -99,14 +227,15 @@ object GdalVectorReader {
                      includeAllFields: Boolean = true,
                      labelField: String? = null,
                      simplifyGeometry: Boolean = false,
-                     simplifyTolerance: Double = 0.0): List<VectorFeature>? {
+                     simplifyTolerance: Double = 0.0,
+                     layerName: String = ""): List<VectorFeature>? {
         val json = try {
             if (extent != null) {
                 NativeVector.readVectorFeatures(path, extent[0], extent[1], extent[2], extent[3],
-                    includeAllFields, labelField, simplifyGeometry, simplifyTolerance)
+                    includeAllFields, labelField, simplifyGeometry, simplifyTolerance, layerName)
             } else {
                 NativeVector.readVectorFeatures(path, Double.NaN, Double.NaN, Double.NaN, Double.NaN,
-                    includeAllFields, labelField, simplifyGeometry, simplifyTolerance)
+                    includeAllFields, labelField, simplifyGeometry, simplifyTolerance, layerName)
             }
         } catch (e: UnsatisfiedLinkError) {
             Log.e(TAG, "nativeReadVectorFeatures 未加载", e)
@@ -124,10 +253,12 @@ object GdalVectorReader {
      * 点击时经此二次拉取全字段。shp/gpkg 索引 seek ~10-30ms。
      * 打开失败 / fid 未命中 / 原生库未加载均返回 null（由调用方回退到已有缓存）。
      */
-    fun getFeatureAttributes(path: String, featureId: Long): Map<String, String>? {
+    fun getFeatureAttributes(
+        path: String, featureId: Long, layerName: String = ""
+    ): Map<String, String>? {
         if (featureId < 0) return null
         val json = try {
-            NativeVector.getFeatureAttributes(path, featureId)
+            NativeVector.getFeatureAttributes(path, featureId, layerName)
         } catch (e: UnsatisfiedLinkError) {
             Log.e(TAG, "nativeGetFeatureAttributes 未加载", e)
             return null

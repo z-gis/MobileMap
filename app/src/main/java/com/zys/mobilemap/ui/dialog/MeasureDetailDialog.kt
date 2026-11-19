@@ -1,13 +1,14 @@
 package com.zys.mobilemap.ui.dialog
 
 import android.app.Dialog
-import android.graphics.Color
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.core.graphics.toColorInt
 import com.zys.mobilemap.R
+import java.util.Locale
 
 /**
  * 测量/轨迹详情 BottomSheet：点击已保存的测量或轨迹后弹出。
@@ -117,7 +118,7 @@ class MeasureDetailDialog(
             // 步进统一经此函数限幅并回显，避免加/减两个监听各写一遍
             fun applyWidth(value: Int) {
                 lineWidth = value.coerceIn(WIDTH_MIN, WIDTH_MAX)
-                tvWidth.text = lineWidth.toString()
+                tvWidth.text = String.format(Locale.getDefault(), "%d", lineWidth)
             }
             applyWidth(lineWidth)
             sheet.findViewById<TextView>(R.id.measure_detail_btn_width_minus)
@@ -139,10 +140,10 @@ class MeasureDetailDialog(
             fun renderRemark(text: String) {
                 if (text.isEmpty()) {
                     tvRemark.text = REMARK_EMPTY
-                    tvRemark.setTextColor(Color.parseColor(REMARK_EMPTY_COLOR))
+                    tvRemark.setTextColor(REMARK_EMPTY_COLOR.toColorInt())
                 } else {
                     tvRemark.text = text
-                    tvRemark.setTextColor(Color.parseColor(REMARK_TEXT_COLOR))
+                    tvRemark.setTextColor(REMARK_TEXT_COLOR.toColorInt())
                 }
             }
             renderRemark(remarkText)

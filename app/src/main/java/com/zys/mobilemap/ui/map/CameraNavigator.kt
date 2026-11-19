@@ -7,14 +7,15 @@ import android.os.Looper
 import android.os.SystemClock
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.edit
 import com.zys.mobilemap.R
 import com.zys.mobilemap.doc.MapDocument
 import com.zys.mobilemap.location.MercatorZoom
 import com.zys.mobilemap.project.Project
 import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.util.CoordFormatter
+import com.zys.mobilemap.vector.VectorMetaCache
 import com.zys.globecore.Camera
-import com.zys.globecore.NativeLayerInfo
 import com.zys.globecore.NativeMapView
 import com.zys.globecore.VectorExtent
 import java.util.Locale
@@ -192,16 +193,15 @@ internal class CameraNavigator(
     }
 
     /**
-     * 缩放到图层四至范围（GDAL 读取，kmz 走 /vsizip/ 虚拟文件）：经 globecore [NativeLayerInfo.getLayerExtent] 读取。
+     * 缩放到图层四至范围：优先文档元数据缓存（指纹新鲜即免开 GDAL），未命中回落直读（kmz 走 /vsizip/）。
      * 文档新增图层后 save 会触发界面重建，故先 setCamera（本方法）；onPause 会将该视角存入 prefs，重建后跨 recreate 保留缩放。
      */
-    fun zoomToLayerExtent(path: String) {
-        val openPath = if (path.lowercase(Locale.getDefault()).endsWith(".kmz")) "/vsizip/$path" else path
-        val extent = NativeLayerInfo.getLayerExtent(openPath)
+    fun zoomToLayerExtent(path: String, layerName: String = "") {
+        val extent = VectorMetaCache.extentOf(path, layerName)
         if (extent != null && extent.size == 4) {
             zoomToExtent(extent[0], extent[1], extent[2], extent[3])
         } else {
-            AppLog.w(TAG, "图层四至读取失败: $openPath")
+            AppLog.w(TAG, "图层四至读取失败: $path")
         }
     }
 
@@ -248,7 +248,11 @@ internal class CameraNavigator(
      */
     fun updateStatusText() {
         val cam = mapView.getCamera() ?: return
-        levelText.text = MercatorZoom.altitudeToLevel(cam.altitude).toString()
+        levelText.text = String.format(
+            Locale.getDefault(),
+            "%d",
+            MercatorZoom.altitudeToLevel(cam.altitude)
+        )
         centerText.text = CoordFormatter.formatDecimalDegrees("Center", cam.longitude, cam.latitude)
         // 方位角随轮询同步宿主（指北针按键显隐），免另设回调通道
         onHeadingChanged?.invoke(cam.heading)
@@ -273,13 +277,13 @@ internal class CameraNavigator(
      */
     fun saveCameraState() {
         val cam = mapView.getCamera() ?: return
-        activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
-            .putLong(KEY_LON, cam.longitude.toRawBits())
-            .putLong(KEY_LAT, cam.latitude.toRawBits())
-            .putLong(KEY_ALT, cam.altitude.toRawBits())
-            .putLong(KEY_HEADING, cam.heading.toRawBits())
-            .putLong(KEY_TILT, cam.tilt.toRawBits())
-            .apply()
+        activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
+            putLong(KEY_LON, cam.longitude.toRawBits())
+            putLong(KEY_LAT, cam.latitude.toRawBits())
+            putLong(KEY_ALT, cam.altitude.toRawBits())
+            putLong(KEY_HEADING, cam.heading.toRawBits())
+            putLong(KEY_TILT, cam.tilt.toRawBits())
+        }
     }
 
     companion object {

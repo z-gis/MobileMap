@@ -19,7 +19,7 @@ import kotlinx.coroutines.withContext
  * 高亮为临时叠加、不写文档，故缓存命中要素于 [BusinessOverlayManager.rebuild] 后重建保留：
  *  - [onOverlayLayersCleared]：clearOverlayLayers 后仅失效索引（保留命中缓存），由 rebuild 经回调调用；
  *  - [restoreAfterRebuild]：重建末尾按缓存要素重画高亮层，由 rebuild 经回调调用；
- *  - [sourcePathIfHit]：查询高亮层命中时回源文件路径，供 [FeaturePickController] 穿透弹源要素详情
+ *  - [sourceIfHit]：查询高亮层命中时回源数据集路径与要素类名，供 [FeaturePickController] 穿透弹源要素详情
  *    （高亮层已置 noPick 不参与 native 拾取，本方法仅作防护兜底）。
  * 语句执行在注入的 [scope]（宿主 lifecycleScope）后台线程进行；缩放复用 [CameraNavigator.zoomToExtent]。
  */
@@ -36,14 +36,15 @@ internal class SqlQueryController(
     /** 查询高亮占用的 overlay 层索引（供清除与重建后恢复） */
     private val queryOverlayIndices = mutableListOf<Int>()
 
-    /** 当前查询的源文件路径：高亮层命中时点击穿透回源要素、按 FID 回取属性用 */
+    /** 当前查询的数据集路径与要素类：高亮命中后按同一身份回取源要素属性。 */
     private var queryPath: String? = null
+    private var queryLayerName: String = ""
 
     /**
      * 执行 shp/gpkg 图层 SQL 查询：后台线程经 [GdalVectorReader.queryFeatures] 取命中要素（已重投影 WGS84），
      * 清除旧高亮后按几何类型叠加洋红高亮层并缩放到结果四至；语句错误按 GDAL/OGR 原因长时提示。
      */
-    fun runSqlQuery(path: String, sql: String) {
+    fun runSqlQuery(path: String, layerName: String, sql: String) {
         Toast.makeText(activity, R.string.sql_query_running, Toast.LENGTH_SHORT).show()
         scope.launch {
             val result = withContext(Dispatchers.Default) { GdalVectorReader.queryFeatures(path, sql) }
@@ -62,6 +63,7 @@ internal class SqlQueryController(
             }
             queryHighlight = features
             queryPath = path
+            queryLayerName = layerName
             addQueryHighlightOverlay(features)
             queryExtentOf(features)?.let { navigator.zoomToExtent(it[0], it[1], it[2], it[3]) }
             Toast.makeText(
@@ -82,6 +84,7 @@ internal class SqlQueryController(
         queryOverlayIndices.clear()
         queryHighlight = null
         queryPath = null
+        queryLayerName = ""
     }
 
     /**
@@ -226,6 +229,8 @@ internal class SqlQueryController(
 
     /** 查询高亮层命中时回源文件路径（供拾取穿透弹源要素只读详情）；非查询高亮层命中返回 null。
      *  高亮层已置 noPick，native 拾取正常不会命中于此，本方法仅作 [FeaturePickController] 防护兑底。 */
-    fun sourcePathIfHit(layerIndex: Int): String? =
-        if (layerIndex in queryOverlayIndices) queryPath else null
+    fun sourceIfHit(layerIndex: Int): Pair<String, String>? {
+        val path = queryPath ?: return null
+        return if (layerIndex in queryOverlayIndices) Pair(path, queryLayerName) else null
+    }
 }

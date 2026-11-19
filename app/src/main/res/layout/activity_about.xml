@@ -23,6 +23,7 @@
             android:layout_height="24dp"
             android:layout_centerVertical="true"
             android:padding="2dp"
+            android:contentDescription="@string/jni_map_back"
             android:src="@drawable/ic_left_arrow_black" />
 
         <TextView

@@ -5,12 +5,14 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.zys.mobilemap.R
 import com.zys.mobilemap.doc.DocumentManager
 import com.zys.mobilemap.doc.LayerInfo
 import com.zys.mobilemap.media.MediaPackage
 import com.zys.mobilemap.util.AppDirectories
+import com.zys.mobilemap.vector.ImportResult
 import com.zys.mobilemap.vector.VectorFileImporter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,23 +53,48 @@ internal class ExternalImportHandler(
                 Toast.makeText(activity, R.string.vector_open_failed, Toast.LENGTH_SHORT).show()
                 return@launch
             }
-            val importedList = VectorFileImporter.importFiles(activity, localPath)
+            val importedList = withContext(Dispatchers.IO) {
+                VectorFileImporter.importFiles(activity, localPath)
+            }
             if (importedList.isEmpty()) {
                 Toast.makeText(activity, R.string.vector_import_failed, Toast.LENGTH_SHORT).show()
                 return@launch
             }
-            val doc = DocumentManager.getInstance().getDocument() ?: return@launch
-            // zip 内多个 shp 全部写入文档（按路径去重），只保存一次
-            var added = false
-            for (imported in importedList) {
-                if (doc.vectorLayers.none { it.path == imported.path }) {
-                    doc.vectorLayers.add(LayerInfo(imported.name, imported.path, LayerInfo.TYPE_VECTOR, true))
-                    added = true
-                }
-            }
-            if (added) DocumentManager.getInstance().save(activity)
-            navigator.zoomToLayerExtent(importedList.first().path)
+            addImportedLayers(importedList)
         }
+    }
+
+    /** 外部打开同样支持 GDB 要素类选择；其他多文件压缩包保持全部导入。 */
+    private fun addImportedLayers(importedList: List<ImportResult>) {
+        val gdbLayers = importedList.filter { it.layerName.isNotEmpty() }
+        if (gdbLayers.size > 1) {
+            val labels = gdbLayers.map { "${File(it.path).name} / ${it.layerName}" }.toTypedArray()
+            AlertDialog.Builder(activity)
+                .setTitle("选择 GDB 图层")
+                .setItems(labels) { _, which -> persistImportedLayers(listOf(gdbLayers[which])) }
+                .setNegativeButton(R.string.dialog_cancel, null)
+                .show()
+            return
+        }
+        persistImportedLayers(importedList)
+    }
+
+    private fun persistImportedLayers(importedList: List<ImportResult>) {
+        val doc = DocumentManager.getInstance().getDocument() ?: return
+        var added = false
+        for (imported in importedList) {
+            if (doc.vectorLayers.none { it.path == imported.path && it.layerName == imported.layerName }) {
+                doc.vectorLayers.add(
+                    LayerInfo(
+                        imported.name, imported.path, LayerInfo.TYPE_VECTOR, true, imported.layerName
+                    )
+                )
+                added = true
+            }
+        }
+        if (added) DocumentManager.getInstance().save(activity)
+        val first = importedList.first()
+        navigator.zoomToLayerExtent(first.path, first.layerName)
     }
 
     /**

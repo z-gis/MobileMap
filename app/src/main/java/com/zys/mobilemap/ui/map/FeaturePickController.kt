@@ -17,6 +17,7 @@ import com.zys.mobilemap.ui.dialog.PhotoSheetDialog
 import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.util.GeoCalc
 import com.zys.mobilemap.vector.GdalVectorReader
+import com.zys.mobilemap.vector.VectorFormats
 import com.zys.globecore.FeatureGeometry
 import com.zys.globecore.NativeMapView
 import com.zys.globecore.VectorStyle as NativeVectorStyle
@@ -25,7 +26,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.Locale
 import kotlin.math.abs
 
 /**
@@ -50,14 +50,16 @@ internal interface PickHitRouter {
  * 长按命中的可编辑文件矢量要素目标（供宿主弹要素编辑圆菜单）。
  * @param layerIndex native 矢量层索引；@param fid 要素 FID；@param path 源文件路径
  */
-internal data class PickedFeature(val layerIndex: Int, val fid: Long, val path: String)
+internal data class PickedFeature(
+    val layerIndex: Int, val fid: Long, val path: String, val layerName: String = ""
+)
 
 /**
  * 矢量拾取与选中详情控制器（自 MainActivity 拆出）：单击地图命中分发（测量拦截→叠加命中→文件矢量拾取）、
  * 黄色选中高亮层管理、要素详情弹层（属性后台回取回填）、属性写回与样地调查入口。
  *
  * 协作单向：测量拦截经 [MeasureCaptureController.handleTap] 先行；叠加命中分类经 [BusinessOverlayManager.hitTest]，
- * 分流细节走 [PickHitRouter] 回宿主；查询高亮穿透经 [SqlQueryController.sourcePathIfHit]；矢量层索引回查经
+ * 分流细节走 [PickHitRouter] 回宿主；查询高亮穿透经 [SqlQueryController.sourceIfHit]；矢量层索引回查经
  * [MapLayerManager]。选中为瞬态交互：[onOverlayLayersCleared] 供叠加层重建后重置失效索引。
  */
 internal class FeaturePickController(
@@ -72,11 +74,17 @@ internal class FeaturePickController(
     private val scope: CoroutineScope
 ) {
 
+    // 几何编辑态门控（宿主装配 GeomEditController 后注入）：编辑态单击交编辑控制器消费（加分割线点/选合并靶），
+    // 长按不再弹菜单；缺省关闭，行为与历史一致
+    var isGeomEditing: () -> Boolean = { false }
+    var geomEditTap: (Float, Float) -> Unit = { _, _ -> }
+
     // 点击选中高亮：选中要素的黄色高亮 overlay 层索引 + 源文件路径/FID
     // （高亮层置 noPick 不参与 native 拾取，命中直接落源要素层；缓存源 path/FID 仅作防护兜底：
     // 异常情形（如 native 旧版未支持 noPick）高亮层被命中时穿透回详情）
     private var selectedHighlightIndex = -1
     private var selectedPath: String? = null
+    private var selectedLayerName: String = ""
     private var selectedFid: Long = -1
 
     /**
@@ -86,6 +94,11 @@ internal class FeaturePickController(
      * （底图/注记不参与点选）；样式编辑暂不开放（styleEditable=false，仅属性页）。
      */
     fun onMapTap(x: Float, y: Float) {
+        // 几何编辑态：点击交编辑控制器消费（加分割线点/选合并靶），不走拾取分流
+        if (isGeomEditing()) {
+            geomEditTap(x, y)
+            return
+        }
         // 测量采集模式：拦截点击用于加点（优先于拾取，对齐原主界面 VectorPickModel.onBeforePick 的测量拦截）
         if (measureController.handleTap(x, y)) return
         val hit = mapView.pickVector(x, y)
@@ -107,8 +120,8 @@ internal class FeaturePickController(
         val info = layerManager.layerInfoByIndex(layerIndex) ?: return
         val path = info.path
         if (path.isNullOrEmpty()) return
-        highlightSelectedFeature(layerIndex, fid, path)
-        showVectorFeatureDetail(path, fid)
+        highlightSelectedFeature(layerIndex, fid, path, info.layerName)
+        showVectorFeatureDetail(path, fid, info.layerName)
     }
 
     /**
@@ -117,6 +130,7 @@ internal class FeaturePickController(
      * 与 [onMapTap] 复用同一套 native [NativeMapView.pickVector] 拾取与 [highlightSelectedFeature] 高亮。
      */
     fun onMapLongPress(x: Float, y: Float): PickedFeature? {
+        if (isGeomEditing()) return null
         val hit = mapView.pickVector(x, y) ?: return null
         if (hit.size < 2) return null
         val layerIndex = hit[0].toInt()
@@ -128,8 +142,8 @@ internal class FeaturePickController(
         val info = layerManager.layerInfoByIndex(layerIndex) ?: return null
         val path = info.path
         if (path.isNullOrEmpty()) return null
-        highlightSelectedFeature(layerIndex, fid, path)
-        return PickedFeature(layerIndex, fid, path)
+        highlightSelectedFeature(layerIndex, fid, path, info.layerName)
+        return PickedFeature(layerIndex, fid, path, info.layerName)
     }
 
     /**
@@ -161,13 +175,13 @@ internal class FeaturePickController(
             OverlayHit.None -> Unit
         }
         // SQL 查询高亮层命中：点击穿透到源要素（该层已置 noPick，正常不会命中于此；本分支仅作防护兜底），弹源数据只读详情
-        queryController.sourcePathIfHit(layerIndex)?.let {
-            showVectorFeatureDetail(it, fid)
+        queryController.sourceIfHit(layerIndex)?.let { (path, layerName) ->
+            showVectorFeatureDetail(path, fid, layerName)
             return true
         }
         // 点击选中高亮层命中：穿透回源要素详情（该层已置 noPick，正常不会命中于此；本分支仅作防护兜底）
         if (layerIndex == selectedHighlightIndex) {
-            selectedPath?.let { showVectorFeatureDetail(it, selectedFid) }
+            selectedPath?.let { showVectorFeatureDetail(it, selectedFid, selectedLayerName) }
             return true
         }
         return false
@@ -178,8 +192,9 @@ internal class FeaturePickController(
      * 经 [NativeMapView.featureGeometry] 取该要素经纬度几何（native 反投影 pickPrims，无文件 IO），
      * 用独立 overlay 层以黄色高亮样式覆盖渲染。切换选中先清旧高亮；高亮层置 noPick 不参与拾取
      * （其大面积面几何会遮蔽测量/拍照等业务叠加与源要素的点击），命中直接落到原要素层。
+     * 公开供 [GeomEditController] 分割/合并重载后重新高亮目标要素复用。
      */
-    private fun highlightSelectedFeature(layerIndex: Int, fid: Long, path: String) {
+    fun highlightSelectedFeature(layerIndex: Int, fid: Long, path: String, layerName: String) {
         clearSelectedHighlight()
         val fg = mapView.featureGeometry(layerIndex, fid) ?: return
         val idx = mapView.addOverlayLayer(
@@ -193,6 +208,7 @@ internal class FeaturePickController(
         mapView.setOverlayNoPick(idx, true) // 瞬态视觉层退出拾取竞争，命中直接落源层
         selectedHighlightIndex = idx
         selectedPath = path
+        selectedLayerName = layerName
         selectedFid = fid
         when (fg.type) {
             // MultiPoint 展平后 fg 会含多个点（同 fid 多派生），fids 需逐点对齐到同 fid；
@@ -215,6 +231,7 @@ internal class FeaturePickController(
         if (selectedHighlightIndex >= 0) mapView.removeOverlayLayer(selectedHighlightIndex)
         selectedHighlightIndex = -1
         selectedPath = null
+        selectedLayerName = ""
         selectedFid = -1
     }
 
@@ -234,18 +251,18 @@ internal class FeaturePickController(
      * 两者初始隐藏，由详情顶部“编辑”按键门控开放（[FeatureDetailDialog.editButtonVisible]）。
      * 几何类型与量算经 native [NativeMapView.featureGeometry] 取得（无文件 IO）。
      */
-    fun showVectorFeatureDetail(path: String, fid: Long) {
+    fun showVectorFeatureDetail(path: String, fid: Long, sourceLayerName: String = "") {
         if (path.isEmpty() || fid < 0) return
         val layerInfo = DocumentManager.getInstance().getDocument()
-            ?.vectorLayers?.firstOrNull { it.path == path }
+            ?.vectorLayers?.firstOrNull { it.path == path && it.layerName == sourceLayerName }
         val layerName = layerInfo?.name
-        val ext = path.substringAfterLast('.', "").lowercase(Locale.getDefault())
+        val ext = VectorFormats.extOf(path)
         // native 矢量层索引：供 featureGeometry 取几何类型（点/线/面）与量算
         val layerIndex = layerInfo?.let { layerManager.nativeIndexOf(it) } ?: -1
-        // shp/gpkg/kml/kmz 均为 GDAL 索引矢量、拾取回传稳定 FID，支持整层/单要素颜色覆盖；dwg/dxf 只读不改样式
-        val styleEditable = (ext == "shp" || ext == "gpkg" || ext == "kml" || ext == "kmz") && fid >= 0
-        // 属性可编辑：可写格式 + 有效 FID（编辑权限由顶部“编辑”按键门控，此处只判定能力）
-        val attrsEditable = fid >= 0 && isWritableFormat(ext) && ext != "kml" && ext != "kmz"
+        // 单要素样式覆盖：GDAL 索引矢量（shp/gpkg/gdb）+ 有效 FID；kml/kmz 单要素待二期、dwg 只读
+        val styleEditable = VectorFormats.featureStyleEditable(path) && fid >= 0
+        // 属性可编辑：可写格式（排除 kml/kmz 自带样式）+ 有效 FID（编辑权限由顶部“编辑”按键门控）
+        val attrsEditable = fid >= 0 && VectorFormats.attributeWritable(path) && !VectorFormats.isKml(path)
         // 几何类型与量算：经 native featureGeometry 取该要素经纬度几何（0 点 / 1 线 / 2 面），无文件 IO 可同步取
         val fg = if (layerIndex >= 0) mapView.featureGeometry(layerIndex, fid) else null
         val geomType = fg?.type ?: -1
@@ -272,7 +289,7 @@ internal class FeaturePickController(
         val eff = if (layerIndex >= 0) mapView.featureRenderColor(layerIndex, fid) else null
         val renderColors = if (eff != null && eff.size >= 2)
             Pair(MapStyleColors.argbToHex(eff[0]), MapStyleColors.argbToHex(eff[1]))
-        else layerManager.layerRenderColorsOf(path)
+        else layerManager.layerRenderColorsOf(path, sourceLayerName)
         // 弹层先行：属性回取后台进行，样地入口点击时取最新回填值（闭包捕获可变局部变量）
         var latestAttrs: Map<String, String>? = null
         val dialog = FeatureDetailDialog(
@@ -287,8 +304,8 @@ internal class FeaturePickController(
             styleEditable = styleEditable,
             fallbackFill = renderColors.first,
             fallbackOutline = renderColors.second,
-            isPointFeature = geomType == 0,
-            labelSectionVisible = ext != "kml" && ext != "kmz",
+            geomType = geomType,
+            labelSectionVisible = !VectorFormats.isKml(path),
             geometryText = featureGeometryText(fg),
             onSave = { style ->
                 val li = layerInfo
@@ -303,7 +320,9 @@ internal class FeaturePickController(
                 }
             },
             attrsEditable = attrsEditable,
-            onSaveAttributes = if (attrsEditable) { { pending -> persistAttributes(path, fid, pending) } } else null,
+            onSaveAttributes = if (attrsEditable) {
+                { pending -> persistAttributes(path, fid, pending, sourceLayerName) }
+            } else null,
             surveyEntryVisible = surveyEntry,
             onSurveyEntry = if (surveyEntry) { { showSurveyEntryDialog(path, fid, latestAttrs, fg) } } else null,
             editButtonVisible = attrsEditable,
@@ -313,7 +332,9 @@ internal class FeaturePickController(
         // 属性异步回取 + 就地回填（固定高度内滚不改变弹层高度）；弹层可能已被用户关闭，isAdded 守卫
         scope.launch {
             val t0 = SystemClock.elapsedRealtime()
-            val attrs = withContext(Dispatchers.IO) { GdalVectorReader.getFeatureAttributes(path, fid) }
+            val attrs = withContext(Dispatchers.IO) {
+                GdalVectorReader.getFeatureAttributes(path, fid, sourceLayerName)
+            }
             AppLog.i(
                 TAG, "属性回取 file=${File(path).name} fid=$fid fields=${attrs?.size} " +
                     "cost=${SystemClock.elapsedRealtime() - t0}ms"
@@ -331,11 +352,13 @@ internal class FeaturePickController(
      * GDAL SetField+SetFeature 耗时可忽略，与原主界面一致同步写回（对话框等待结果决定是否关闭）。
      * @return 写回是否成功
      */
-    private fun persistAttributes(path: String, fid: Long, pending: Map<String, String>): Boolean {
+    private fun persistAttributes(
+        path: String, fid: Long, pending: Map<String, String>, layerName: String
+    ): Boolean {
         if (pending.isEmpty()) return true
         var success = false
         try {
-            success = GdalVectorReader.updateAttributes(path, fid, pending)
+            success = GdalVectorReader.updateAttributes(path, fid, pending, layerName)
         } catch (e: Exception) {
             AppLog.e(TAG, "属性写回异常", e)
         }
@@ -346,9 +369,6 @@ internal class FeaturePickController(
         }
         return success
     }
-
-    /** 可写格式判定：shp/dxf/gpkg/geojson/kml/kmz 支持属性写回，dwg 只读 */
-    private fun isWritableFormat(ext: String): Boolean = ext in WRITABLE_FORMATS
 
     /**
      * 样地调查入口对话框（复刻原主界面 MainActivity）：查询该要素已有样地记录，
@@ -452,8 +472,5 @@ internal class FeaturePickController(
     companion object {
         // 保持与原 MainActivity 相同日志 tag，行为零变化
         private const val TAG = "MainActivity"
-
-        // 支持属性写回的矢量格式（GDAL 驱动能力矩阵：dwg 只读，复刻原主界面 WRITABLE_FORMATS）
-        private val WRITABLE_FORMATS = setOf("shp", "dxf", "gpkg", "geojson", "kml", "kmz")
     }
 }

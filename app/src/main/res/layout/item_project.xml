@@ -37,14 +37,14 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
-                android:text="当前"
+                android:text="@string/project_current"
                 android:textColor="#FFFFFF"
                 android:background="#1976D2"
                 android:paddingStart="6dp"
                 android:paddingTop="1dp"
                 android:paddingEnd="6dp"
                 android:paddingBottom="1dp"
-                android:textSize="10sp"
+                android:textSize="11sp"
                 android:visibility="gone"/>
         </LinearLayout>
 
@@ -69,7 +69,7 @@
         android:paddingTop="10dp"
         android:paddingEnd="14dp"
         android:paddingBottom="10dp"
-        android:text="⋮"
+        android:text="@string/project_more"
         android:textColor="#666666"
         android:textSize="20sp"
         android:textStyle="bold"/>

@@ -13,6 +13,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
+import androidx.core.graphics.toColorInt
 import com.google.android.material.tabs.TabLayout
 import com.zys.mobilemap.R
 import com.zys.mobilemap.doc.VectorStyle
@@ -46,8 +47,12 @@ class FeatureDetailDialog(
     /** 要素当前实际渲染色（无文档样式覆盖时色块回显所见即所得） */
     private val fallbackFill: String?,
     private val fallbackOutline: String?,
-    /** 点要素：样式页以标识图标切换代替面样式（填充/描边/线宽），标注设置保留 */
-    private val isPointFeature: Boolean = false,
+    /** 几何类型（0 点 / 1 线 / 2 面 / -1 未知）：点要素样式页以标识图标切换代替面样式，
+     * 线要素隐藏填充、描边改名线色（渲染只吃线通道）；标注设置均保留 */
+    private val geomType: Int = -1,
+    /** 几何构成掩码（bit0 点 / bit1 线 / bit2 面，可组合）：混合层（KML 常见）按构成出点/线/面节；
+     * 0 = 未提供，按 [geomType] 单几何分支 */
+    private val geomMask: Int = 0,
     private val layerStyleMode: Boolean = false,
     private val labelFieldOptions: List<String>? = null,
     private val labelSectionVisible: Boolean = true,
@@ -56,7 +61,7 @@ class FeatureDetailDialog(
     /** KML/KMZ 要素 <description> HTML：非空时属性页以 WebView 渲染（对齐 2.5.3），否则显示键值属性表；随属性异步回填可变 */
     private var description: String? = null,
     private val onSave: ((VectorStyle) -> Unit)?,
-    /** 调查模式：属性值可点击编辑，保存写回矢量源文件（仅 shp/dxf/gpkg/geojson/kml/kmz 可写） */
+    /** 调查模式：属性值可点击编辑，保存写回矢量源文件（shp/gpkg/geojson/json/dxf/gdb 可写，kml/kmz 自带样式除外） */
     private val attrsEditable: Boolean = false,
     /** 属性保存回调：入参为本次会话内修改过的字段键值对，返回写回是否成功 */
     private val onSaveAttributes: ((Map<String, String>) -> Boolean)? = null,
@@ -74,6 +79,14 @@ class FeatureDetailDialog(
 
     /** 属性回填是否仍在途（初值取构造参数；[pushAttributes] 后置 false，空属性才能如实显示“暂无属性表”） */
     private var attrsLoading = attrsPending
+
+    private val isPointFeature = geomType == 0
+    private val isLineFeature = geomType == 1
+
+    /** 混合几何（掩码含多类，KML 常见）：点/线/面节按构成同屏展示，各管各的渲染通道 */
+    private val isMixedGeom = geomMask != 0 && (geomMask and (geomMask - 1)) != 0
+    private val hasPointBit = (geomMask and 1) != 0
+    private val hasLineBit = (geomMask and 2) != 0
 
     /** 当前样式编辑状态（初始取文档已有样式，缺省用默认值） */
     private var fillColor = DEFAULT_FILL
@@ -252,8 +265,11 @@ class FeatureDetailDialog(
         // 选色器按不透明 RGB 交互，避免拾取值与预览透明度不一致。
         fillColor = initialStyle?.fillColor ?: fallbackFill ?: DEFAULT_FILL
         fillEnabled = initialStyle?.fillEnabled ?: true
-        outlineColor = initialStyle?.outlineColor ?: fallbackOutline ?: DEFAULT_OUTLINE
-        initialStyle?.outlineWidth?.let { outlineWidth = it.toInt().coerceIn(WIDTH_MIN, WIDTH_MAX) }
+        // 线层无覆盖时回显线通道默认橙（面描边默认色对线层是误导）；宽度初值线层 2 / 面层 1
+        outlineColor = initialStyle?.outlineColor ?: fallbackOutline
+            ?: if (isLineFeature) DEFAULT_LINE else DEFAULT_OUTLINE
+        outlineWidth = initialStyle?.outlineWidth?.toInt()?.coerceIn(WIDTH_MIN, WIDTH_MAX)
+            ?: if (isLineFeature || (isMixedGeom && hasLineBit)) DEFAULT_LINE_WIDTH else WIDTH_MIN
         labelColor = initialStyle?.labelColor ?: labelColor
         labelEnabled = initialStyle?.labelField != null
         initialStyle?.labelSize?.let {
@@ -286,6 +302,20 @@ class FeatureDetailDialog(
             sheet.findViewById<View>(R.id.feature_detail_ll_fill_group).visibility = View.GONE
             selectedIconKey = initialStyle?.iconKey ?: FeatureIcons.DEFAULT_KEY
             setupIconSection(sheet)
+        } else if (isLineFeature) {
+            // 线要素：渲染只吃线通道，只隐藏填充行（组内第二行线色/线宽保留）；
+            // 节题改「线样式」、描边改名「线色」，保存只写线通道
+            sheet.findViewById<View>(R.id.feature_detail_ll_fill_row).visibility = View.GONE
+            sheet.findViewById<TextView>(R.id.feature_detail_tv_fill_title).text = "线样式"
+            sheet.findViewById<TextView>(R.id.feature_detail_tv_outline_title).text = "线色："
+        } else if (isMixedGeom) {
+            // 混合几何（KML 常见）：面节保留，描边行兼线通道（渲染 outlineColor 同喂面描边与线色），
+            // 含点构成时叠图标节；保存三通道同写
+            sheet.findViewById<TextView>(R.id.feature_detail_tv_outline_title).text = "线色/描边："
+            if (hasPointBit) {
+                selectedIconKey = initialStyle?.iconKey ?: FeatureIcons.DEFAULT_KEY
+                setupIconSection(sheet)
+            }
         }
 
         // 标注设置区：不开放时整区隐藏（kml 标注随源文件，无文档覆盖意义）
@@ -298,26 +328,26 @@ class FeatureDetailDialog(
 
         // 线宽步进
         val tvWidth = sheet.findViewById<TextView>(R.id.feature_detail_tv_width_value)
-        tvWidth.text = outlineWidth.toString()
+        tvWidth.text = String.format(Locale.getDefault(), "%d", outlineWidth)
         sheet.findViewById<TextView>(R.id.feature_detail_btn_width_minus).setOnClickListener {
             outlineWidth = (outlineWidth - 1).coerceIn(WIDTH_MIN, WIDTH_MAX)
-            tvWidth.text = outlineWidth.toString()
+            tvWidth.text = String.format(Locale.getDefault(), "%d", outlineWidth)
         }
         sheet.findViewById<TextView>(R.id.feature_detail_btn_width_plus).setOnClickListener {
             outlineWidth = (outlineWidth + 1).coerceIn(WIDTH_MIN, WIDTH_MAX)
-            tvWidth.text = outlineWidth.toString()
+            tvWidth.text = String.format(Locale.getDefault(), "%d", outlineWidth)
         }
 
         // 字号步进（显示为磅值，存储为缩放系数 = 磅值/14）
         val tvSize = sheet.findViewById<TextView>(R.id.feature_detail_tv_size_value)
-        tvSize.text = labelSizePt.toString()
+        tvSize.text = String.format(Locale.getDefault(), "%d", labelSizePt)
         sheet.findViewById<TextView>(R.id.feature_detail_btn_size_minus).setOnClickListener {
             labelSizePt = (labelSizePt - 1).coerceIn(SIZE_MIN, SIZE_MAX)
-            tvSize.text = labelSizePt.toString()
+            tvSize.text = String.format(Locale.getDefault(), "%d", labelSizePt)
         }
         sheet.findViewById<TextView>(R.id.feature_detail_btn_size_plus).setOnClickListener {
             labelSizePt = (labelSizePt + 1).coerceIn(SIZE_MIN, SIZE_MAX)
-            tvSize.text = labelSizePt.toString()
+            tvSize.text = String.format(Locale.getDefault(), "%d", labelSizePt)
         }
 
         sheet.findViewById<Button>(R.id.feature_detail_btn_save).setOnClickListener {
@@ -414,6 +444,17 @@ class FeatureDetailDialog(
         if (isPointFeature) {
             // 点要素：写标识图标 key（面样式控件已隐藏，不写填充/描边）
             s.iconKey = selectedIconKey
+        } else if (isLineFeature) {
+            // 线要素渲染只吃线通道：写填充无效且误导，故只落描边（=线色/线宽）
+            s.outlineColor = outlineColor
+            s.outlineWidth = outlineWidth.toFloat()
+        } else if (isMixedGeom) {
+            // 混合几何：三通道同写（面填充/描边+线共用色宽/点图标），各通道渲染侧独立门控
+            s.fillColor = fillColor
+            if (!fillEnabled) s.fillEnabled = false
+            s.outlineColor = outlineColor
+            s.outlineWidth = outlineWidth.toFloat()
+            if (hasPointBit) s.iconKey = selectedIconKey
         } else {
             s.fillColor = fillColor
             // 仅在关闭时落盘（null 默认即填充，避免无谓改动样式版本）
@@ -560,12 +601,12 @@ class FeatureDetailDialog(
 
     /** 色块同步当前颜色；颜色串非法（document.json 可能被手改坏）时保留色块原样，不中断弹层 */
     private fun updateSwatch(iv: ImageView, hex: String) {
-        runCatching { iv.setBackgroundColor(Color.parseColor(hex)) }
+        runCatching { iv.setBackgroundColor(hex.toColorInt()) }
     }
 
     /** 打开颜色选取对话框，确认后回写十六进制并刷新色块（按 #AARRGGBB 存取，保留透明度） */
     private fun pickColor(swatch: ImageView, current: String, apply: (String) -> Unit) {
-        val init = runCatching { Color.parseColor(current) }.getOrDefault(Color.BLACK)
+        val init = runCatching { current.toColorInt() }.getOrDefault(Color.BLACK)
         ColorPickerDialog(requireContext(), init) { color ->
             // Int ARGB -> #AARRGGBB（透明度由选色器透明度滑条控制）
             val hex = ColorHex.toArgbHex(color)
@@ -588,13 +629,16 @@ class FeatureDetailDialog(
 
         private const val DEFAULT_FILL = "#FF4A90D9"
         private const val DEFAULT_OUTLINE = "#FF1A4FA0"
+        /** 线通道默认色/线宽（与 MapStyleColors.DEFAULT_LINE_COLOR/DEFAULT_LINE_WIDTH 同值） */
+        private const val DEFAULT_LINE = "#FFE66B33"
+        private const val DEFAULT_LINE_WIDTH = 2
         private const val DEFAULT_LABEL = "#FF212121"
         private const val DEFAULT_LABEL_OUTLINE = "#FF000000"
 
         /** 属性表配色与字号（对齐 2.5.3 属性页）；颜色解析一次复用，避免逐行 parseColor */
-        private val ATTR_KEY_COLOR = Color.parseColor("#424242")
-        private val ATTR_VALUE_COLOR = Color.parseColor("#616161")
-        private val ATTR_DIVIDER_COLOR = Color.parseColor("#E5E5E5")
+        private val ATTR_KEY_COLOR = "#424242".toColorInt()
+        private val ATTR_VALUE_COLOR = "#616161".toColorInt()
+        private val ATTR_DIVIDER_COLOR = "#E5E5E5".toColorInt()
         private const val ATTR_TEXT_SIZE_SP = 14f
         private const val ATTR_ROW_PADDING_H_DP = 10
         private const val ATTR_ROW_PADDING_V_DP = 8

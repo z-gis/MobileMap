@@ -4,7 +4,6 @@ import android.app.Dialog
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Color
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -13,6 +12,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.core.graphics.toColorInt
 import androidx.fragment.app.FragmentManager
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -116,10 +116,10 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
             fun renderRemark(text: String?) {
                 if (text.isNullOrEmpty()) {
                     tvRemark.text = REMARK_EMPTY
-                    tvRemark.setTextColor(Color.parseColor(REMARK_EMPTY_COLOR))
+                    tvRemark.setTextColor(REMARK_EMPTY_COLOR.toColorInt())
                 } else {
                     tvRemark.text = text
-                    tvRemark.setTextColor(Color.parseColor(REMARK_TEXT_COLOR))
+                    tvRemark.setTextColor(REMARK_TEXT_COLOR.toColorInt())
                 }
             }
             renderRemark(placemark.remark)
@@ -180,6 +180,9 @@ class PhotoSheetDialog : BaseBottomSheetDialog(R.layout.dialog_photo_sheet) {
             } else {
                 holder.image.setImageResource(android.R.drawable.ic_menu_report_image)
             }
+            holder.image.contentDescription = holder.image.context.getString(
+                R.string.photo_thumbnail_index, position + 1
+            )
             holder.image.setOnClickListener { onClick(position) }
         }
 

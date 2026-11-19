@@ -34,6 +34,8 @@ import com.zys.mobilemap.ui.map.BusinessOverlayManager
 import com.zys.mobilemap.ui.map.CameraNavigator
 import com.zys.mobilemap.ui.map.ExternalImportHandler
 import com.zys.mobilemap.ui.map.FeaturePickController
+import com.zys.mobilemap.ui.map.GeomEditController
+import com.zys.mobilemap.ui.map.GeomEditControls
 import com.zys.mobilemap.ui.map.LocationFollowController
 import com.zys.mobilemap.ui.map.MapLayerManager
 import com.zys.mobilemap.ui.map.MeasureCaptureController
@@ -42,6 +44,7 @@ import com.zys.mobilemap.ui.map.SqlQueryController
 import com.zys.mobilemap.ui.map.StartupInitializer
 import com.zys.mobilemap.ui.map.TrackCaptureController
 import com.zys.mobilemap.ui.map.decodeIconArgb
+import com.zys.mobilemap.vector.VectorFormats
 import com.zys.mobilemap.util.AppDirectories
 import com.zys.mobilemap.util.AppLog
 import com.zys.mobilemap.control.PieMenu
@@ -104,6 +107,7 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
     private lateinit var measureController: MeasureCaptureController
     private lateinit var trackController: TrackCaptureController
     private lateinit var pickController: FeaturePickController
+    private lateinit var geomEditController: GeomEditController
     private lateinit var locationController: LocationFollowController
     private lateinit var importHandler: ExternalImportHandler
 
@@ -189,9 +193,16 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
 
         startup = StartupInitializer(this)
 
-        // 退出确认：拦截返回键弹确认框，需再点「退出」二次操作才退出（对齐 OpenFileActivity 的 dispatcher 惯例）
+        // 退出确认：拦截返回键弹确认框，需再点「退出」二次操作才退出（对齐 OpenFileActivity 的 dispatcher 惯例）；
+        // 几何编辑态优先分档退出：画线/选靶→回编辑态，编辑态→整体退出，均不弹退出确认
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() = confirmExit()
+            override fun handleOnBackPressed() {
+                if (::geomEditController.isInitialized && geomEditController.capturing) {
+                    geomEditController.cancelSubMode()
+                } else {
+                    confirmExit()
+                }
+            }
         })
 
         // 启动加载遮罩：盖住 native/proj/文档初始化与首屏瓦片异步加载的白屏，初始化完成（或安全超时）后淡出。
@@ -335,7 +346,7 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         navigator.onCameraSettled = { cam -> layerManager.onCameraSettled(navigator.computeVisibleExtent(cam)) }
         overlayManager = BusinessOverlayManager(
             this, mapView,
-            isCapturing = { measureController.capturing || trackController.capturing },
+            isCapturing = { measureController.capturing || trackController.capturing || geomEditController.capturing },
             onOverlayLayersCleared = {
                 queryController.onOverlayLayersCleared()
                 pickController.onOverlayLayersCleared()
@@ -355,6 +366,30 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
             this, mapView, layerManager, overlayManager, queryController, measureController,
             this, supportFragmentManager, lifecycleScope
         )
+        // 几何编辑（gdb/shp）：长按菜单「编辑」进入，分割/删除/合并；编辑态门控拾取与 HUD
+        val geomControls = GeomEditControls(
+            findViewById(R.id.jni_lay_geom_edit_controls),
+            findViewById(R.id.jni_map_geom_hint),
+            findViewById(R.id.jni_map_geom_split),
+            findViewById(R.id.jni_map_geom_delete),
+            findViewById(R.id.jni_map_geom_merge),
+            findViewById(R.id.jni_map_geom_exit),
+            findViewById(R.id.jni_map_geom_undo),
+            findViewById(R.id.jni_map_geom_finish),
+            findViewById(R.id.jni_map_geom_cancel)
+        )
+        geomEditController = GeomEditController(
+            this, mapView, layerManager, pickController, lifecycleScope, geomControls
+        ) { phase -> applyGeomEditHud(phase != GeomEditController.GeomEditPhase.NONE) }
+        pickController.isGeomEditing = { geomEditController.capturing }
+        pickController.geomEditTap = { x, y -> geomEditController.handleTap(x, y) }
+        geomControls.split.setOnClickListener { geomEditController.startSplit() }
+        geomControls.delete.setOnClickListener { geomEditController.requestDelete() }
+        geomControls.merge.setOnClickListener { geomEditController.startMerge() }
+        geomControls.exit.setOnClickListener { geomEditController.exit() }
+        geomControls.undo.setOnClickListener { geomEditController.undoSplitPoint() }
+        geomControls.finish.setOnClickListener { geomEditController.finishSplit() }
+        geomControls.cancel.setOnClickListener { geomEditController.cancelSubMode() }
         locationController = LocationFollowController(this, mapView, locationText, locateButton, navigator)
         locationController.onTrackLocation = { loc -> trackController.onLocation(loc) }
         // 轨迹记录态驱动定位跟随：开始/恢复记录→锁定跟随并换锁定图标，停止记录→解锁（对齐需求：轨迹模式下地图中心随定位移动）
@@ -424,8 +459,10 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
         // 单击拾取矢量要素：native 命中检测 → 测量拦截 → 叠加命中分流 → 文件矢量拾取（原序由 pickController 保证）
         mapView.setOnTapListener { x, y -> pickController.onMapTap(x, y) }
 
-        // 长按地图：命中矢量要素→先高亮再弹要素编辑菜单（删除/编辑）；空白/叠加层→回退到落点通用菜单
+        // 长按地图：命中矢量要素→先高亮再弹要素菜单（gdb/shp=编辑/属性，其余=属性）；空白/叠加层→回退到落点通用菜单；
+        // 几何编辑态长按不弹菜单（画线/选靶期间点击已交编辑控制器）
         mapView.setOnLongPressListener { x, y ->
+            if (geomEditController.capturing) return@setOnLongPressListener
             val target = pickController.onMapLongPress(x, y)
             if (target != null) showFeatureEditMenu(target, x, y) else showMapPieMenu(x, y)
         }
@@ -467,9 +504,9 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
             // 点图层名称/缩放键时回调四至，定位到该图层范围（对齐原主界面 zoomToExtent）
             onZoomToExtent = { minLon, minLat, maxLon, maxLat -> navigator.zoomToExtent(minLon, minLat, maxLon, maxLat) },
             // 样式所见即所得：回显图层当前实际渲染色（复用矢量层同款解析）
-            layerRenderColors = { path -> layerManager.layerRenderColorsOf(path) },
-            // shp/gpkg 图层 SQL 查询：复用原主界面数据入口执行查询并高亮命中要素，支持清除
-            onSqlQuery = { path, sql -> queryController.runSqlQuery(path, sql) },
+            layerRenderColors = { path, layerName -> layerManager.layerRenderColorsOf(path, layerName) },
+            // shp/gpkg/GDB 图层 SQL 查询：复用原主界面数据入口执行查询并高亮命中要素，支持清除
+            onSqlQuery = { path, layerName, sql -> queryController.runSqlQuery(path, layerName, sql) },
             onClearSqlQuery = { queryController.clearSqlQuery() }
         ).show(supportFragmentManager, TAG_LAYER_MANAGE_DIALOG)
     }
@@ -598,43 +635,35 @@ class MainActivity : AppCompatActivity(), DocumentManager.DocumentChangeListener
     }
 
     /**
-     * 长按命中矢量要素后的编辑入口菜单：要素已由 [FeaturePickController.onMapLongPress] 高亮，
-     * 以长按点为锚弹圆菜单（编辑 / 删除）。
-     * 编辑→进入要素编辑态（本次不实现，占位）；删除→二次确认后执行（待底层 GDAL DeleteFeature 接入）。
+     * 长按命中矢量要素后的入口菜单：要素已由 [FeaturePickController.onMapLongPress] 高亮，以长按点为锚弹圆菜单。
+     * gdb/shp → 「编辑」（进几何编辑态：分割/删除/合并，线/点仅删除）+「属性」（只读详情）；
+     * 其余格式 → 仅「属性」（几何写能力限 gdb/shp）。
      */
     private fun showFeatureEditMenu(target: PickedFeature, xPx: Float, yPx: Float) {
         val anchor = contentAnchor(xPx, yPx)
-        val items = listOf(
-            // 编辑：进入要素编辑态（几何/属性），本次不实现
-            PieMenuItem(R.drawable.ic_layer_vector_style, "编辑") {
-                // TODO：接入要素编辑态（几何手点编辑 / 属性编辑）
-                Toast.makeText(this, "进入编辑（待实现）", Toast.LENGTH_SHORT).show()
-            },
-            // 删除：二次确认后删除选中要素
-            PieMenuItem(R.drawable.ic_delete, "删除") {
-                confirmDeleteFeature(target)
-            }
-        )
+        val items = mutableListOf<PieMenuItem>()
+        if (VectorFormats.geomEditable(target.path)) {
+            items.add(PieMenuItem(R.drawable.ic_layer_vector_style, "编辑") {
+                geomEditController.enter(target)
+            })
+        }
+        items.add(PieMenuItem(R.drawable.ic_info, "属性") {
+            pickController.showVectorFeatureDetail(target.path, target.fid, target.layerName)
+        })
         PieMenu.show(this, anchor[0], anchor[1], items)
     }
 
     /**
-     * 删除要素二次确认：确认后执行删除。
-     * 当前 GlobeCore 尚未提供 GDAL DeleteFeature 的 JNI 绑定与层重载，故此处先落确认链路与高亮清理，
-     * 真实删除待底层能力就绪后在标注的 TODO 处接入。
+     * 几何编辑态 HUD 门控：隐藏 指北/测量/图层+工程/拍照/设置+定位+轨迹 五组容器，
+     * 保留右侧注记+缩放（jni_lay_rb）与底部状态栏；退出编辑态原样恢复（子按钮自身显隐状态不受影响）。
      */
-    private fun confirmDeleteFeature(target: PickedFeature) {
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("删除要素")
-            .setMessage("确定删除选中的矢量要素？")
-            .setPositiveButton("删除") { _, _ ->
-                // TODO：待 GlobeCore 提供 NativeVector.deleteFeature(path, fid) 后接入真实删除 + 矢量层重载
-                AppLog.i(TAG, "删除要素（待底层实现） path=${target.path} fid=${target.fid}")
-                Toast.makeText(this, "删除功能待底层支持接入", Toast.LENGTH_SHORT).show()
-                pickController.clearSelectedHighlight()
-            }
-            .setNegativeButton("取消", null)
-            .show()
+    private fun applyGeomEditHud(editing: Boolean) {
+        val state = if (editing) View.GONE else View.VISIBLE
+        findViewById<View>(R.id.jni_lay_lt).visibility = state
+        findViewById<View>(R.id.jni_lay_lm).visibility = state
+        findViewById<View>(R.id.jni_lay_top).visibility = state
+        findViewById<View>(R.id.jni_lay_photo).visibility = state
+        findViewById<View>(R.id.jni_lay_lb).visibility = state
     }
 
     /**
