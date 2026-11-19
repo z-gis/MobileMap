@@ -1,9 +1,9 @@
 {
-    "versionCode":  26111202,
-    "versionName":  "0.4.2.0",
-    "apkUrl":  "https://gitee.com/z-gis/MobileMap/releases/download/0.4.2.0/mobilemap-v0.4.2.0.apk",
-    "apkSizeBytes":  48360137,
-    "apkSha1":  "4075bed6bd3a8ac680c36455b27d784b81d03b80",
-    "changelog":  "1. 图层清单支持分组：组头折叠、按组批量开关可见性、移入/新建分组，分组不改变图层压盖顺序\n2. 兴趣点：地图长按落点弹出圆菜单，以落点坐标建拍照点位，图片来源可选拍照或从相册多选\n3. 照片点位与测量记录支持多行备注（photos / measures_* 的 remark 列），老库首开自动补列\n4. 关于页显示渲染内核版本与构建 ID\n5. 渲染内核 GlobeCore 升至 0.1.5.0",
+    "versionCode":  26111901,
+    "versionName":  "0.4.3.0",
+    "apkUrl":  "https://gitee.com/z-gis/MobileMap/releases/download/0.4.3.0/mobilemap-v0.4.3.0.apk",
+    "apkSizeBytes":  56702157,
+    "apkSha1":  "7cb5980aa3f4f2e9d5380a4874ad695a09effa93",
+    "changelog":  "1. 几何编辑：gdb/shp 图斑支持分割、删除、合并，操作前自动备份\n2. 移除图层可选「同时删除图层文件」：shp 删附属族，gdb/压缩包按归属处理，共享文件不误删\n3. KML 标注默认显示，属性从描述还原成字段表\n4. 样式预览统一：点层画真图标＋标注叠画，KML 按点线面分节\n5. 导入改造：目录级授权、应用内列主文件、同名冲突重导入/重命名\n6. 渲染内核 GlobeCore 升至 0.1.6.0（GEOS 几何运算、PNG 图标解码）",
     "force":  false
 }
